@@ -1,0 +1,48 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include <gst/gst.h>
+
+#include "rtmpserver.h"
+
+
+/* defaults */
+#define APP_NAME "live"
+#define PORT 1935
+
+int
+main (int argc, char **argv)
+{
+  int port;
+  const char * application_name;
+
+  if (argc == 1) {
+    port = PORT;
+    application_name = (char *) APP_NAME;
+  }
+  if (argc == 2) {
+    port = atoi (argv[1]);
+    application_name = (char *) APP_NAME;
+  }
+  if (argc == 3) {
+    printf ("ARGV: %s %s\n", argv[1], argv[2]);
+    port = atoi (argv[1]);
+    application_name = argv[2];
+  }
+  printf ("Argc: %d, app_name: %s, port: %d\n", argc, application_name, port);
+
+  gst_init (NULL, NULL);
+
+  RTMPServer * srv = rtmp_server_new (application_name, port);
+  if (srv == NULL)
+    return 1;
+
+  printf ("ready\n");
+  for (;;) {
+    rtmp_server_do_poll (srv);
+  }
+
+  rtmp_server_free (srv);
+
+  return 0;
+}
