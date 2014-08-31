@@ -183,11 +183,12 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
 static void
 client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
 {
-  amf_dec_load (dec);           /* NULL */
+  g_free (amf_dec_load (dec));           /* NULL */
 
   gchar * path = amf_dec_load_string (dec);
   debug ("fcpublish %s\n", path);
-  g_hash_table_insert (client->publishers, path, client);
+
+  connections_add_publisher (client->connections, client, path);
   printf ("publisher connected.\n");
 
   GstStructure * status = gst_structure_new ("object",
@@ -224,7 +225,7 @@ client_handle_createstream (Client * client, double txid)
 static void
 client_handle_publish (Client * client, double txid, AmfDec * dec)
 {
-  amf_dec_load (dec);           /* NULL */
+  g_free (amf_dec_load (dec));           /* NULL */
   gchar * path = amf_dec_load_string (dec);
   debug ("publish %s\n", path);
 
@@ -295,17 +296,10 @@ client_start_playback (Client * client)
   client->playing = TRUE;
   client->ready = FALSE;
 
-  /* update subscribers-list for this path */
-  GSList * subscribers = g_hash_table_lookup (client->subscriber_lists, client->path);
-  GSList * updated_subscribers = g_slist_append (subscribers, client);
-  if (subscribers) {
-    g_hash_table_replace (client->subscriber_lists, client->path, updated_subscribers);
-  } else {
-    g_hash_table_insert (client->subscriber_lists, client->path, updated_subscribers);
-  }
+  connections_add_subscriber (client->connections, client, client->path);
 
   /* send any available metadata from the relevant publisher */
-  Client * publisher = (Client *)g_hash_table_lookup (client->publishers, client->path);
+  Client * publisher = connections_get_publisher (client->connections, client->path);
   if (publisher && publisher->metadata) {
     AmfEnc * invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "onMetaData");
@@ -319,7 +313,7 @@ client_start_playback (Client * client)
 static void
 client_handle_play (Client * client, double txid, AmfDec * dec)
 {
-  amf_dec_load (dec);           /* NULL */
+  g_free (amf_dec_load (dec));           /* NULL */
 
   gchar * path = amf_dec_load_string (dec);
   debug ("play %s\n", path);
@@ -335,7 +329,7 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
 static void
 client_handle_play2 (Client * client, double txid, AmfDec * dec)
 {
-  amf_dec_load (dec);           /* NULL */
+  g_free (amf_dec_load (dec));           /* NULL */
 
   GstStructure * params = amf_dec_load_object (dec);
   const gchar * path = gst_structure_get_string (params, "streamName");
@@ -351,7 +345,7 @@ client_handle_play2 (Client * client, double txid, AmfDec * dec)
 static void
 client_handle_pause (Client * client, double txid, AmfDec * dec)
 {
-  amf_dec_load (dec);           /* NULL */
+  g_free (amf_dec_load (dec));           /* NULL */
 
   gboolean paused = amf_dec_load_boolean (dec);
   if (paused) {
@@ -401,7 +395,7 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
   amf_enc_write_ecma (notify, client->metadata);
 
   /* update all relevant subscribers with this metadata */
-  GSList * subscribers = g_hash_table_lookup (client->subscriber_lists, client->path);
+  GSList * subscribers = connections_get_subscribers (client->connections, client->path);
   for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
     Client * subscriber = (Client *)walk->data;
     client_rtmp_send (subscriber, MSG_NOTIFY, STREAM_ID, notify->buf, 0, CHAN_CONTROL);
@@ -438,6 +432,8 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
       client_handle_pause (client, txid, dec);
     }
   }
+
+  g_free (method);
 }
 
 void
@@ -494,6 +490,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
           client_handle_setdataframe (client, dec);
         }
       }
+      g_free (type);
       amf_dec_free (dec);
       break;
     }
@@ -503,7 +500,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
         g_warning ("not a publisher");
         return;
       }
-      GSList * subscribers = g_hash_table_lookup (client->subscriber_lists, client->path);
+      GSList * subscribers = connections_get_subscribers (client->connections, client->path);
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
         Client * subscriber = (Client *)walk->data;
         client_rtmp_send (subscriber, MSG_AUDIO, STREAM_ID, msg->buf, msg->timestamp, CHAN_CONTROL);
@@ -516,7 +513,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
         return;
       }
       guint8 flags = msg->buf->data[0];
-      GSList * subscribers = g_hash_table_lookup (client->subscriber_lists, client->path);
+      GSList * subscribers = connections_get_subscribers (client->connections, client->path);
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
         Client * subscriber = (Client *)walk->data;
 
@@ -630,12 +627,11 @@ client_receive (Client * client)
 
 
 Client *
-client_new (gint fd, GHashTable * publishers, GHashTable * subscriber_lists)
+client_new (gint fd, Connections * connections)
 {
   Client * client = g_new0 (Client, 1);
 
-  client->publishers = publishers;
-  client->subscriber_lists = subscriber_lists;
+  client->connections = connections;
 
   client->fd = fd;
   client->chunk_len = DEFAULT_CHUNK_LEN;
@@ -655,9 +651,6 @@ client_new (gint fd, GHashTable * publishers, GHashTable * subscriber_lists)
 void
 client_free (Client * client)
 {
-  client->publishers = NULL;
-  client->subscriber_lists = NULL;
-
   for (int i = 0; i < 64; ++i) {
     g_byte_array_free (client->messages[i].buf, TRUE);
   }
@@ -665,5 +658,8 @@ client_free (Client * client)
   g_byte_array_free (client->buf, TRUE);
   g_byte_array_free (client->send_queue, TRUE);
 
+  if (client->metadata)
+    gst_structure_free (client->metadata);
+  g_free (client->path);
   g_free (client);
 }

@@ -30,6 +30,10 @@ struct _RTMPServer
   char * application_name;
   GArray * poll_table;
   GSList * clients;
+  gboolean running;
+  GThread * thread;
+
+  Connections * connections;
 };
 
 static int
@@ -148,7 +152,7 @@ rtmp_server_create_client (RTMPServer * srv)
   set_nonblock (fd, TRUE);
 
   /* create and add client */
-  Client * client = client_new (fd, srv->publishers, srv->subscriber_lists);
+  Client * client = client_new (fd, srv->connections);
   srv->clients = g_slist_append (srv->clients, client);
 
   printf ("adding client %p\n", client);
@@ -170,38 +174,12 @@ rtmp_server_remove_client (RTMPServer * srv, Client * client, size_t i)
   close (client->fd);
   printf ("removing client %p\n", client);
 
-  if (g_hash_table_lookup (client->publishers, client->path) != NULL) {
-  /* if our client was a publisher remove ourselves from the hashmap */
-    printf ("publisher disconnected.\n");
-    g_hash_table_remove (srv->publishers, client->path);
-
-    /* ... and set all its subscribers to be not ready */
-    GSList * subscribers = g_hash_table_lookup (srv->subscriber_lists, client->path);
-    for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
-      Client * subscriber = (Client *)walk->data;
-      subscriber->ready = FALSE;
-    }
-  } else if (client->publisher == FALSE) {
-    printf ("subscriber disconnected.\n");
-    GSList * subscribers = g_hash_table_lookup (srv->subscriber_lists, client->path);
-
-    g_assert (g_slist_find (subscribers, client) != NULL);
-
-    subscribers = g_slist_remove (subscribers, client);
-    if (subscribers)
-      g_hash_table_replace (srv->subscriber_lists, client->path, subscribers);
-    else
-      g_hash_table_remove (srv->subscriber_lists, client->path);
-  }
-
-  GSList * subscribers = g_hash_table_lookup (srv->subscriber_lists, client->path);
-  printf ("We now have %u subscribers and %u publishers\n",
-      g_slist_length (subscribers), g_hash_table_size (srv->subscriber_lists));
+  connections_remove_client (srv->connections, client, client->path);
 
   client_free (client);
 }
 
-void
+static gboolean
 rtmp_server_do_poll (RTMPServer * srv)
 {
   for (size_t i = 0; i < srv->poll_table->len; ++i) {
@@ -217,12 +195,16 @@ rtmp_server_do_poll (RTMPServer * srv)
   }
 
   /* waiting for traffic on all connections */
-  if (poll ((struct pollfd *)&srv->poll_table->data[0], srv->poll_table->len, -1) < 0) {
+  int timeout = 200; /* 200 ms second */
+  if (poll ((struct pollfd *)&srv->poll_table->data[0], srv->poll_table->len, timeout) < 0) {
     if (errno == EAGAIN || errno == EINTR)
-      return;
+      return TRUE;
     g_warning ("poll() failed: %s", strerror (errno));
-    return;
+    return FALSE;
   }
+
+  if (srv->running == FALSE)
+    return FALSE;
 
   for (size_t i = 0; i < srv->poll_table->len; ++i) {
     struct pollfd * entry = (struct pollfd *)&g_array_index (srv->poll_table, struct pollfd, i);
@@ -248,6 +230,45 @@ rtmp_server_do_poll (RTMPServer * srv)
       }
     }
   }
+  return TRUE;
+}
+
+
+static gpointer
+rtmp_server_func (gpointer data)
+{
+  RTMPServer * srv = (RTMPServer *)data;
+  gboolean ret = TRUE;
+  while (srv->running && ret) {
+    ret = rtmp_server_do_poll (srv);
+  }
+
+  /* remove outstanding clients */
+  for (size_t i = 0; i < srv->poll_table->len; ++i) {
+    Client * client = (Client *)g_slist_nth_data (srv->clients, i);
+    if (client) {
+      rtmp_server_remove_client (srv, client, i);
+      --i;
+    }
+  }
+
+  return NULL;
+}
+
+void
+rtmp_server_start (RTMPServer * srv)
+{
+  printf ("Starting...\n");
+  srv->running = TRUE;
+  srv->thread = g_thread_new ("RTMPServer", rtmp_server_func, srv);
+}
+
+void
+rtmp_server_stop (RTMPServer * srv)
+{
+  printf ("Stopping...\n");
+  srv->running = FALSE;
+  g_thread_join (srv->thread);
 }
 
 RTMPServer *
@@ -274,10 +295,8 @@ rtmp_server_new (const gchar * application_name, gint port)
   listen (srv->listen_fd, 10);
 
   srv->application_name = g_strdup (application_name);
-  srv->publishers = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, NULL);
-  srv->subscriber_lists = g_hash_table_new_full (g_str_hash, g_str_equal,
-      NULL, NULL);
   srv->poll_table = g_array_new (FALSE, TRUE, sizeof (struct pollfd));
+  srv->connections = connections_new ();
 
   struct pollfd entry;
   entry.events = POLLIN;
@@ -294,8 +313,8 @@ rtmp_server_new (const gchar * application_name, gint port)
 void
 rtmp_server_free (RTMPServer * srv)
 {
-  g_hash_table_destroy (srv->publishers);
-  g_hash_table_destroy (srv->subscriber_lists);
+  close (srv->listen_fd);
+  connections_free (srv->connections);
   g_free (srv->application_name);
   g_array_free (srv->poll_table, TRUE);
   g_slist_free (srv->clients);
