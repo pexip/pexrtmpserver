@@ -7,12 +7,14 @@ libpexrtmpserverinclude_HEADERS = rtmpserver.h
 noinst_HEADERS = \
 	amf.h \
 	client.h \
+	connections.h \
 	utils.h \
         rtmp.h
 
 libpexrtmpserver_la_SOURCES = \
 	amf.c \
 	client.c \
+	connections.c \
 	utils.c \
 	rtmpserver.c
 

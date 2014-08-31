@@ -37,11 +37,13 @@ main (int argc, char **argv)
   if (srv == NULL)
     return 1;
 
+  rtmp_server_start (srv);
   printf ("ready\n");
-  for (;;) {
-    rtmp_server_do_poll (srv);
-  }
 
+  /* we will run for 5 minutes */
+  g_usleep (G_USEC_PER_SEC * 60 * 5);
+
+  rtmp_server_stop (srv);
   rtmp_server_free (srv);
 
   return 0;

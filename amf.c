@@ -307,6 +307,7 @@ amf_dec_load_structure (AmfDec * dec, GstStructure * s)
     GValue * value = amf_dec_load (dec);
     gst_structure_set_value (s, key, value);
     g_free (key);
+    g_value_unset (value);
     g_free (value);
   }
 }

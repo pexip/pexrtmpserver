@@ -2,6 +2,7 @@
 #define __CLIENT_H__
 
 #include <gst/gst.h>
+#include "connections.h"
 
 typedef struct _Client Client;
 
@@ -16,9 +17,7 @@ typedef struct
 
 struct _Client
 {
-  GHashTable * publishers;
-  GHashTable * subscriber_lists;
-
+  Connections * connections;
   int fd;
   gboolean playing;             /* Wants to receive the stream? */
   gboolean ready;               /* Wants to receive and seen a keyframe */
@@ -34,7 +33,7 @@ struct _Client
   guint32 read_seq;
 };
 
-Client * client_new (gint fd, GHashTable * publishers, GHashTable * subscriber_lists);
+Client * client_new (gint fd, Connections * connection);
 void client_free (Client * client);
 
 gboolean client_try_to_send (Client * client);
