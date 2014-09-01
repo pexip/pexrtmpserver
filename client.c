@@ -54,12 +54,18 @@ client_try_to_send (Client * client)
   if (len > 4096)
     len = 4096;
 
+#ifdef __APPLE__
   ssize_t written = send (client->fd,
       client->send_queue->data, client->send_queue->len, 0);
+#else
+  ssize_t written = send (client->fd,
+      client->send_queue->data, client->send_queue->len, MSG_NOSIGNAL);
+#endif
+
   if (written < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
-    g_warning ("unable to write to a client: %s", strerror (errno));
+    printf ("unable to write to a client: %s\n", strerror (errno));
     return FALSE;
   }
 
@@ -551,12 +557,12 @@ client_receive (Client * client)
   ssize_t got = recv (client->fd, &chunk[0], sizeof (chunk), 0);
 
   if (got == 0) {
-    printf ("EOF from a client");
+    printf ("EOF from a client\n");
     return FALSE;
   } else if (got < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
-    printf ("unable to read from a client: %s", strerror (errno));
+    printf ("unable to read from a client: %s\n", strerror (errno));
     return FALSE;
   }
   client->buf = g_byte_array_append (client->buf, chunk, got);
