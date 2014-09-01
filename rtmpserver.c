@@ -239,6 +239,11 @@ rtmp_server_func (gpointer data)
 {
   RTMPServer * srv = (RTMPServer *)data;
   gboolean ret = TRUE;
+
+#ifdef __APPLE__
+  signal (SIGPIPE, SIG_IGN);
+#endif
+
   while (srv->running && ret) {
     ret = rtmp_server_do_poll (srv);
   }
