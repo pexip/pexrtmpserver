@@ -22,6 +22,7 @@ static PyObject* pexrtmp_rtmp_server_start(pexip_PexipObject* self, PyObject* ar
     if (self->server == NULL) {
         Py_RETURN_NONE;
     }
+    rtmp_server_start(self->server);
     return Py_BuildValue("s", "ready");
 }
 
@@ -43,11 +44,19 @@ static PyMethodDef pexip_PexipObject_methods[] =
     { NULL, NULL, 0, NULL}
 };
 
+static int
+pexip_init(pexip_PexipObject* self, PyObject *args, PyObject *kwds)
+{
+    (void) args;
+    (void) kwds;
+    self->server = NULL;
+    return 0;
+}
 
 static PyTypeObject pexip_PexipType = {
     PyObject_HEAD_INIT(NULL)
     0,                         /*ob_size*/
-    "pexrtmpserver.RTMPServer",             /*tp_name*/
+    "server.RTMPServer",             /*tp_name*/
     sizeof(pexip_PexipObject), /*tp_basicsize*/
     0,                         /*tp_itemsize*/
     0,                         /*tp_dealloc*/
@@ -81,7 +90,7 @@ static PyTypeObject pexip_PexipType = {
     0,                         /* tp_descr_get */
     0,                         /* tp_descr_set */
     0,                         /* tp_dictoffset */
-    0,                         /* tp_init */
+    (initproc)pexip_init,      /* tp_init */
     0,                         /* tp_alloc */
     0,                         /* tp_new */
     0,                         /* tp_free */
@@ -115,8 +124,8 @@ PyMODINIT_FUNC initpyrtmpserver(void)
     if (PyType_Ready(&pexip_PexipType) < 0)
         return;
 
-    m = Py_InitModule3("pyrtmpserver", pexip_module_methods, "pyrtmpserver.");
+    m = Py_InitModule("pyrtmpserver", pexip_module_methods);
 
     Py_INCREF(&pexip_PexipType);
-    PyModule_AddObject(m, "pyrtmpserver", (PyObject*)&pexip_PexipType);
+    PyModule_AddObject(m, "server", (PyObject*)&pexip_PexipType);
 }
