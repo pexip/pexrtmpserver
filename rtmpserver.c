@@ -239,7 +239,11 @@ send_all (int fd, const void *buf, size_t len)
 {
   size_t pos = 0;
   while (pos < len) {
+#if __APPLE__
+    ssize_t written = send (fd, (const char *) buf + pos, len - pos, 0);
+#else
     ssize_t written = send (fd, (const char *) buf + pos, len - pos, MSG_NOSIGNAL);
+#endif
     if (written < 0) {
       if (errno == EAGAIN || errno == EINTR)
         continue;
