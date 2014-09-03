@@ -33,18 +33,18 @@ main (int argc, char **argv)
 
   gst_init (NULL, NULL);
 
-  RTMPServer * srv = rtmp_server_new (application_name, port);
+  PexRtmpServer * srv = pex_rtmp_server_new (application_name, port);
   if (srv == NULL)
     return 1;
 
-  rtmp_server_start (srv);
+  pex_rtmp_server_start (srv);
   printf ("ready\n");
 
   /* we will run for 5 minutes */
   g_usleep (G_USEC_PER_SEC * 60 * 5);
 
-  rtmp_server_stop (srv);
-  rtmp_server_free (srv);
+  pex_rtmp_server_stop (srv);
+  g_object_unref (srv);
 
   return 0;
 }
