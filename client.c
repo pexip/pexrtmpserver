@@ -194,14 +194,6 @@ client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
   gchar * path = amf_dec_load_string (dec);
   debug ("fcpublish %s\n", path);
 
-  gboolean reject_publish = FALSE;
-  g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
-  if (reject_publish) {
-    debug("Not publishing due to signal rejecting publish\n");
-    return;
-  }
-  connections_add_publisher (client->connections, client, path);
-  printf ("publisher connected.\n");
 
   GstStructure * status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
@@ -240,6 +232,15 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   g_free (amf_dec_load (dec));           /* NULL */
   gchar * path = amf_dec_load_string (dec);
   debug ("publish %s\n", path);
+
+  gboolean reject_publish = FALSE;
+  g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
+  if (reject_publish) {
+    debug("Not publishing due to signal rejecting publish\n");
+    return;
+  }
+  connections_add_publisher (client->connections, client, path);
+  printf ("publisher connected.\n");
 
   client->publisher = TRUE;
   g_free (client->path);
@@ -391,7 +392,7 @@ client_handle_pause (Client * client, double txid, AmfDec * dec)
 }
 
 static void
-client_handle_setdataframe (Client * client, AmfDec * dec)
+client_handle_setdataframe (Client * client, AmfDec * dec, int msg_type)
 {
   if (!client->publisher) {
     g_warning ("not a publisher");
@@ -416,7 +417,7 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
   GSList * subscribers = connections_get_subscribers (client->connections, client->path);
   for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
     Client * subscriber = (Client *)walk->data;
-    client_rtmp_send (subscriber, MSG_NOTIFY, STREAM_ID, notify->buf, 0, CHAN_CONTROL);
+    client_rtmp_send (subscriber, msg_type, STREAM_ID, notify->buf, 0, CHAN_CONTROL);
   }
 
   amf_enc_free (notify);
@@ -505,7 +506,22 @@ client_handle_message (Client * client, RTMP_Message * msg)
       debug ("notify %s\n", type);
       if (msg->endpoint == STREAM_ID) {
         if (strcmp (type, "@setDataFrame") == 0) {
-          client_handle_setdataframe (client, dec);
+          client_handle_setdataframe (client, dec, MSG_NOTIFY);
+        }
+      }
+      g_free (type);
+      amf_dec_free (dec);
+      break;
+    }
+
+    case MSG_DATA:
+    {
+      AmfDec * dec = amf_dec_new (msg->buf, 0);
+      gchar * type = amf_dec_load_string (dec);
+      debug ("data %s\n", type);
+      if (msg->endpoint == STREAM_ID) {
+        if (strcmp (type, "@setDataFrame") == 0) {
+          client_handle_setdataframe (client, dec, MSG_DATA);
         }
       }
       g_free (type);
@@ -525,7 +541,9 @@ client_handle_message (Client * client, RTMP_Message * msg)
       }
       break;
 
-    case MSG_VIDEO:{
+
+    case MSG_VIDEO:
+    {
       if (!client->publisher) {
         g_warning ("not a publisher");
         return;

@@ -20,6 +20,7 @@
 #define MSG_REQUEST		0x06
 #define MSG_AUDIO		0x08
 #define MSG_VIDEO		0x09
+#define MSG_DATA    0x0F
 #define MSG_INVOKE3		0x11    /* AMF3 */
 #define MSG_NOTIFY		0x12
 #define MSG_OBJECT		0x13
