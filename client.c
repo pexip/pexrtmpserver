@@ -194,6 +194,12 @@ client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
   gchar * path = amf_dec_load_string (dec);
   debug ("fcpublish %s\n", path);
 
+  gboolean reject_publish = FALSE;
+  g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
+  if (reject_publish) {
+    debug("Not publishing due to signal rejecting publish\n");
+    return;
+  }
   connections_add_publisher (client->connections, client, path);
   printf ("publisher connected.\n");
 
@@ -322,6 +328,12 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   g_free (amf_dec_load (dec));           /* NULL */
 
   gchar * path = amf_dec_load_string (dec);
+  gboolean reject_play = FALSE;
+  g_signal_emit_by_name(client->server, "on-play", path, &reject_play);
+  if (reject_play) {
+    debug("Not playing due to signal returning 0\n");
+    return;
+  }
   debug ("play %s\n", path);
   g_free (client->path);
   client->path = path;
@@ -633,11 +645,12 @@ client_receive (Client * client)
 
 
 Client *
-client_new (gint fd, Connections * connections)
+client_new (gint fd, Connections * connections, GObject * server)
 {
   Client * client = g_new0 (Client, 1);
 
   client->connections = connections;
+  client->server = server;
 
   client->fd = fd;
   client->chunk_len = DEFAULT_CHUNK_LEN;

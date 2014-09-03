@@ -18,6 +18,7 @@ typedef struct
 struct _Client
 {
   Connections * connections;
+  GObject * server;
   int fd;
   gboolean playing;             /* Wants to receive the stream? */
   gboolean ready;               /* Wants to receive and seen a keyframe */
@@ -33,7 +34,7 @@ struct _Client
   guint32 read_seq;
 };
 
-Client * client_new (gint fd, Connections * connection);
+Client * client_new (gint fd, Connections * connection, GObject * server);
 void client_free (Client * client);
 
 gboolean client_try_to_send (Client * client);
