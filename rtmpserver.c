@@ -85,22 +85,15 @@ pex_rtmp_server_connect_signal(PexRtmpServer * self, gchar * signal_name, gboole
 static void
 pex_rtmp_server_init (PexRtmpServer *self)
 {
-  int sock_optval = 1;
   self->priv = PEX_RTMP_SERVER_GET_PRIVATE (self);
   self->priv->application_name = NULL;
   self->priv->port = DEFAULT_PORT;
-  self->priv->poll_table = g_array_new (FALSE, TRUE, sizeof (struct pollfd));
-  self->priv->connections = connections_new ();
   self->priv->thread = NULL;
-  self->priv->listen_fd = socket (AF_INET, SOCK_STREAM, 0);
-  setsockopt (self->priv->listen_fd, SOL_SOCKET, SO_REUSEADDR, &sock_optval, sizeof sock_optval);
 }
 
 static void
 pex_rtmp_server_dispose (GObject * obj)
 {
-  PexRtmpServer * self = PEX_RTMP_SERVER_CAST (obj);
-  close (self->priv->listen_fd);
   G_OBJECT_CLASS (pex_rtmp_server_parent_class)->dispose (obj);
 }
 
@@ -109,9 +102,6 @@ pex_rtmp_server_finalize (GObject * obj)
 {
   PexRtmpServer * self = PEX_RTMP_SERVER_CAST (obj);
   g_free(self->priv->application_name);
-  g_array_free (self->priv->poll_table, TRUE);
-  g_slist_free (self->priv->clients);
-  connections_free (self->priv->connections);
   G_OBJECT_CLASS (pex_rtmp_server_parent_class)->finalize (obj);
 }
 
@@ -449,39 +439,58 @@ rtmp_server_func (gpointer data)
 gboolean
 pex_rtmp_server_start (PexRtmpServer * srv)
 {
+  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+
+  priv->listen_fd = socket (AF_INET, SOCK_STREAM, 0);
+  int sock_optval = 1;
+  setsockopt (priv->listen_fd, SOL_SOCKET, SO_REUSEADDR, &sock_optval, sizeof sock_optval);
+
   struct sockaddr_in sin;
   sin.sin_family = AF_INET;
-  sin.sin_port = htons (srv->priv->port);
+  sin.sin_port = htons (priv->port);
   sin.sin_addr.s_addr = INADDR_ANY;
-  g_assert_cmpint (srv->priv->listen_fd, >=, 0);
+  g_assert_cmpint (priv->listen_fd, >=, 0);
 
   if (bind (srv->priv->listen_fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
     g_warning ("Unable to listen: %s", strerror (errno));
     return FALSE;
   }
 
-  listen (srv->priv->listen_fd, 10);
+  listen (priv->listen_fd, 10);
+
+  priv->poll_table = g_array_new (FALSE, TRUE, sizeof (struct pollfd));
+  priv->connections = connections_new ();
 
   struct pollfd entry;
   entry.events = POLLIN;
   entry.revents = 0;
-  entry.fd = srv->priv->listen_fd;
-  srv->priv->poll_table = g_array_append_val (srv->priv->poll_table, entry);
+  entry.fd = priv->listen_fd;
+  priv->poll_table = g_array_append_val (priv->poll_table, entry);
 
   /* FIXME: inserting NULL client is silly... */
-  srv->priv->clients = g_slist_append (srv->priv->clients, NULL);
+  priv->clients = g_slist_append (priv->clients, NULL);
 
-  srv->priv->running = TRUE;
-  srv->priv->thread = g_thread_new ("RTMPServer", rtmp_server_func, srv);
+  priv->running = TRUE;
+  priv->thread = g_thread_new ("RTMPServer", rtmp_server_func, srv);
   return TRUE;
 }
 
 void
 pex_rtmp_server_stop (PexRtmpServer * srv)
 {
+  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+
   printf ("Stopping...\n");
-  srv->priv->running = FALSE;
-  g_thread_join (srv->priv->thread);
+  priv->running = FALSE;
+  g_thread_join (priv->thread);
+
+  close (priv->listen_fd);
+  g_array_free (priv->poll_table, TRUE);
+  priv->poll_table = NULL;
+  g_slist_free (priv->clients);
+  priv->clients = NULL;
+  connections_free (priv->connections);
+  priv->connections = NULL;
 }
 
 void pex_rtmp_server_free(PexRtmpServer * srv)
