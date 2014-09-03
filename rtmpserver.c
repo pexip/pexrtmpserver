@@ -197,11 +197,11 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
   signals[SIGNAL_ON_PUBLISH] = g_signal_new ("on-publish",
       PEX_TYPE_RTMP_SERVER, G_SIGNAL_RUN_LAST,
       0, NULL, NULL,
-      g_cclosure_marshal_generic, G_TYPE_INT, 1, G_TYPE_STRING);
+      g_cclosure_marshal_generic, G_TYPE_NONE, 1, G_TYPE_STRING);
   signals[SIGNAL_ON_PUBLISH_DONE] = g_signal_new ("on-publish-done",
       PEX_TYPE_RTMP_SERVER, G_SIGNAL_RUN_LAST,
       0, NULL, NULL,
-      g_cclosure_marshal_generic, G_TYPE_INT, 1, G_TYPE_STRING);
+      g_cclosure_marshal_generic, G_TYPE_NONE, 1, G_TYPE_STRING);
 
   g_type_class_add_private (gobject_class, sizeof (PexRtmpServerPrivate));
 }
@@ -347,11 +347,12 @@ rtmp_server_create_client (PexRtmpServer * srv)
 static void
 rtmp_server_remove_client (PexRtmpServer * srv, Client * client, size_t i)
 {
-  int ign;
-  if (client->publisher) {
-    g_signal_emit_by_name(srv, "on-publish-done", client->path, &ign);
-  } else {
-    g_signal_emit_by_name(srv, "on-play-done", client->path, &ign);
+  if ( srv->priv->running ) {
+    if (client->publisher) {
+      g_signal_emit_by_name(srv, "on-publish-done", client->path);
+    } else {
+      g_signal_emit_by_name(srv, "on-play-done", client->path);
+    }
   }
   srv->priv->clients = g_slist_remove (srv->priv->clients, client);
   srv->priv->poll_table = g_array_remove_index (srv->priv->poll_table, i);
