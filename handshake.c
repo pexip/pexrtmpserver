@@ -4,7 +4,6 @@
 #include <openssl/sha.h>
 #include <string.h>
 
-#define HANDSHAKE_LENGTH 1536
 #define TOTAL_HANDSHAKE_LENGTH 1 + HANDSHAKE_LENGTH + HANDSHAKE_LENGTH
 #define KEYS_LENGTH 128
 
@@ -89,20 +88,25 @@ _get_scheme (PexRtmpHandshake * hs, const guint8 data[HANDSHAKE_LENGTH])
   return 0;
 }
 
-void
+gboolean
 pex_rtmp_handshake_process (PexRtmpHandshake * hs, const guint8 * org_data, gint len)
 {
   guint hash_len;
 
   if (len != HANDSHAKE_LENGTH + 1) {
     printf ("Invalid handshake lenght");
-    return;
+    return FALSE;
   }
 
   guint8 type = org_data[0];
-  hs->handshake_buffer[0] = type;
+  if (type != 3) {
+    printf ("Invalid handshake type");
+    return FALSE;
+  }
 
+  hs->handshake_buffer[0] = type;
   const guint8 * data = &org_data[1];
+
   /* get the scheme of things */
   gint scheme = _get_scheme (hs, &data[0]);
 
@@ -187,6 +191,8 @@ pex_rtmp_handshake_process (PexRtmpHandshake * hs, const guint8 * org_data, gint
 
   /* copy that hash in last */
   memcpy (&hs->second_half[HANDSHAKE_LENGTH - 32], &hs->hash[0], hash_len);
+
+  return TRUE;
 }
 
 static void
@@ -231,3 +237,12 @@ pex_rtmp_handshake_get_length (PexRtmpHandshake * hs)
   (void)hs;
   return TOTAL_HANDSHAKE_LENGTH;
 }
+
+gboolean
+pex_rtmp_handshake_verify_reply (PexRtmpHandshake * hs, guint8 reply[HANDSHAKE_LENGTH])
+{
+  /* the client should send back the same thing we sent it after 4 bytes
+     timestamp and 4 bytes server version */
+  return memcmp (hs->first_half + 8, reply + 8, HANDSHAKE_LENGTH - 8) == 0;
+}
+

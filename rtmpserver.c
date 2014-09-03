@@ -12,6 +12,7 @@
 #include <gst/gst.h>
 #include "client.h"
 #include "rtmp.h"
+#include "handshake.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -64,11 +65,12 @@ struct _PexRtmpServerPrivate
   GThread * thread;
 
   Connections * connections;
+  PexRtmpHandshake * handshake;
 };
 
 
 PexRtmpServer *
-pex_rtmp_server_new(const gchar * application_name, gint port)
+pex_rtmp_server_new (const gchar * application_name, gint port)
 {
   return g_object_new(PEX_TYPE_RTMP_SERVER,
                       "application-name", application_name,
@@ -89,6 +91,7 @@ pex_rtmp_server_init (PexRtmpServer *self)
   self->priv->application_name = NULL;
   self->priv->port = DEFAULT_PORT;
   self->priv->thread = NULL;
+  self->priv->handshake = pex_rtmp_handshake_new ();
 }
 
 static void
@@ -101,7 +104,10 @@ static void
 pex_rtmp_server_finalize (GObject * obj)
 {
   PexRtmpServer * self = PEX_RTMP_SERVER_CAST (obj);
+
   g_free(self->priv->application_name);
+  pex_rtmp_handshake_free (self->priv->handshake);
+
   G_OBJECT_CLASS (pex_rtmp_server_parent_class)->finalize (obj);
 }
 
@@ -257,7 +263,7 @@ send_all (int fd, const void *buf, size_t len)
   return pos;
 }
 
-static gboolean
+gboolean
 rtmp_server_handshake_client (gint fd)
 {
   Handshake serversig;
@@ -286,6 +292,7 @@ rtmp_server_handshake_client (gint fd)
   /* Echo client's signature back */
   if (recv_all (fd, &clientsig, sizeof serversig) < sizeof serversig)
     return FALSE;
+
   if (send_all (fd, &clientsig, sizeof serversig) < sizeof serversig)
     return FALSE;
 
@@ -302,6 +309,35 @@ rtmp_server_handshake_client (gint fd)
   return TRUE;
 }
 
+gboolean
+rtmp_server_flash_handshake (PexRtmpServer * srv, gint fd)
+{
+  guint8 incoming_0[HANDSHAKE_LENGTH + 1];
+  guint8 incoming_1[HANDSHAKE_LENGTH];
+  guint8 * outgoing;
+  guint outgoing_length;
+  
+  /* receive the handshake from the client */
+  if (recv_all (fd, &incoming_0, sizeof (incoming_0)) < sizeof (incoming_0))
+    return FALSE;
+
+  if (!pex_rtmp_handshake_process (srv->priv->handshake, incoming_0, sizeof (incoming_0))) {
+    return FALSE;
+  }
+
+  /* send a reply */
+  outgoing = pex_rtmp_handshake_get_buffer (srv->priv->handshake);
+  outgoing_length = pex_rtmp_handshake_get_length (srv->priv->handshake);
+  if (send_all (fd, outgoing, outgoing_length) < outgoing_length)
+    return FALSE;
+
+  /* receive another handshake */
+  if (recv_all (fd, &incoming_1, sizeof (incoming_1)) < sizeof (incoming_1))
+    return FALSE;
+
+  return pex_rtmp_handshake_verify_reply (srv->priv->handshake, incoming_1);
+}
+
 
 static void
 rtmp_server_create_client (PexRtmpServer * srv)
@@ -315,8 +351,8 @@ rtmp_server_create_client (PexRtmpServer * srv)
   }
 
   /* handshake */
-  if (!rtmp_server_handshake_client (fd)) {
-    printf ("Hanshake Failed\n");
+  if (!rtmp_server_flash_handshake (srv, fd)) {
+    printf ("Handshake Failed\n");
     close (fd);
     return;
   }
