@@ -6,6 +6,7 @@
 #define PORT	1935
 
 #define DEFAULT_CHUNK_LEN	128
+#define DEFAULT_WINDOW_SIZE 128000
 
 #define PACKED	__attribute__((packed))
 
@@ -14,9 +15,9 @@
 #define RANDOM_LEN		(1536 - 8)
 
 #define MSG_SET_CHUNK		0x01
-#define MSG_BYTES_READ		0x03
+#define MSG_ACK 0x03
 #define MSG_USER_CONTROL	0x04
-#define MSG_RESPONSE		0x05
+#define MSG_WINDOW_ACK_SIZE 0x05
 #define MSG_REQUEST		0x06
 #define MSG_AUDIO		0x08
 #define MSG_VIDEO		0x09
