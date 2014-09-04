@@ -264,6 +264,13 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
 
   GValue null_value = G_VALUE_INIT;
   client_send_reply (client, txid, &null_value, &null_value);
+
+
+  // Send Window Acknowledgement Size (5.4.4)
+  AmfEnc * enc= amf_enc_new ();
+  amf_enc_add_int (enc, htonl(client->window_size));
+	client_rtmp_send(client, MSG_WINDOW_ACK_SIZE, CONTROL_ID, enc->buf, 0,
+		  CHAN_CONTROL);
 }
 
 static void
@@ -455,6 +462,23 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   g_free (method);
 }
 
+gboolean
+client_window_size_reached(Client *client)
+{
+  return (client->bytes_received_since_ack >= client->window_size);
+}
+
+void
+client_send_ack(Client *client)
+{
+  AmfEnc * enc= amf_enc_new ();
+  amf_enc_add_int (enc, htonl(client->total_bytes_received));
+  client->bytes_received_since_ack = 0;
+	client_rtmp_send(client, MSG_ACK, CONTROL_ID, enc->buf, 0,
+		  CHAN_CONTROL);
+  amf_enc_free(enc);
+}
+
 void
 client_handle_message (Client * client, RTMP_Message * msg)
 {
@@ -462,10 +486,16 @@ client_handle_message (Client * client, RTMP_Message * msg)
      debug("RTMP message %02x, len %zu, timestamp %ld\n", msg->type, msg->len,
      msg->timestamp);
    */
+  client->total_bytes_received += msg->len;
   size_t pos = 0;
+  if (client->publisher) {
+    client->bytes_received_since_ack += msg->len;
+    if (client_window_size_reached(client))
+      client_send_ack(client);
+  }
 
   switch (msg->type) {
-    case MSG_BYTES_READ:
+    case MSG_ACK:
       if (pos + 4 > msg->buf->len) {
         g_warning ("Not enough data");
         return;
@@ -482,6 +512,13 @@ client_handle_message (Client * client, RTMP_Message * msg)
       client->chunk_len = load_be32 (&msg->buf[pos]);
       debug ("chunk size set to %zu\n", client->chunk_len);
       break;
+
+    case MSG_WINDOW_ACK_SIZE:
+    {
+      client->window_size = load_be32 (&msg->buf[pos]);
+      debug ("%s window size set to %u\n", client->path, client->window_size);
+      break;
+    }
 
     case MSG_INVOKE:
     {
@@ -564,6 +601,9 @@ client_handle_message (Client * client, RTMP_Message * msg)
         }
         if (subscriber->ready) {
           client_rtmp_send (subscriber, MSG_VIDEO, STREAM_ID, msg->buf, msg->timestamp, CHAN_CONTROL);
+        }
+        else {
+          printf("VIDEO COMING IN FOR %s, but client not ready\n", client->path);
         }
       }
       break;
@@ -672,6 +712,7 @@ client_new (gint fd, Connections * connections, GObject * server)
 
   client->fd = fd;
   client->chunk_len = DEFAULT_CHUNK_LEN;
+  client->window_size = DEFAULT_WINDOW_SIZE;
 
   for (int i = 0; i < 64; ++i) {
     client->messages[i].timestamp = 0;

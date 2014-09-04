@@ -32,6 +32,10 @@ struct _Client
   size_t chunk_len;
   guint32 written_seq;
   guint32 read_seq;
+
+  guint32 window_size;
+  guint32 bytes_received_since_ack;
+  guint32 total_bytes_received;
 };
 
 Client * client_new (gint fd, Connections * connection, GObject * server);
