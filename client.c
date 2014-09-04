@@ -265,12 +265,11 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   GValue null_value = G_VALUE_INIT;
   client_send_reply (client, txid, &null_value, &null_value);
 
-
   // Send Window Acknowledgement Size (5.4.4)
   AmfEnc * enc= amf_enc_new ();
-  amf_enc_add_int (enc, htonl(client->window_size));
-	client_rtmp_send(client, MSG_WINDOW_ACK_SIZE, CONTROL_ID, enc->buf, 0,
-		  CHAN_CONTROL);
+  amf_enc_add_int (enc, htonl (client->window_size));
+  client_rtmp_send(client, MSG_WINDOW_ACK_SIZE, CONTROL_ID, enc->buf, 0, CHAN_CONTROL);
+  amf_enc_free (enc);
 }
 
 static void
@@ -462,20 +461,19 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   g_free (method);
 }
 
-gboolean
-client_window_size_reached(Client *client)
+static gboolean
+client_window_size_reached (Client *client)
 {
   return (client->bytes_received_since_ack >= client->window_size);
 }
 
-void
-client_send_ack(Client *client)
+static void
+client_send_ack (Client *client)
 {
   AmfEnc * enc= amf_enc_new ();
   amf_enc_add_int (enc, htonl(client->total_bytes_received));
   client->bytes_received_since_ack = 0;
-	client_rtmp_send(client, MSG_ACK, CONTROL_ID, enc->buf, 0,
-		  CHAN_CONTROL);
+  client_rtmp_send(client, MSG_ACK, CONTROL_ID, enc->buf, 0, CHAN_CONTROL);
   amf_enc_free(enc);
 }
 
@@ -490,7 +488,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
   size_t pos = 0;
   if (client->publisher) {
     client->bytes_received_since_ack += msg->len;
-    if (client_window_size_reached(client))
+    if (client_window_size_reached (client))
       client_send_ack(client);
   }
 
