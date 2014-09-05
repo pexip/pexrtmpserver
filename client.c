@@ -551,7 +551,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_DATA:
     {
-      AmfDec * dec = amf_dec_new (msg->buf, 0);
+      AmfDec * dec = amf_dec_new (msg->buf, 1);
       gchar * type = amf_dec_load_string (dec);
       debug ("data %s\n", type);
       if (msg->endpoint == STREAM_ID) {
