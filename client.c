@@ -413,7 +413,11 @@ client_handle_setdataframe (Client * client, AmfDec * dec, int msg_type)
 
   if (client->metadata)
     gst_structure_free (client->metadata);
-  client->metadata = amf_dec_load_ecma (dec);
+  if (msg_type == MSG_DATA) {
+    client->metadata = amf_dec_load_object(dec);
+  } else {
+    client->metadata = amf_dec_load_ecma (dec);
+  }
 
   AmfEnc * notify = amf_enc_new ();
   amf_enc_write_string (notify, "onMetaData");
