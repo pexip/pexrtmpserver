@@ -335,15 +335,15 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   g_free (amf_dec_load (dec));           /* NULL */
 
   gchar * path = amf_dec_load_string (dec);
+  g_free (client->path);
+  client->path = path;
   gboolean reject_play = FALSE;
   g_signal_emit_by_name(client->server, "on-play", path, &reject_play);
   if (reject_play) {
-    debug("Not playing due to signal returning 0\n");
+    debug("%p Not playing due to signal returning 0\n", client);
     return;
   }
   debug ("play %s\n", path);
-  g_free (client->path);
-  client->path = path;
 
   client_start_playback (client);
 
