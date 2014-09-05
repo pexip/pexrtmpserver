@@ -182,10 +182,10 @@ amf_dec_peek (const AmfDec * dec)
 static guint8
 amf_dec_get_byte (AmfDec * dec)
 {
-  if (dec->version == 0 && amf_dec_peek (dec) == AMF0_SWITCH_AMF3) {
+  if (dec->version == AMF0_VERSION && amf_dec_peek (dec) == AMF0_SWITCH_AMF3) {
     debug ("entering AMF3 mode\n");
     dec->pos++;
-    dec->version = 3;
+    dec->version = AMF3_VERSION;
   }
   if (dec->pos >= dec->buf->len) {
     g_warning ("Not enough data");
@@ -211,21 +211,14 @@ amd_dec_load_amf3_integer (AmfDec * dec)
   return value;
 }
 
-gchar *
-amf_dec_load_string (AmfDec * dec)
+static gchar *
+_load_string (AmfDec * dec)
 {
   size_t str_len = 0;
-  guint8 type = amf_dec_get_byte (dec);
-  if (dec->version == 3) {
-    if (type != AMF3_STRING) {
-      g_warning ("Expected a string");
-    }
-    str_len = amd_dec_load_amf3_integer (dec) / 2;
 
+  if (dec->version == AMF3_VERSION) {
+    str_len = amd_dec_load_amf3_integer (dec) / 2;
   } else {
-    if (type != AMF0_STRING) {
-      g_warning ("Expected a string");
-    }
     if (dec->pos + 2 > dec->buf->len) {
       g_warning ("Not enough data");
     }
@@ -238,6 +231,27 @@ amf_dec_load_string (AmfDec * dec)
   gchar * s = g_strndup ((const gchar *)&dec->buf->data[dec->pos], str_len);
   dec->pos += str_len;
   return s;
+}
+
+gchar *
+amf_dec_load_string (AmfDec * dec)
+{
+  guint8 type = amf_dec_get_byte (dec);
+
+  if (dec->version == AMF3_VERSION) {
+    if (type != AMF3_STRING) {
+      g_warning ("Expected a string");
+    }
+  } else if (type != AMF0_STRING) {
+    g_warning ("Expected a string");
+  }
+  return _load_string (dec);
+}
+
+gchar *
+amf_dec_load_key (AmfDec * dec)
+{
+  return _load_string (dec);
 }
 
 double
@@ -263,7 +277,7 @@ amf_dec_load_number (AmfDec * dec)
 int
 amf_dec_load_integer (AmfDec * dec)
 {
-  if (dec->version == 3) {
+  if (dec->version == AMF3_VERSION) {
     return amd_dec_load_amf3_integer (dec);
   } else {
     return amf_dec_load_number (dec);
@@ -277,22 +291,6 @@ amf_dec_load_boolean (AmfDec * dec)
     g_warning ("Expected a boolean");
   }
   return amf_dec_get_byte (dec) != 0;
-}
-
-gchar *
-amf_dec_load_key (AmfDec * dec)
-{
-  if (dec->pos + 2 > dec->buf->len) {
-    g_warning ("Not enough data");
-  }
-  size_t str_len = load_be16 (&dec->buf->data[dec->pos]);
-  dec->pos += 2;
-  if (dec->pos + str_len > dec->buf->len) {
-    g_warning ("Not enough data");
-  }
-  gchar * s = g_strndup ((const gchar *)&dec->buf->data[dec->pos], str_len);
-  dec->pos += str_len;
-  return s;
 }
 
 static void
@@ -315,15 +313,29 @@ amf_dec_load_structure (AmfDec * dec, GstStructure * s)
 GstStructure *
 amf_dec_load_object (AmfDec * dec)
 {
-  GstStructure *  object = gst_structure_empty_new ("object");
-  if (amf_dec_get_byte (dec) != AMF0_OBJECT) {
-    g_warning ("Expected an object");
+  GstStructure * object = gst_structure_empty_new ("object");
+
+  guint8 type = amf_dec_get_byte (dec);
+  if (dec->version == AMF0_VERSION && type != AMF0_OBJECT) {
+    g_warning ("Expected an object AMF0 object");
+  }
+
+  if (dec->version == AMF3_VERSION) {
+    if (type != AMF3_OBJECT)
+      g_warning ("Expected an object AMF3 object");
+
+    guint8 object_count = amf_dec_get_byte (dec);
+    (void)object_count; //FIXME: could use this!
+    guint8 start_byte = amf_dec_get_byte (dec);
+    if (start_byte != AMF3_NULL)
+      g_warning ("expected AMF3 object-start");
   }
 
   amf_dec_load_structure (dec, object);
 
-  if (amf_dec_get_byte (dec) != AMF0_OBJECT_END) {
-    g_warning ("expected object end");
+  if (dec->version == AMF0_VERSION) {
+    if (amf_dec_get_byte (dec) != AMF0_OBJECT_END)
+      g_warning ("expected object end");
   }
   return object;
 }
@@ -353,7 +365,7 @@ amf_dec_load (AmfDec * dec)
 {
   GValue * value = g_new0 (GValue, 1);
   guint8 type = amf_dec_peek (dec);
-  if (dec->version == 3) {
+  if (dec->version == AMF3_VERSION) {
     switch (type) {
       case AMF3_STRING:
       {
@@ -371,6 +383,7 @@ amf_dec_load (AmfDec * dec)
       }
       case AMF3_INTEGER:
       {
+        dec->pos++;
         g_value_init (value, G_TYPE_INT);
         g_value_set_int (value, amf_dec_load_integer (dec));
         break;
