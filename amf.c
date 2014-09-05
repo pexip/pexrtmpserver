@@ -174,7 +174,7 @@ static guint8
 amf_dec_peek (const AmfDec * dec)
 {
   if (dec->pos >= dec->buf->len) {
-    g_warning ("Not enough data");
+    g_warning ("%s: Not enough data", __FUNCTION__);
   }
   return dec->buf->data[dec->pos];
 }
@@ -188,7 +188,7 @@ amf_dec_get_byte (AmfDec * dec)
     dec->version = AMF3_VERSION;
   }
   if (dec->pos >= dec->buf->len) {
-    g_warning ("Not enough data");
+    g_warning ("%s: Not enough data", __FUNCTION__);
   }
   return dec->buf->data[dec->pos++];
 }
@@ -220,13 +220,13 @@ _load_string (AmfDec * dec)
     str_len = amd_dec_load_amf3_integer (dec) / 2;
   } else {
     if (dec->pos + 2 > dec->buf->len) {
-      g_warning ("Not enough data");
+      g_warning ("%s: Not enough data", __FUNCTION__);
     }
     str_len = load_be16 (&dec->buf->data[dec->pos]);
     dec->pos += 2;
   }
   if (dec->pos + str_len > dec->buf->len) {
-    g_warning ("Not enough data");
+    g_warning ("%s: Not enough data", __FUNCTION__);
   }
   gchar * s = g_strndup ((const gchar *)&dec->buf->data[dec->pos], str_len);
   dec->pos += str_len;
@@ -261,7 +261,7 @@ amf_dec_load_number (AmfDec * dec)
     g_warning ("Expected a string");
   }
   if (dec->pos + 8 > dec->buf->len) {
-    g_warning ("Not enough data");
+    g_warning ("%s: Not enough data", __FUNCTION__);
   }
   uint64_t val = ((uint64_t) load_be32 (&dec->buf->data[dec->pos]) << 32) |
       load_be32 (&dec->buf->data[dec->pos + 4]);
@@ -349,7 +349,7 @@ amf_dec_load_ecma (AmfDec * dec)
     g_warning ("Expected an ECMA array");
   }
   if (dec->pos + 4 > dec->buf->len) {
-    g_warning ("Not enough data");
+    g_warning ("%s: Not enough data", __FUNCTION__);
   }
   dec->pos += 4;
   amf_dec_load_structure (dec, object);
