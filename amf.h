@@ -54,6 +54,9 @@ enum
   AMF3_BYTE_ARRAY,
 };
 
+#define AMF0_VERSION 0
+#define AMF3_VERSION 3
+
 struct _AmfDec
 {
   GByteArray * buf;
