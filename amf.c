@@ -61,9 +61,7 @@ amf_enc_write_string (AmfEnc * enc, const gchar * str)
 static void
 amf_enc_write_int (AmfEnc * enc, int i)
 {
-  (void) enc;
-  (void) i;
-  g_assert_not_reached ();
+  amf_enc_write_double(enc, (double) i);
 }
 
 void
@@ -113,7 +111,6 @@ amf_enc_write_object (AmfEnc * enc, const GstStructure * object)
 void
 amf_enc_write_ecma (AmfEnc * enc, const GstStructure * object)
 {
-  g_assert (gst_structure_has_name (object, "ecma"));
   amf_enc_add_char (enc, AMF0_ECMA_ARRAY);
   amf_enc_add_int (enc, 0);
   amf_enc_write_structure (enc, object);
