@@ -680,8 +680,8 @@ client_receive (Client * client)
     if (header_len >= 4) {
       unsigned long ts = load_be24 (header.timestamp);
       if (ts == 0xffffff) {
-        g_warning ("ext timestamp not supported");
-        return FALSE;
+        g_debug ("ext timestamp not supported");
+        return TRUE;
       }
       if (header_len < 12) {
         ts += msg->timestamp;
