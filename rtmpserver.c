@@ -29,6 +29,7 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 
 #define DEFAULT_APPLICATION_NAME ""
 #define DEFAULT_PORT 1935
+
 #define PEX_RTMP_SERVER_GET_PRIVATE(obj) (G_TYPE_INSTANCE_GET_PRIVATE ((obj),\
       PEX_TYPE_RTMP_SERVER, PexRtmpServerPrivate))
 
@@ -48,7 +49,7 @@ enum
   LAST_SIGNAL
 };
 
-static guint signals[LAST_SIGNAL] = { 0 };
+static guint pex_rtmp_server_signals[LAST_SIGNAL] = { 0 };
 
 
 struct _PexRtmpServerPrivate
@@ -79,7 +80,8 @@ pex_rtmp_server_new (const gchar * application_name, gint port)
 }
 
 void __attribute__ ((unused))
-pex_rtmp_server_connect_signal(PexRtmpServer * self, gchar * signal_name, gboolean (*callback)(gchar * path))
+pex_rtmp_server_connect_signal(PexRtmpServer * self,
+    gchar * signal_name, gboolean (*callback)(gchar * path))
 {
   g_signal_connect(self, signal_name, G_CALLBACK(callback), NULL);
 }
@@ -157,59 +159,40 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
   gobject_class->dispose = pex_rtmp_server_dispose;
   gobject_class->finalize = pex_rtmp_server_finalize;
 
-  g_object_class_install_property (
-    gobject_class,
-    PROP_APPLICATION_NAME,
-    g_param_spec_string ("application-name",
-                         "",
-                         "",
-                         DEFAULT_APPLICATION_NAME,
-                         G_PARAM_CONSTRUCT_ONLY |
-                         G_PARAM_READWRITE |
-                         G_PARAM_STATIC_STRINGS));
+  g_object_class_install_property (gobject_class, PROP_APPLICATION_NAME,
+      g_param_spec_string ("application-name", "Application Name",
+          "The application name for this server", DEFAULT_APPLICATION_NAME,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_PORT,
+      g_param_spec_int ("port", "Port",
+          "The port to listen on", 0, 65535, DEFAULT_PORT,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
-  g_object_class_install_property (
-    gobject_class,
-    PROP_PORT,
-    g_param_spec_int ("port",
-                      "",
-                      "",
-                      0,
-                      65535,
-                      DEFAULT_PORT,
-                      G_PARAM_CONSTRUCT_ONLY |
-                      G_PARAM_READWRITE |
-                      G_PARAM_STATIC_STRINGS));
+  pex_rtmp_server_signals[SIGNAL_ON_PLAY] =
+      g_signal_new ("on-play", PEX_TYPE_RTMP_SERVER,
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
 
-  signals[SIGNAL_ON_PLAY] = g_signal_new ("on-play",
-      PEX_TYPE_RTMP_SERVER, G_SIGNAL_RUN_LAST,
-      0, NULL, NULL,
-      g_cclosure_marshal_generic, G_TYPE_INT, 1, G_TYPE_STRING);
-  signals[SIGNAL_ON_PLAY_DONE] = g_signal_new ("on-play-done",
-      PEX_TYPE_RTMP_SERVER, G_SIGNAL_RUN_LAST,
-      0, NULL, NULL,
-      g_cclosure_marshal_generic, G_TYPE_INT, 1, G_TYPE_STRING);
-  signals[SIGNAL_ON_PUBLISH] = g_signal_new ("on-publish",
-      PEX_TYPE_RTMP_SERVER, G_SIGNAL_RUN_LAST,
-      0, NULL, NULL,
-      g_cclosure_marshal_generic, G_TYPE_NONE, 1, G_TYPE_STRING);
-  signals[SIGNAL_ON_PUBLISH_DONE] = g_signal_new ("on-publish-done",
-      PEX_TYPE_RTMP_SERVER, G_SIGNAL_RUN_LAST,
-      0, NULL, NULL,
-      g_cclosure_marshal_generic, G_TYPE_NONE, 1, G_TYPE_STRING);
+  pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE] =
+      g_signal_new ("on-play-done", PEX_TYPE_RTMP_SERVER,
+          G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+          G_TYPE_NONE, 1, G_TYPE_STRING);
+
+  pex_rtmp_server_signals[SIGNAL_ON_PUBLISH] =
+      g_signal_new ("on-publish", PEX_TYPE_RTMP_SERVER,
+          G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+          G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
+
+  pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE] =
+      g_signal_new ("on-publish-done", PEX_TYPE_RTMP_SERVER,
+          G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+          G_TYPE_NONE, 1, G_TYPE_STRING);
 
   g_type_class_add_private (gobject_class, sizeof (PexRtmpServerPrivate));
 }
 
 
-// Helper functions
-//
-//
-//
-//
-//
-//
 
 static int
 set_nonblock (int fd, gboolean enabled)
@@ -230,7 +213,7 @@ recv_all (int fd, void *buf, size_t len)
     if (bytes < 0) {
       if (errno == EAGAIN || errno == EINTR)
         continue;
-      g_warning ("unable to recv: %s", strerror (errno));
+      printf ("unable to recv: %s", strerror (errno));
       return bytes;
     }
     if (bytes == 0)
@@ -253,7 +236,7 @@ send_all (int fd, const void *buf, size_t len)
     if (written < 0) {
       if (errno == EAGAIN || errno == EINTR)
         continue;
-      printf("unable to send: %s\n", strerror (errno));
+      printf ("unable to send: %s\n", strerror (errno));
       return written;
     }
     if (written == 0)
@@ -321,7 +304,8 @@ rtmp_server_flash_handshake (PexRtmpServer * srv, gint fd)
   if (recv_all (fd, &incoming_0, sizeof (incoming_0)) < sizeof (incoming_0))
     return FALSE;
 
-  if (!pex_rtmp_handshake_process (srv->priv->handshake, incoming_0, sizeof (incoming_0))) {
+  if (!pex_rtmp_handshake_process (srv->priv->handshake,
+      incoming_0, sizeof (incoming_0))) {
     return FALSE;
   }
 
@@ -377,11 +361,13 @@ rtmp_server_create_client (PexRtmpServer * srv)
 static void
 rtmp_server_remove_client (PexRtmpServer * srv, Client * client, size_t i)
 {
-  if ( srv->priv->running ) {
+  if (srv->priv->running) {
     if (client->publisher) {
-      g_signal_emit_by_name(srv, "on-publish-done", client->path);
+      g_signal_emit (srv,
+          pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE], 0, client->path);
     } else {
-      g_signal_emit_by_name(srv, "on-play-done", client->path);
+      g_signal_emit (srv,
+          pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE], 0, client->path);
     }
   }
   srv->priv->clients = g_slist_remove (srv->priv->clients, client);
@@ -401,7 +387,8 @@ rtmp_server_do_poll (PexRtmpServer * srv)
   for (size_t i = 0; i < srv->priv->poll_table->len; ++i) {
     Client * client = (Client *) g_slist_nth_data (srv->priv->clients, i);
     if (client != NULL) {
-      struct pollfd * entry = (struct pollfd *)&g_array_index (srv->priv->poll_table, struct pollfd, i);
+      struct pollfd * entry = (struct pollfd *)&g_array_index (
+          srv->priv->poll_table, struct pollfd, i);
       if (client->send_queue->len > 0) {
         entry->events = POLLIN | POLLOUT;
       } else {
@@ -412,7 +399,8 @@ rtmp_server_do_poll (PexRtmpServer * srv)
 
   /* waiting for traffic on all connections */
   int timeout = 200; /* 200 ms second */
-  if (poll ((struct pollfd *)&srv->priv->poll_table->data[0], srv->priv->poll_table->len, timeout) < 0) {
+  if (poll ((struct pollfd *)&srv->priv->poll_table->data[0],
+      srv->priv->poll_table->len, timeout) < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
     g_warning ("poll() failed: %s", strerror (errno));
@@ -423,7 +411,8 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     return FALSE;
 
   for (size_t i = 0; i < srv->priv->poll_table->len; ++i) {
-    struct pollfd * entry = (struct pollfd *)&g_array_index (srv->priv->poll_table, struct pollfd, i);
+    struct pollfd * entry = (struct pollfd *)&g_array_index (
+        srv->priv->poll_table, struct pollfd, i);
     Client * client = (Client *) g_slist_nth_data (srv->priv->clients, i);
 
     /* ready to send */
@@ -483,7 +472,8 @@ pex_rtmp_server_start (PexRtmpServer * srv)
 
   priv->listen_fd = socket (AF_INET, SOCK_STREAM, 0);
   int sock_optval = 1;
-  setsockopt (priv->listen_fd, SOL_SOCKET, SO_REUSEADDR, &sock_optval, sizeof sock_optval);
+  setsockopt (priv->listen_fd,
+      SOL_SOCKET, SO_REUSEADDR, &sock_optval, sizeof sock_optval);
 
   struct sockaddr_in sin;
   sin.sin_family = AF_INET;
@@ -533,7 +523,7 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
   priv->connections = NULL;
 }
 
-void pex_rtmp_server_free(PexRtmpServer * srv)
+void pex_rtmp_server_free (PexRtmpServer * srv)
 {
-  g_object_unref(srv);
+  g_object_unref (srv);
 }
