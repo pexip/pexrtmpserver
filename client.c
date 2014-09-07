@@ -229,22 +229,22 @@ client_handle_createstream (Client * client, double txid)
 static void
 client_handle_publish (Client * client, double txid, AmfDec * dec)
 {
-  g_free (amf_dec_load (dec));           /* NULL */
+  g_free (amf_dec_load (dec)); /* NULL */
   gchar * path = amf_dec_load_string (dec);
   debug ("publish %s\n", path);
-
-  gboolean reject_publish = FALSE;
-  g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
-  if (reject_publish) {
-    debug("Not publishing due to signal rejecting publish\n");
-    return;
-  }
-  connections_add_publisher (client->connections, client, path);
-  printf ("publisher connected.\n");
 
   client->publisher = TRUE;
   g_free (client->path);
   client->path = path;
+
+  gboolean reject_publish = FALSE;
+  g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
+  if (reject_publish) {
+    debug ("Not publishing due to signal rejecting publish\n");
+    return;
+  }
+  connections_add_publisher (client->connections, client, path);
+  printf ("publisher connected.\n");
 
   GstStructure * status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
@@ -265,10 +265,10 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   GValue null_value = G_VALUE_INIT;
   client_send_reply (client, txid, &null_value, &null_value);
 
-  // Send Window Acknowledgement Size (5.4.4)
-  AmfEnc * enc= amf_enc_new ();
+  /* Send Window Acknowledgement Size (5.4.4) */
+  AmfEnc * enc = amf_enc_new ();
   amf_enc_add_int (enc, htonl (client->window_size));
-  client_rtmp_send(client, MSG_WINDOW_ACK_SIZE, CONTROL_ID, enc->buf, 0, CHAN_CONTROL);
+  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID, enc->buf, 0, CHAN_CONTROL);
   amf_enc_free (enc);
 }
 
@@ -340,7 +340,7 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   gboolean reject_play = FALSE;
   g_signal_emit_by_name(client->server, "on-play", path, &reject_play);
   if (reject_play) {
-    debug("%p Not playing due to signal returning 0\n", client);
+    debug ("%p Not playing due to signal returning 0\n", client);
     return;
   }
   debug ("play %s\n", path);
@@ -605,7 +605,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
           client_rtmp_send (subscriber, MSG_VIDEO, STREAM_ID, msg->buf, msg->timestamp, CHAN_CONTROL);
         }
         else {
-          printf("VIDEO COMING IN FOR %s, but client not ready\n", client->path);
+          printf ("VIDEO COMING IN FOR %s, but client not ready\n", client->path);
         }
       }
       break;
