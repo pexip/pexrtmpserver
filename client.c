@@ -322,7 +322,6 @@ client_start_playback (Client * client)
   if (publisher && publisher->metadata) {
     debug("(%s) METADATA %p\n", client->path, publisher->metadata);
     AmfEnc * invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "@setDataFrame");
     amf_enc_write_string (invoke, "onMetaData");
     amf_enc_write_ecma (invoke, publisher->metadata);
 
@@ -422,7 +421,6 @@ client_handle_setdataframe (Client * client, AmfDec * dec, int msg_type)
   }
 
   AmfEnc * notify = amf_enc_new ();
-  amf_enc_write_string (notify, "@setDataFrame");
   amf_enc_write_string (notify, "onMetaData");
   amf_enc_write_ecma (notify, client->metadata);
 
