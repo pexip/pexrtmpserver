@@ -112,7 +112,7 @@ void
 amf_enc_write_ecma (AmfEnc * enc, const GstStructure * object)
 {
   amf_enc_add_char (enc, AMF0_ECMA_ARRAY);
-  amf_enc_add_int (enc, 0);
+  amf_enc_add_int (enc, htonl (gst_structure_n_fields (object) + 1));
   amf_enc_write_structure (enc, object);
   amf_enc_add_char (enc, AMF0_OBJECT_END);
 }
