@@ -320,7 +320,9 @@ client_start_playback (Client * client)
   /* send any available metadata from the relevant publisher */
   Client * publisher = connections_get_publisher (client->connections, client->path);
   if (publisher && publisher->metadata) {
+    debug("(%s) METADATA %p\n", client->path, publisher->metadata);
     AmfEnc * invoke = amf_enc_new ();
+    amf_enc_write_string (invoke, "@setDataFrame");
     amf_enc_write_string (invoke, "onMetaData");
     amf_enc_write_ecma (invoke, publisher->metadata);
 
@@ -420,6 +422,7 @@ client_handle_setdataframe (Client * client, AmfDec * dec, int msg_type)
   }
 
   AmfEnc * notify = amf_enc_new ();
+  amf_enc_write_string (notify, "@setDataFrame");
   amf_enc_write_string (notify, "onMetaData");
   amf_enc_write_ecma (notify, client->metadata);
 
@@ -427,7 +430,7 @@ client_handle_setdataframe (Client * client, AmfDec * dec, int msg_type)
   GSList * subscribers = connections_get_subscribers (client->connections, client->path);
   for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
     Client * subscriber = (Client *)walk->data;
-    client_rtmp_send (subscriber, msg_type, STREAM_ID, notify->buf, 0, CHAN_CONTROL);
+    client_rtmp_send (subscriber, MSG_NOTIFY, STREAM_ID, notify->buf, 0, CHAN_CONTROL);
   }
 
   amf_enc_free (notify);
@@ -503,7 +506,6 @@ client_handle_message (Client * client, RTMP_Message * msg)
         return;
       }
       client->read_seq = load_be32 (&msg->buf[pos]);
-      debug ("%d in queue\n", (int)(client->written_seq - client->read_seq));
       break;
 
     case MSG_SET_CHUNK:
@@ -684,7 +686,7 @@ client_receive (Client * client)
     if (header_len >= 4) {
       unsigned long ts = load_be24 (header.timestamp);
       if (ts == 0xffffff) {
-        g_debug ("ext timestamp not supported");
+        g_warning ("ext timestamp not supported");
         return TRUE;
       }
       if (header_len < 12) {
