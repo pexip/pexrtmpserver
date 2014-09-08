@@ -361,6 +361,15 @@ rtmp_server_create_client (PexRtmpServer * srv)
 static void
 rtmp_server_remove_client (PexRtmpServer * srv, Client * client, size_t i)
 {
+  srv->priv->clients = g_slist_remove (srv->priv->clients, client);
+  srv->priv->poll_table = g_array_remove_index (srv->priv->poll_table, i);
+
+  close (client->fd);
+  printf ("removing client %p\n", client);
+
+  if (client->path)
+    connections_remove_client (srv->priv->connections, client, client->path);
+
   if (srv->priv->running) {
     if (client->publisher) {
       g_signal_emit (srv,
@@ -370,13 +379,6 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client, size_t i)
           pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE], 0, client->path);
     }
   }
-  srv->priv->clients = g_slist_remove (srv->priv->clients, client);
-  srv->priv->poll_table = g_array_remove_index (srv->priv->poll_table, i);
-
-  close (client->fd);
-  printf ("removing client %p\n", client);
-
-  connections_remove_client (srv->priv->connections, client, client->path);
 
   client_free (client);
 }
