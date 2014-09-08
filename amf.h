@@ -61,12 +61,13 @@ struct _AmfDec
 {
   GByteArray * buf;
   size_t pos;
-  int version;
+  gint version;
 };
 
 struct _AmfEnc
 {
   GByteArray * buf;
+  gint version;
 };
 
 
@@ -75,6 +76,7 @@ typedef struct _AmfEnc AmfEnc;
 
 AmfEnc * amf_enc_new ();
 void amf_enc_free (AmfEnc * enc);
+void amf_enc_use_amf3 (AmfEnc * enc);
 
 void amf_enc_add_short (AmfEnc * enc, guint16 s);
 void amf_enc_add_int (AmfEnc * enc, guint32 i);

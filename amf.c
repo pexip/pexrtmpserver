@@ -8,6 +8,7 @@ amf_enc_new ()
 {
   AmfEnc * enc = g_new0 (AmfEnc, 1);
   enc->buf = g_byte_array_new ();
+  enc->version = AMF0_VERSION;
   return enc;
 }
 
@@ -37,31 +38,86 @@ amf_enc_add_short (AmfEnc * enc, guint16 s)
 }
 
 void
-amf_enc_add_int (AmfEnc * enc, guint32 i)
+amf_enc_add_int (AmfEnc * enc, guint32 value)
 {
-  amf_enc_add (enc, (guint8 *)&i, 4);
+  if (enc->version == AMF3_VERSION) {
+    guint8 bytes[4];
+    int i = 0;
+
+    /* we can only encode 29 bits */
+    value &= 0x3FFFFFFF;
+    for (i = 0; i < 4; i++) {
+      if (i == 3) {
+        /* pick out the last 8 bits */
+        bytes[i] = value & 0xff;
+      } else {
+        /* pick out the 7 first bits */
+        bytes[i] = value & 0x7f;
+      }
+
+      if (i > 0) {
+        /* add a marker-bit for saying "there is more" */
+        bytes[i] |= 0x80;
+      }
+
+      /* shift value right by 7 */
+      value = value >> 7;
+      /* stop if we have added it all */
+      if (value == 0)
+        break;
+    }
+    for (; i > -1; i--) {
+      amf_enc_add (enc, &bytes[i], 1);
+    }
+  } else {
+    amf_enc_add (enc, (guint8 *)&value, 4);
+  }
+}
+
+void
+amf_enc_use_amf3 (AmfEnc * enc)
+{
+  amf_enc_add_char (enc, AMF0_SWITCH_AMF3);
+  enc->version = AMF3_VERSION;
+}
+
+static void
+_write_string (AmfEnc * enc, const gchar * str)
+{
+  guint len = strlen (str);
+
+  if (enc->version == AMF3_VERSION) {
+    amf_enc_add_int (enc, len * 2 + 1);
+  } else {
+    guint16 str_len = htons (len);
+    amf_enc_add_short (enc, str_len);
+  }
+  amf_enc_add (enc, (const guint8 *)str, len);
 }
 
 void
 amf_enc_write_key (AmfEnc * enc, const gchar * str)
 {
-  guint len = strlen (str);
-  guint16 str_len = htons (len);
-  amf_enc_add_short (enc, str_len);
-  amf_enc_add (enc, (const guint8 *)str, len);
+  _write_string (enc, str);
 }
 
 void
 amf_enc_write_string (AmfEnc * enc, const gchar * str)
 {
-  amf_enc_add_char (enc, AMF0_STRING);
-  amf_enc_write_key (enc, str);
+  amf_enc_add_char (enc,
+      enc->version == AMF3_VERSION ? AMF3_STRING : AMF0_STRING);
+  _write_string (enc, str);
 }
 
 static void
-amf_enc_write_int (AmfEnc * enc, int i)
+amf_enc_write_int (AmfEnc * enc, gint i)
 {
-  amf_enc_write_double(enc, (double) i);
+  if (enc->version == AMF3_VERSION)
+    amf_enc_add_char (enc, AMF3_INTEGER);
+  else
+    g_assert_not_reached ();
+
+  amf_enc_add_int (enc, i);
 }
 
 void
@@ -82,8 +138,12 @@ amf_enc_write_double (AmfEnc * enc, double n)
 void
 amf_enc_write_bool (AmfEnc * enc, gboolean b)
 {
-  amf_enc_add_char (enc, AMF0_BOOLEAN);
-  amf_enc_add_char (enc, b);
+  if (enc->version == AMF3_VERSION) {
+    amf_enc_add_char (enc, b ? AMF3_TRUE : AMF3_FALSE);
+  } else {
+    amf_enc_add_char (enc, AMF0_BOOLEAN);
+    amf_enc_add_char (enc, b);
+  }
 }
 
 static void
@@ -96,16 +156,24 @@ amf_enc_write_structure (AmfEnc * enc, const GstStructure * s)
     amf_enc_write_key (enc, key);
     amf_enc_write_value (enc, value);
   }
-  amf_enc_write_key (enc, "");
+  if (enc->version == AMF0_VERSION)
+    amf_enc_write_key (enc, "");
 }
 
 void
 amf_enc_write_object (AmfEnc * enc, const GstStructure * object)
 {
-  g_assert (gst_structure_has_name (object, "object"));
-  amf_enc_add_char (enc, AMF0_OBJECT);
-  amf_enc_write_structure (enc, object);
-  amf_enc_add_char (enc, AMF0_OBJECT_END);
+  if (enc->version == AMF3_VERSION) {
+    amf_enc_add_char (enc, AMF3_OBJECT);
+    amf_enc_add_int (enc, gst_structure_n_fields (object) + 1);
+    amf_enc_add_char (enc, AMF3_NULL);
+    amf_enc_write_structure (enc, object);
+    amf_enc_add_char (enc, AMF3_NULL);
+  } else {
+    amf_enc_add_char (enc, AMF0_OBJECT);
+    amf_enc_write_structure (enc, object);
+    amf_enc_add_char (enc, AMF0_OBJECT_END);
+  }
 }
 
 void
