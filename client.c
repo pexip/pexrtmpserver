@@ -226,7 +226,7 @@ client_handle_createstream (Client * client, double txid)
   client_send_reply (client, txid, &null_value, &stream_id);
 }
 
-static void
+static gboolean
 client_handle_publish (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec)); /* NULL */
@@ -241,7 +241,7 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
   if (reject_publish) {
     debug ("Not publishing due to signal rejecting publish\n");
-    return;
+    return FALSE;
   }
   connections_add_publisher (client->connections, client, path);
   printf ("publisher connected.\n");
@@ -270,6 +270,8 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   amf_enc_add_int (enc, htonl (client->window_size));
   client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID, enc->buf, 0, CHAN_CONTROL);
   amf_enc_free (enc);
+
+  return TRUE;
 }
 
 static void
@@ -330,7 +332,7 @@ client_start_playback (Client * client)
   }
 }
 
-static void
+static gboolean
 client_handle_play (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec));           /* NULL */
@@ -342,7 +344,7 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   g_signal_emit_by_name(client->server, "on-play", path, &reject_play);
   if (reject_play) {
     debug ("%p Not playing due to signal returning 0\n", client);
-    return;
+    return FALSE;
   }
   debug ("play %s\n", path);
 
@@ -350,6 +352,8 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
 
   GValue null_value = G_VALUE_INIT;
   client_send_reply (client, txid, &null_value, &null_value);
+
+  return TRUE;
 }
 
 static void
@@ -434,9 +438,10 @@ client_handle_setdataframe (Client * client, AmfDec * dec, int msg_type)
   amf_enc_free (notify);
 }
 
-static void
+static gboolean
 client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
 {
+  gboolean ret = TRUE;
   gchar * method = amf_dec_load_string (dec);
   double txid = amf_dec_load_number (dec);
 
@@ -453,9 +458,9 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
 
   } else if (msg->endpoint == STREAM_ID) {
     if (strcmp (method, "publish") == 0) {
-      client_handle_publish (client, txid, dec);
+      ret = client_handle_publish (client, txid, dec);
     } else if (strcmp (method, "play") == 0) {
-      client_handle_play (client, txid, dec);
+      ret = client_handle_play (client, txid, dec);
     } else if (strcmp (method, "play2") == 0) {
       client_handle_play2 (client, txid, dec);
     } else if (strcmp (method, "pause") == 0) {
@@ -464,6 +469,7 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   }
 
   g_free (method);
+  return ret;
 }
 
 static gboolean
@@ -482,34 +488,37 @@ client_send_ack (Client *client)
   amf_enc_free(enc);
 }
 
-void
+static gboolean
 client_handle_message (Client * client, RTMP_Message * msg)
 {
   /*
      debug("RTMP message %02x, len %zu, timestamp %ld\n", msg->type, msg->len,
      msg->timestamp);
    */
+  gboolean ret = TRUE;
+
+  /* send window-size ACK if we have reached it */
   client->total_bytes_received += msg->len;
-  size_t pos = 0;
   if (client->publisher) {
     client->bytes_received_since_ack += msg->len;
     if (client_window_size_reached (client))
-      client_send_ack(client);
+      client_send_ack (client);
   }
 
+  size_t pos = 0;
   switch (msg->type) {
     case MSG_ACK:
       if (pos + 4 > msg->buf->len) {
-        g_warning ("Not enough data");
-        return;
+        printf ("Not enough data\n");
+        return FALSE;
       }
       client->read_seq = load_be32 (&msg->buf[pos]);
       break;
 
     case MSG_SET_CHUNK:
       if (pos + 4 > msg->buf->len) {
-        g_warning ("Not enough data");
-        return;
+        printf ("Not enough data\n");
+        return FALSE;
       }
       client->chunk_len = load_be32 (&msg->buf[pos]);
       debug ("chunk size set to %zu\n", client->chunk_len);
@@ -525,7 +534,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_INVOKE:
     {
       AmfDec * dec = amf_dec_new (msg->buf, 0);
-      client_handle_invoke (client, msg, dec);
+      ret = client_handle_invoke (client, msg, dec);
       amf_dec_free (dec);
       break;
     }
@@ -533,7 +542,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_INVOKE3:
     {
       AmfDec * dec = amf_dec_new (msg->buf, 1);
-      client_handle_invoke (client, msg, dec);
+      ret = client_handle_invoke (client, msg, dec);
       amf_dec_free (dec);
       break;
     }
@@ -570,8 +579,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_AUDIO:
       if (!client->publisher) {
-        g_warning ("not a publisher");
-        return;
+        printf ("not a publisher");
+        return FALSE;
       }
       GSList * subscribers = connections_get_subscribers (client->connections, client->path);
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
@@ -584,8 +593,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_VIDEO:
     {
       if (!client->publisher) {
-        g_warning ("not a publisher");
-        return;
+        printf ("not a publisher");
+        return FALSE;
       }
       guint8 flags = msg->buf->data[0];
       GSList * subscribers = connections_get_subscribers (client->connections, client->path);
@@ -613,6 +622,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_FLASH_VIDEO:
       g_warning ("streaming FLV not supported");
+      ret = FALSE;
       break;
 
     default:
@@ -620,6 +630,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
       hexdump (msg->buf->data, msg->buf->len);
       break;
   }
+
+  return ret;
 }
 
 gboolean
@@ -696,7 +708,8 @@ client_receive (Client * client)
     client->buf = g_byte_array_remove_range (client->buf, 0, header_len + chunk);
 
     if (msg->buf->len == msg->len) {
-      client_handle_message (client, msg);
+      if (!client_handle_message (client, msg))
+        return FALSE;
       msg->buf = g_byte_array_remove_range (msg->buf, 0, msg->buf->len);
     }
   }
