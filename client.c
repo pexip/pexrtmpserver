@@ -167,7 +167,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
       "code", G_TYPE_STRING, "NetConnection.Connect.Success",
       "description", G_TYPE_STRING, "Connection succeeded.",
       "level", G_TYPE_STRING, "status",
-      "objectEncoding", G_TYPE_DOUBLE, 3.0,
+      "objectEncoding", G_TYPE_DOUBLE, 0.0,
       NULL);
   gst_value_set_structure (&status, status_s);
   gst_structure_free (status_s);
