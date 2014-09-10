@@ -130,9 +130,9 @@ amf_enc_write_double (AmfEnc * enc, double n)
   memcpy (&encoded, &n, 8);
 #endif
   uint32_t val = htonl (encoded >> 32);
-  amf_enc_add_int (enc, val);
+  amf_enc_add (enc, (guint8 *)&val, 4);
   val = htonl (encoded);
-  amf_enc_add_int (enc, val);
+  amf_enc_add (enc, (guint8 *)&val, 4);
 }
 
 void
