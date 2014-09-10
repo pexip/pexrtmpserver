@@ -613,9 +613,6 @@ client_handle_message (Client * client, RTMP_Message * msg)
         if (subscriber->ready) {
           client_rtmp_send (subscriber, MSG_VIDEO, STREAM_ID, msg->buf, msg->timestamp, CHAN_CONTROL);
         }
-        else {
-          printf ("VIDEO COMING IN FOR %s, but client not ready\n", client->path);
-        }
       }
       break;
     }
