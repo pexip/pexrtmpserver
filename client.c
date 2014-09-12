@@ -450,6 +450,7 @@ client_handle_setdataframe (Client * client, AmfDec * dec, int msg_type)
 static gboolean
 client_handle_user_control (Client * client, const double method, const double timestamp)
 {
+  (void) method;
   AmfEnc * enc= amf_enc_new ();
   guint16 ping_response_id = 7;
   amf_enc_add_short (enc, htons(ping_response_id));
