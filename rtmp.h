@@ -15,19 +15,19 @@
 #define RANDOM_LEN		(1536 - 8)
 
 #define MSG_SET_CHUNK		0x01
-#define MSG_ACK 0x03
+#define MSG_ACK             0x03
 #define MSG_USER_CONTROL	0x04
 #define MSG_WINDOW_ACK_SIZE 0x05
-#define MSG_REQUEST		0x06
-#define MSG_AUDIO		0x08
-#define MSG_VIDEO		0x09
-#define MSG_DATA		0x0F      /* AMF0 */
-#define MSG_INVOKE3		0x11    /* AMF3 */
-#define MSG_NOTIFY		0x12
-#define MSG_OBJECT		0x13
-#define MSG_INVOKE		0x14    /* AMF0 */
-#define MSG_FLASH_VIDEO		0x16
-#define MSG_DATA3 0x18        /* AMF3 */
+#define MSG_SET_PEER_BW     0x06
+#define MSG_AUDIO           0x08
+#define MSG_VIDEO           0x09
+#define MSG_DATA            0x0F    /* AMF0 */
+#define MSG_INVOKE3         0x11    /* AMF3 */
+#define MSG_NOTIFY          0x12
+#define MSG_OBJECT          0x13
+#define MSG_INVOKE          0x14    /* AMF0 */
+#define MSG_FLASH_VIDEO     0x16
+#define MSG_DATA3           0x18    /* AMF3 */
 
 #define CONTROL_CLEAR_STREAM	0x00
 #define CONTROL_CLEAR_BUFFER	0x01
