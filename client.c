@@ -159,7 +159,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
 
   // Send set peer bandwidth
   invoke = amf_enc_new ();
-  amf_enc_add_int (invoke, htonl(client->window_size));
+  amf_enc_add_int (invoke, htonl(5000000));
   amf_enc_add_char (invoke, AMF_DYNAMIC);
   client_rtmp_send (client, MSG_SET_PEER_BW, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
   amf_enc_free (invoke);
