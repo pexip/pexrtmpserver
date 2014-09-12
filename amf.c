@@ -25,7 +25,7 @@ amf_enc_add (AmfEnc * enc, const guint8 * data, guint len)
   enc->buf = g_byte_array_append (enc->buf, data, len);
 }
 
-static void
+void
 amf_enc_add_char (AmfEnc * enc, char c)
 {
   amf_enc_add (enc, (guint8 *)&c, 1);

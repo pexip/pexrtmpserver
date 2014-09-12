@@ -78,6 +78,7 @@ AmfEnc * amf_enc_new ();
 void amf_enc_free (AmfEnc * enc);
 void amf_enc_use_amf3 (AmfEnc * enc);
 
+void amf_enc_add_char (AmfEnc * enc, char c);
 void amf_enc_add_short (AmfEnc * enc, guint16 s);
 void amf_enc_add_int (AmfEnc * enc, guint32 i);
 
