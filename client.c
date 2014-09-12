@@ -151,6 +151,24 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   g_free (params_str);
   gst_structure_free (params);
 
+  // Send win ack size
+  AmfEnc * invoke = amf_enc_new ();
+  amf_enc_add_int (invoke, htonl(client->window_size));
+  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
+  amf_enc_free (invoke);
+
+  // Send set peer bandwidth
+  invoke = amf_enc_new ();
+  amf_enc_add_int (invoke, htonl(client->window_size));
+  amf_enc_add_char (invoke, AMF_DYNAMIC);
+  client_rtmp_send (client, MSG_SET_PEER_BW, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
+  amf_enc_free (invoke);
+
+  // Send set chunk size
+  invoke = amf_enc_new ();
+  amf_enc_add_int (invoke, htonl(client->chunk_len));
+  client_rtmp_send(client, MSG_SET_CHUNK, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
+
   GValue version = G_VALUE_INIT;
   g_value_init (&version, GST_TYPE_STRUCTURE);
   GstStructure * version_s = gst_structure_new ("object",
@@ -175,15 +193,6 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   client_send_reply (client, txid, &version, &status);
   g_value_unset (&version);
   g_value_unset (&status);
-
-/*
-	guint32 chunk_len = htonl(1024);
-	std::string set_chunk((char *) &chunk_len, 4);
-	client_rtmp_send(client, MSG_SET_CHUNK, CONTROL_ID, set_chunk, 0,
-		  MEDIA_CHANNEL);
-
-	client->chunk_len = 1024;
-*/
 }
 
 static void
@@ -439,6 +448,19 @@ client_handle_setdataframe (Client * client, AmfDec * dec, int msg_type)
 }
 
 static gboolean
+client_handle_user_control (Client * client, const double method, const double timestamp)
+{
+  AmfEnc * enc= amf_enc_new ();
+  guint16 ping_response_id = 7;
+  amf_enc_add_short (enc, htons(ping_response_id));
+  amf_enc_add_int (enc, htonl(timestamp));
+  client_rtmp_send(client, MSG_USER_CONTROL,
+                   CONTROL_ID, enc->buf, 0, CHAN_CONTROL);
+  amf_enc_free(enc);
+  return TRUE;
+}
+
+static gboolean
 client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
 {
   gboolean ret = TRUE;
@@ -512,7 +534,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
         printf ("Not enough data\n");
         return FALSE;
       }
-      client->read_seq = load_be32 (&msg->buf[pos]);
+      client->read_seq = load_be32 (&msg->buf->data[pos]);
       break;
 
     case MSG_SET_CHUNK:
@@ -520,13 +542,22 @@ client_handle_message (Client * client, RTMP_Message * msg)
         printf ("Not enough data\n");
         return FALSE;
       }
-      client->chunk_len = load_be32 (&msg->buf[pos]);
-      debug ("chunk size set to %zu\n", client->chunk_len);
+      client->chunk_len = load_be32(&msg->buf->data[pos]);
+      debug ("chunk size set to %d\n", (int)client->chunk_len);
       break;
-
+    case MSG_USER_CONTROL:
+    {
+      double method = load_be16 (&msg->buf->data[pos]);
+      if (method == 6)
+      {
+        double timestamp = load_be32 (&msg->buf->data[pos+2]);
+        ret = client_handle_user_control (client, method, timestamp);
+      }
+      break;
+    }
     case MSG_WINDOW_ACK_SIZE:
     {
-      client->window_size = load_be32 (&msg->buf[pos]);
+      client->window_size = load_be32 (&msg->buf->data[pos]);
       debug ("%s window size set to %u\n", client->path, client->window_size);
       break;
     }

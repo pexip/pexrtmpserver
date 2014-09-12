@@ -3,6 +3,13 @@
 
 #include <gst/gst.h>
 
+enum AMFBandwidthLimitType
+{
+  AMF_HARD,
+  AMF_SOFT,
+  AMF_DYNAMIC
+};
+
 enum AMFType
 {
   AMF_NUMBER,
