@@ -209,6 +209,7 @@ amf_enc_write_value (AmfEnc * enc, const GValue * value)
       break;
     case G_TYPE_INVALID:
     case G_TYPE_NONE:
+    case G_TYPE_POINTER:
       amf_enc_write_null (enc);
       break;
     default:
@@ -486,6 +487,8 @@ amf_dec_load (AmfDec * dec)
       case AMF3_NULL:
       case AMF3_UNDEFINED:
       {
+        g_value_init (value, G_TYPE_POINTER);
+        g_value_set_pointer (value, NULL);
         dec->pos++;
         break;
       }
@@ -533,6 +536,8 @@ amf_dec_load (AmfDec * dec)
       case AMF0_NULL:
       case AMF0_UNDEFINED:
       {
+        g_value_init (value, G_TYPE_POINTER);
+        g_value_set_pointer (value, NULL);
         dec->pos++;
         break;
       }
