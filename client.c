@@ -170,6 +170,14 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   client_rtmp_send(client, MSG_SET_CHUNK, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
   amf_enc_free (invoke);
 
+  // Send stream begin
+  invoke = amf_enc_new ();
+  guint16 stream_begin_id = 0;
+  amf_enc_add_int (invoke, htons(stream_begin_id));
+  amf_enc_add_int (invoke, htons(STREAM_ID));
+  client_rtmp_send(client, MSG_USER_CONTROL, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
+  amf_enc_free (invoke);
+
   GValue version = G_VALUE_INIT;
   g_value_init (&version, GST_TYPE_STRUCTURE);
   GstStructure * version_s = gst_structure_new ("object",
