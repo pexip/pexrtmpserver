@@ -180,7 +180,7 @@ void
 amf_enc_write_ecma (AmfEnc * enc, const GstStructure * object)
 {
   amf_enc_add_char (enc, AMF0_ECMA_ARRAY);
-  amf_enc_add_int (enc, htonl (gst_structure_n_fields (object) + 1));
+  amf_enc_add_int (enc, htonl (gst_structure_n_fields (object)));
   amf_enc_write_structure (enc, object);
   amf_enc_add_char (enc, AMF0_OBJECT_END);
 }
@@ -382,11 +382,16 @@ amf_dec_load_object (AmfDec * dec)
   GstStructure * object = gst_structure_empty_new ("object");
 
   guint8 type = amf_dec_get_byte (dec);
-  if (dec->version == AMF0_VERSION && type != AMF0_OBJECT) {
-    g_warning ("Expected an object AMF0 object");
-  }
+  if (dec->version == AMF0_VERSION) {
+    if (type != AMF0_OBJECT && type != AMF0_ECMA_ARRAY)
+      g_warning ("Expected an AMF0 object or ECMA array");
 
-  if (dec->version == AMF3_VERSION) {
+    if (type == AMF0_ECMA_ARRAY) {
+      if (dec->pos + 4 > dec->buf->len)
+        g_warning ("%s: Not enough data", __FUNCTION__);
+      dec->pos += 4;
+    }
+  } else if (dec->version == AMF3_VERSION) {
     if (type != AMF3_OBJECT)
       g_warning ("Expected an object AMF3 object");
 
@@ -402,26 +407,6 @@ amf_dec_load_object (AmfDec * dec)
   if (dec->version == AMF0_VERSION) {
     if (amf_dec_get_byte (dec) != AMF0_OBJECT_END)
       g_warning ("expected object end");
-  }
-  return object;
-}
-
-GstStructure *
-amf_dec_load_ecma (AmfDec * dec)
-{
-  /* ECMA array is the same as object, with 4 extra zero bytes */
-  GstStructure *  object = gst_structure_empty_new ("ecma");
-  if (amf_dec_get_byte (dec) != AMF0_ECMA_ARRAY) {
-    g_warning ("Expected an ECMA array");
-  }
-  if (dec->pos + 4 > dec->buf->len) {
-    g_warning ("%s: Not enough data", __FUNCTION__);
-  }
-  dec->pos += 4;
-  amf_dec_load_structure (dec, object);
-
-  if (amf_dec_get_byte (dec) != AMF0_OBJECT_END) {
-    g_warning ("expected object end");
   }
   return object;
 }
@@ -468,18 +453,11 @@ amf_dec_load (AmfDec * dec)
         g_value_set_boolean (value, TRUE);
         break;
       }
+      case AMF3_ARRAY:
       case AMF3_OBJECT:
       {
         g_value_init (value, GST_TYPE_STRUCTURE);
         GstStructure * s = amf_dec_load_object (dec);
-        gst_value_set_structure (value, s);
-        gst_structure_free (s);
-        break;
-      }
-      case AMF3_ARRAY:
-      {
-        g_value_init (value, GST_TYPE_STRUCTURE);
-        GstStructure * s = amf_dec_load_ecma (dec);
         gst_value_set_structure (value, s);
         gst_structure_free (s);
         break;
@@ -518,17 +496,10 @@ amf_dec_load (AmfDec * dec)
         break;
       }
       case AMF0_OBJECT:
-      {
-        g_value_init (value, GST_TYPE_STRUCTURE);
-        GstStructure * s = amf_dec_load_object (dec);
-        gst_value_set_structure (value, s);
-        gst_structure_free (s);
-        break;
-      }
       case AMF0_ECMA_ARRAY:
       {
         g_value_init (value, GST_TYPE_STRUCTURE);
-        GstStructure * s = amf_dec_load_ecma (dec);
+        GstStructure * s = amf_dec_load_object (dec);
         gst_value_set_structure (value, s);
         gst_structure_free (s);
         break;

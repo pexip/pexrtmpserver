@@ -107,7 +107,6 @@ int amf_dec_load_integer (AmfDec * dec);
 gboolean amf_dec_load_boolean (AmfDec * dec);
 gchar * amf_dec_load_key (AmfDec * dec);
 GstStructure * amf_dec_load_object (AmfDec * dec);
-GstStructure * amf_dec_load_ecma (AmfDec * dec);
 GValue * amf_dec_load (AmfDec * dec);
 
 #endif

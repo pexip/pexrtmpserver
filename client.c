@@ -421,7 +421,7 @@ client_handle_pause (Client * client, double txid, AmfDec * dec)
 }
 
 static void
-client_handle_setdataframe (Client * client, AmfDec * dec, int msg_type)
+client_handle_setdataframe (Client * client, AmfDec * dec)
 {
   if (!client->publisher) {
     g_warning ("not a publisher");
@@ -436,11 +436,7 @@ client_handle_setdataframe (Client * client, AmfDec * dec, int msg_type)
 
   if (client->metadata)
     gst_structure_free (client->metadata);
-  if (msg_type == MSG_DATA) {
-    client->metadata = amf_dec_load_object(dec);
-  } else {
-    client->metadata = amf_dec_load_ecma (dec);
-  }
+  client->metadata = amf_dec_load_object (dec);
 
   AmfEnc * notify = amf_enc_new ();
   amf_enc_write_string (notify, "onMetaData");
@@ -595,7 +591,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       debug ("notify %s\n", type);
       if (msg->endpoint == STREAM_ID) {
         if (strcmp (type, "@setDataFrame") == 0) {
-          client_handle_setdataframe (client, dec, MSG_NOTIFY);
+          client_handle_setdataframe (client, dec);
         }
       }
       g_free (type);
@@ -610,7 +606,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       debug ("data %s\n", type);
       if (msg->endpoint == STREAM_ID) {
         if (strcmp (type, "@setDataFrame") == 0) {
-          client_handle_setdataframe (client, dec, MSG_DATA);
+          client_handle_setdataframe (client, dec);
         }
       }
       g_free (type);
