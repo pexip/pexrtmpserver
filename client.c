@@ -151,14 +151,8 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   g_free (params_str);
   gst_structure_free (params);
 
-  // Send win ack size
-  AmfEnc * invoke = amf_enc_new ();
-  amf_enc_add_int (invoke, htonl(client->window_size));
-  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
-  amf_enc_free (invoke);
-
   // Send set peer bandwidth
-  invoke = amf_enc_new ();
+  AmfEnc * invoke = amf_enc_new ();
   amf_enc_add_int (invoke, htonl(5000000));
   amf_enc_add_char (invoke, AMF_DYNAMIC);
   client_rtmp_send (client, MSG_SET_PEER_BW, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
@@ -170,12 +164,11 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   client_rtmp_send(client, MSG_SET_CHUNK, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
   amf_enc_free (invoke);
 
-  // Send stream begin
+
+  // Send win ack size
   invoke = amf_enc_new ();
-  guint16 stream_begin_id = 0;
-  amf_enc_add_int (invoke, htons(stream_begin_id));
-  amf_enc_add_int (invoke, htons(STREAM_ID));
-  client_rtmp_send(client, MSG_USER_CONTROL, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
+  amf_enc_add_int (invoke, htonl(client->window_size));
+  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID, invoke->buf, 0, CHAN_CONTROL);
   amf_enc_free (invoke);
 
   GValue version = G_VALUE_INIT;
