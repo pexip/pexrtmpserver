@@ -451,8 +451,8 @@ client_handle_user_control (Client * client, const double method, const double t
   (void) method;
   AmfEnc * enc= amf_enc_new ();
   guint16 ping_response_id = 7;
-  amf_enc_add_short (enc, htons(ping_response_id));
-  amf_enc_add_int (enc, htonl(timestamp));
+  amf_enc_add_short (enc, htons (ping_response_id));
+  amf_enc_add_int (enc, htonl (timestamp));
   client_rtmp_send(client, MSG_USER_CONTROL,
                    CONTROL_ID, enc->buf, 0, CHAN_CONTROL);
   amf_enc_free(enc);
@@ -698,7 +698,7 @@ client_receive (Client * client)
     if (header_len >= 8) {
       msg->len = load_be24 (header.msg_len);
       if (msg->len < msg->buf->len) {
-        g_warning ("invalid msg length");
+        printf ("invalid msg length");
         return FALSE;
       }
       msg->type = header.msg_type;
@@ -708,7 +708,7 @@ client_receive (Client * client)
     }
 
     if (msg->len == 0) {
-      g_warning ("message without a header");
+      printf ("message without a header");
       return FALSE;
     }
     size_t chunk = msg->len - msg->buf->len;
@@ -723,7 +723,7 @@ client_receive (Client * client)
     if (header_len >= 4) {
       unsigned long ts = load_be24 (header.timestamp);
       if (ts == 0xffffff) {
-        g_warning ("ext timestamp not supported");
+        printf ("ext timestamp not supported");
         return TRUE;
       }
       if (header_len < 12) {
