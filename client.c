@@ -325,6 +325,24 @@ client_start_playback (Client * client)
   client_rtmp_send (client, MSG_NOTIFY, STREAM_ID, invoke->buf, 0, CHAN_CONTROL);
   amf_enc_free (invoke);
 
+  status = gst_structure_new ("object",
+      "code", G_TYPE_STRING, "NetStream.Data.Start",
+      NULL);
+  invoke = amf_enc_new ();
+  amf_enc_write_string (invoke, "onStatus");
+  amf_enc_write_object (invoke, status);
+
+  client_rtmp_send (client, MSG_NOTIFY, STREAM_ID, invoke->buf, 0, CHAN_CONTROL);
+  amf_enc_free (invoke);
+  gst_structure_free (status);
+
+  invoke = amf_enc_new ();
+  amf_enc_add_short (invoke, htons(CONTROL_BUFFER_READY));
+  amf_enc_add_int (invoke, htonl (STREAM_ID));
+
+  client_rtmp_send (client, MSG_USER_CONTROL, STREAM_ID, invoke->buf, 0, CHAN_CONTROL);
+  amf_enc_free (invoke);
+
   client->playing = TRUE;
   client->ready = FALSE;
 
