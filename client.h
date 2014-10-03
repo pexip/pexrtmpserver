@@ -6,8 +6,12 @@
 
 typedef struct _Client Client;
 
+/* 5.4.1.2.1 */
+#define DEFAULT_FMT 0
+
 typedef struct
 {
+  guint8 fmt;
   guint8 type;
   size_t len;
   unsigned long timestamp;
