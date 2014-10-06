@@ -14,7 +14,8 @@ typedef struct
   guint8 fmt;
   guint8 type;
   size_t len;
-  unsigned long timestamp;
+  guint32 timestamp;
+  guint32 abs_timestamp;
   guint32 endpoint;
   GByteArray * buf;
 } RTMP_Message;

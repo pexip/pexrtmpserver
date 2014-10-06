@@ -91,11 +91,12 @@ client_rtmp_send (Client * client, guint8 type, guint32 endpoint,
   set_be24 (header.timestamp, timestamp);
   set_be24 (header.msg_len, buf->len);
   set_le32 (header.endpoint, endpoint);
+  size_t header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
 
   client->send_queue = g_byte_array_append (client->send_queue,
-      (guint8 *) & header, sizeof (header));
+      (guint8 *)&header, header_len);
 
-  client->written_seq += sizeof header;
+  client->written_seq += header_len;
 
   size_t pos = 0;
   while (pos < buf->len) {
@@ -112,11 +113,12 @@ client_rtmp_send (Client * client, guint8 type, guint32 endpoint,
     client->send_queue = g_byte_array_append (client->send_queue,
         &buf->data[pos], chunk);
 
+    client_try_to_send (client);
+
     client->written_seq += chunk;
     pos += chunk;
   }
 
-  client_try_to_send (client);
 }
 
 static void
@@ -649,7 +651,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
       GSList * subscribers = connections_get_subscribers (client->connections, client->path);
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
         Client * subscriber = (Client *)walk->data;
-        client_rtmp_send (subscriber, MSG_AUDIO, STREAM_ID, msg->buf, msg->timestamp, 0, CHAN_CONTROL);
+        client_rtmp_send (subscriber, MSG_AUDIO, STREAM_ID,
+            msg->buf, msg->timestamp, msg->fmt, CHAN_CONTROL);
       }
       break;
 
@@ -670,12 +673,14 @@ client_handle_message (Client * client, RTMP_Message * msg)
           amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
           amf_enc_add_int (control, htonl (STREAM_ID));
 
-          client_rtmp_send (subscriber, MSG_USER_CONTROL, CONTROL_ID, control->buf, 0, 0, CHAN_CONTROL);
+          client_rtmp_send (subscriber, MSG_USER_CONTROL, CONTROL_ID,
+              control->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
           amf_enc_free (control);
           subscriber->ready = TRUE;
         }
         if (subscriber->ready) {
-          client_rtmp_send (subscriber, MSG_VIDEO, STREAM_ID, msg->buf, msg->timestamp, 0, CHAN_CONTROL);
+          client_rtmp_send (subscriber, MSG_VIDEO, STREAM_ID,
+              msg->buf, msg->timestamp, msg->fmt, CHAN_CONTROL);
         }
       }
       break;
@@ -726,7 +731,11 @@ client_receive (Client * client)
     memcpy (&header, &client->buf->data[0], header_len);
 
     RTMP_Message * msg = &client->messages[flags & 0x3f];
-    msg->fmt = fmt;
+
+    /* only get fmt from beginning of a new message */
+    if (msg->buf->len == 0) {
+      msg->fmt = fmt;
+    }
 
     if (header_len >= 8) {
       msg->len = load_be24 (header.msg_len);
@@ -736,14 +745,32 @@ client_receive (Client * client)
       }
       msg->type = header.msg_type;
     }
-    if (header_len >= 12) {
-      msg->endpoint = load_le32 (header.endpoint);
-    }
 
     if (msg->len == 0) {
       printf ("message without a header");
       return FALSE;
     }
+
+    if (header_len >= 12) {
+      msg->endpoint = load_le32 (header.endpoint);
+    }
+
+    /* timestamp */
+    if (header_len >= 4) {
+      guint32 ts = load_be24 (header.timestamp);
+      if (ts == 0xffffff) {
+        printf ("ext timestamp not supported");
+        return TRUE;
+      }
+      msg->timestamp = ts;
+
+      /* for type 0 we receive the absolute timestamp, for type 1, 2, and 3 we get a delta */
+      if (fmt == 0)
+        msg->abs_timestamp = ts;
+      else
+        msg->abs_timestamp += ts;
+    }
+
     size_t chunk = msg->len - msg->buf->len;
     if (chunk > client->chunk_len)
       chunk = client->chunk_len;
@@ -753,17 +780,6 @@ client_receive (Client * client)
       break;
     }
 
-    if (header_len >= 4) {
-      unsigned long ts = load_be24 (header.timestamp);
-      if (ts == 0xffffff) {
-        printf ("ext timestamp not supported");
-        return TRUE;
-      }
-      if (header_len < 12) {
-        ts += msg->timestamp;
-      }
-      msg->timestamp = ts;
-    }
     msg->buf = g_byte_array_append (msg->buf, &client->buf->data[header_len], chunk);
     client->buf = g_byte_array_remove_range (client->buf, 0, header_len + chunk);
 
@@ -791,6 +807,7 @@ client_new (gint fd, Connections * connections, GObject * server)
 
   for (int i = 0; i < 64; ++i) {
     client->messages[i].timestamp = 0;
+    client->messages[i].abs_timestamp = 0;
     client->messages[i].len = 0;
     client->messages[i].buf = g_byte_array_new ();
   }
