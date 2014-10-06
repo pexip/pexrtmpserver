@@ -651,8 +651,13 @@ client_handle_message (Client * client, RTMP_Message * msg)
       GSList * subscribers = connections_get_subscribers (client->connections, client->path);
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
         Client * subscriber = (Client *)walk->data;
+
+/* FIXME: this is the best way, can we make it so ?
         client_rtmp_send (subscriber, MSG_AUDIO, STREAM_ID,
             msg->buf, msg->timestamp, msg->fmt, CHAN_CONTROL);
+*/
+        client_rtmp_send (subscriber, MSG_AUDIO, STREAM_ID,
+            msg->buf, msg->abs_timestamp, 0, CHAN_CONTROL);
       }
       break;
 
@@ -769,6 +774,11 @@ client_receive (Client * client)
         msg->abs_timestamp = ts;
       else
         msg->abs_timestamp += ts;
+    }
+
+    /* for a type 3 msg, increment with previous delta */
+    if (msg->fmt == 3) {
+      msg->abs_timestamp += msg->timestamp;
     }
 
     size_t chunk = msg->len - msg->buf->len;
