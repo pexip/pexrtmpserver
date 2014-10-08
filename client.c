@@ -75,7 +75,7 @@ client_try_to_send (Client * client)
 
 static void
 client_rtmp_send (Client * client, guint8 type, guint32 endpoint,
-    GByteArray * buf, unsigned long timestamp, int fmt, int channel_num)
+    GByteArray * buf, guint32 timestamp, gint fmt, gint channel_num)
 {
   if (endpoint == STREAM_ID) {
     /*
@@ -86,7 +86,8 @@ client_rtmp_send (Client * client, guint8 type, guint32 endpoint,
   }
 
   RTMP_Header header;
-  header.flags = (channel_num & 0x3f) | (fmt << 6);
+  guint8 stream_id = channel_num & 0x3f;
+  header.flags = stream_id | (fmt << 6);
   header.msg_type = type;
   set_be24 (header.timestamp, timestamp);
   set_be24 (header.msg_len, buf->len);
@@ -101,7 +102,7 @@ client_rtmp_send (Client * client, guint8 type, guint32 endpoint,
   size_t pos = 0;
   while (pos < buf->len) {
     if (pos) {
-      guint8 flags = (channel_num & 0x3f) | (3 << 6);
+      guint8 flags = stream_id | (3 << 6);
       client->send_queue = g_byte_array_append (client->send_queue, &flags, 1);
 
       client->written_seq += 1;
@@ -725,6 +726,7 @@ client_receive (Client * client)
   while (client->buf->len != 0) {
     guint8 flags = client->buf->data[0];
     guint8 fmt = flags >> 6; /* 5.3.1.2 */
+    guint8 stream_id = flags & 0x3f;
     size_t header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
 
     if (client->buf->len < header_len) {
@@ -735,7 +737,7 @@ client_receive (Client * client)
     RTMP_Header header;
     memcpy (&header, &client->buf->data[0], header_len);
 
-    RTMP_Message * msg = &client->messages[flags & 0x3f];
+    RTMP_Message * msg = &client->messages[stream_id];
 
     /* only get fmt from beginning of a new message */
     if (msg->buf->len == 0) {
