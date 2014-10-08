@@ -686,7 +686,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
         }
         if (subscriber->ready) {
           client_rtmp_send (subscriber, MSG_VIDEO, STREAM_ID,
-              msg->buf, msg->timestamp, msg->fmt, CHAN_CONTROL);
+              msg->buf, msg->abs_timestamp, 0, CHAN_CONTROL);
         }
       }
       break;
