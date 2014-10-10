@@ -370,17 +370,19 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client, size_t i)
   if (client->path)
     connections_remove_client (srv->priv->connections, client, client->path);
 
+  gchar * path = g_strdup (client->path);
+  gboolean publisher = client->publisher;
+  client_free (client);
   if (srv->priv->running) {
-    if (client->publisher) {
+    if (publisher) {
       g_signal_emit (srv,
-          pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE], 0, client->path);
+          pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE], 0, path);
     } else {
       g_signal_emit (srv,
-          pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE], 0, client->path);
+          pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE], 0, path);
     }
   }
-
-  client_free (client);
+  g_free (path);
 }
 
 static gboolean
