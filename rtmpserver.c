@@ -22,6 +22,8 @@
 #include <sys/poll.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/sockios.h>
 
 // GOBJECT Stuff
 
@@ -385,12 +387,33 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client, size_t i)
   g_free (path);
 }
 
+static void
+rtmp_server_update_send_recv_queues (Client * client)
+{
+  int val, error;
+  error = ioctl (client->fd, SIOCOUTQ, &val);
+  if (error) {
+    val = 0;
+  }
+  client->write_queue_size = val;
+
+  error = ioctl (client->fd, SIOCINQ, &val);
+  if (error) {
+    val = 0;
+  }
+  client->read_queue_size = val;
+
+//   printf ("READQ %d, WRITEQ %d\n",
+//           client->read_queue_size, client->write_queue_size);
+}
+
 static gboolean
 rtmp_server_do_poll (PexRtmpServer * srv)
 {
   for (size_t i = 0; i < srv->priv->poll_table->len; ++i) {
     Client * client = (Client *) g_slist_nth_data (srv->priv->clients, i);
     if (client != NULL) {
+      rtmp_server_update_send_recv_queues (client);
       struct pollfd * entry = (struct pollfd *)&g_array_index (
           srv->priv->poll_table, struct pollfd, i);
       if (client->send_queue->len > 0) {
@@ -469,6 +492,25 @@ rtmp_server_func (gpointer data)
   return NULL;
 }
 
+int
+pex_rtmp_server_get_queue_size(PexRtmpServer *srv, gchar * path, gboolean is_publisher)
+{
+  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+
+  if (!is_publisher) {
+    GSList * subscribers = connections_get_subscribers (priv->connections, path);
+    for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
+      Client * subscriber = (Client *)walk->data;
+      return subscriber->write_queue_size;
+    }
+    return 0;
+  } else {
+    Client * publisher = (Client *) connections_get_publisher (priv->connections, path);
+    if (!publisher)
+      return 0;
+    return publisher->read_queue_size;
+  }
+}
 gboolean
 pex_rtmp_server_start (PexRtmpServer * srv)
 {

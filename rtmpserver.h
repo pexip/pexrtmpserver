@@ -38,7 +38,7 @@ gboolean pex_rtmp_server_start (PexRtmpServer * self);
 void pex_rtmp_server_stop (PexRtmpServer * self);
 void pex_rtmp_server_free (PexRtmpServer * self);
 void pex_rtmp_connect_signal(PexRtmpServer * self, gchar * signal_name, gboolean (*callback)(gchar * path));
-
+int pex_rtmp_server_get_queue_size(PexRtmpServer *srv, gchar * path, gboolean publisher);
 #endif /* __RTMP_SERVER_H__ */
 
 
