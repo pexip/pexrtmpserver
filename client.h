@@ -41,6 +41,9 @@ struct _Client
   guint32 window_size;
   guint32 bytes_received_since_ack;
   guint32 total_bytes_received;
+
+  int write_queue_size;
+  int read_queue_size;
 };
 
 Client * client_new (gint fd, Connections * connection, GObject * server);
