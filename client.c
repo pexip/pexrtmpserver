@@ -69,7 +69,9 @@ client_try_to_send (Client * client)
     return FALSE;
   }
 
-  client->send_queue = g_byte_array_remove_range (client->send_queue, 0, written);
+  if (written > 0)
+    client->send_queue = g_byte_array_remove_range (client->send_queue, 0, written);
+
   return TRUE;
 }
 
