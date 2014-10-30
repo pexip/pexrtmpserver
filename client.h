@@ -51,5 +51,7 @@ void client_free (Client * client);
 
 gboolean client_try_to_send (Client * client);
 gboolean client_receive (Client * client);
+gboolean client_handle_message (Client * client, RTMP_Message * msg);
+gboolean client_window_size_reached (Client *client);
 
 #endif /* __CLIENT_H__ */

@@ -531,7 +531,7 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   return ret;
 }
 
-static gboolean
+gboolean
 client_window_size_reached (Client *client)
 {
   return (client->bytes_received_since_ack >= client->window_size);
@@ -548,7 +548,7 @@ client_send_ack (Client *client)
   amf_enc_free(enc);
 }
 
-static gboolean
+gboolean
 client_handle_message (Client * client, RTMP_Message * msg)
 {
   /*
