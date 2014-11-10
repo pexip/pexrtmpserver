@@ -1,4 +1,10 @@
 #include "connections.h"
+#include <gst/gst.h>
+
+GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
+#define GST_CAT_DEFAULT pex_rtmp_server_debug
+#define debug(fmt...) \
+  GST_INFO(fmt)
 
 struct _Connections
 {
@@ -85,7 +91,7 @@ connections_add_subscriber (Connections * connections,
     gpointer client, const gchar * path)
 {
   Connection * connection = connections_get_connection (connections, path);
-  printf ("adding subscriber %p to path %s\n", client, path);
+  debug ("adding subscriber %p to path %s", client, path);
   connection_add_subscriber (connection, client);
 }
 
@@ -95,10 +101,10 @@ connections_add_publisher (Connections * connections,
 {
   Connection * connection = connections_get_connection (connections, path);
   if (connection->publisher != NULL) {
-    g_warning ("Can't add more then one publisher for a stream\n");
+    g_warning ("Can't add more then one publisher for a stream");
     return;
   }
-  printf ("adding publisher %p to path %s\n", client, path);
+  debug ("adding publisher %p to path %s", client, path);
   connection->publisher = client;
 }
 
@@ -107,7 +113,7 @@ connections_get_subscribers (Connections * connections,
     const gchar * path)
 {
   Connection * connection = connections_get_connection (connections, path);
-  return connection->subscribers;  
+  return connection->subscribers;
 }
 
 gpointer
@@ -115,7 +121,7 @@ connections_get_publisher (Connections * connections,
     const gchar * path)
 {
   Connection * connection = connections_get_connection (connections, path);
-  return connection->publisher;  
+  return connection->publisher;
 }
 
 void

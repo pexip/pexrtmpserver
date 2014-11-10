@@ -3,6 +3,11 @@
 #include <string.h>
 #include <arpa/inet.h>
 
+GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
+#define GST_CAT_DEFAULT pex_rtmp_server_debug
+#define debug(fmt...) \
+  GST_INFO(fmt)
+
 AmfEnc *
 amf_enc_new ()
 {
