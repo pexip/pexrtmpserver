@@ -18,6 +18,14 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
+GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
+#define GST_CAT_DEFAULT pex_rtmp_server_debug
+#define DEBUG(fmt...) \
+  GST_INFO(fmt)
+#define ERROR(fmt...) \
+  GST_WARNING(fmt)
+
+
 static gboolean
 is_safe (guint8 b)
 {
@@ -31,9 +39,9 @@ hexdump (const void *buf, size_t len)
   for (size_t i = 0; i < len; i += 16) {
     for (int j = 0; j < 16; ++j) {
       if (i + j < len)
-        debug ("%.2x ", data[i + j]);
+        DEBUG ("%.2x ", data[i + j]);
       else
-        debug ("   ");
+        DEBUG ("   ");
     }
     for (int j = 0; j < 16; ++j) {
       if (i + j < len) {
@@ -65,7 +73,7 @@ client_try_to_send (Client * client)
   if (written < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
-    printf ("unable to write to a client: %s\n", strerror (errno));
+    ERROR ("unable to write to a client: %s", strerror (errno));
     return FALSE;
   }
 
@@ -153,7 +161,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   //}
 
   gchar * params_str = gst_structure_to_string (params);
-  printf ("connect: %s\n", params_str);
+  DEBUG ("connect: %s", params_str);
   g_free (params_str);
   gst_structure_free (params);
 
@@ -212,7 +220,7 @@ client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
   g_free (amf_dec_load (dec));           /* NULL */
 
   gchar * path = amf_dec_load_string (dec);
-  debug ("fcpublish %s\n", path);
+  DEBUG ("fcpublish %s", path);
 
 
   GstStructure * status = gst_structure_new ("object",
@@ -252,7 +260,7 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec)); /* NULL */
   gchar * path = amf_dec_load_string (dec);
-  debug ("publish %s\n", path);
+  DEBUG ("publish %s", path);
 
   client->publisher = TRUE;
   g_free (client->path);
@@ -261,11 +269,11 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   gboolean reject_publish = FALSE;
   g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
   if (reject_publish) {
-    debug ("Not publishing due to signal rejecting publish\n");
+    DEBUG ("Not publishing due to signal rejecting publish");
     return FALSE;
   }
   connections_add_publisher (client->connections, client, path);
-  printf ("publisher connected.\n");
+  DEBUG ("publisher connected.");
 
   GstStructure * status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
@@ -368,7 +376,7 @@ client_start_playback (Client * client)
   /* send any available metadata from the relevant publisher */
   Client * publisher = connections_get_publisher (client->connections, client->path);
   if (publisher && publisher->metadata) {
-    debug("(%s) METADATA %p\n", client->path, publisher->metadata);
+    DEBUG("(%s) METADATA %"GST_PTR_FORMAT, client->path, publisher->metadata);
     AmfEnc * invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "onMetaData");
     amf_enc_write_ecma (invoke, publisher->metadata);
@@ -390,10 +398,10 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   gboolean reject_play = FALSE;
   g_signal_emit_by_name(client->server, "on-play", path, &reject_play);
   if (reject_play) {
-    debug ("%p Not playing due to signal returning 0\n", client);
+    DEBUG ("%p Not playing due to signal returning 0", client);
     return FALSE;
   }
-  debug ("play %s\n", path);
+  DEBUG ("play %s", path);
 
   client_start_playback (client);
 
@@ -410,7 +418,7 @@ client_handle_play2 (Client * client, double txid, AmfDec * dec)
 
   GstStructure * params = amf_dec_load_object (dec);
   const gchar * path = gst_structure_get_string (params, "streamName");
-  debug ("play2 %s\n", path);
+  DEBUG ("play2 %s", path);
   gst_structure_free (params);
 
   client_start_playback (client);
@@ -426,7 +434,7 @@ client_handle_pause (Client * client, double txid, AmfDec * dec)
 
   gboolean paused = amf_dec_load_boolean (dec);
   if (paused) {
-    debug ("pausing\n");
+    DEBUG ("pausing");
 
     GstStructure * status = gst_structure_new ("object",
         "code", G_TYPE_STRING, "NetStream.Pause.Notify",
@@ -467,6 +475,7 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
   if (client->metadata)
     gst_structure_free (client->metadata);
   client->metadata = amf_dec_load_object (dec);
+  DEBUG("(%s) METADATA %"GST_PTR_FORMAT, client->path, client->metadata);
 
   AmfEnc * notify = amf_enc_new ();
   amf_enc_write_string (notify, "onMetaData");
@@ -504,7 +513,7 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   gchar * method = amf_dec_load_string (dec);
   double txid = amf_dec_load_number (dec);
 
-  debug ("%p: invoked %s with txid %lf \n", client, method, txid);
+  DEBUG ("%p: invoked %s with txid %lf ", client, method, txid);
 
   if (msg->endpoint == CONTROL_ID) {
     if (strcmp (method, "connect") == 0) {
@@ -552,7 +561,7 @@ gboolean
 client_handle_message (Client * client, RTMP_Message * msg)
 {
   /*
-     debug("RTMP message %02x, len %zu, timestamp %ld\n", msg->type, msg->len,
+     DEBUG("RTMP message %02x, len %zu, timestamp %ld", msg->type, msg->len,
      msg->timestamp);
    */
   gboolean ret = TRUE;
@@ -569,7 +578,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
   switch (msg->type) {
     case MSG_ACK:
       if (pos + 4 > msg->buf->len) {
-        printf ("Not enough data\n");
+        DEBUG ("Not enough data");
         return FALSE;
       }
       client->read_seq = load_be32 (&msg->buf->data[pos]);
@@ -577,11 +586,11 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_SET_CHUNK:
       if (pos + 4 > msg->buf->len) {
-        printf ("Not enough data\n");
+        DEBUG ("Not enough data");
         return FALSE;
       }
       client->chunk_len = load_be32(&msg->buf->data[pos]);
-      debug ("chunk size set to %d\n", (int)client->chunk_len);
+      DEBUG ("chunk size set to %d", (int)client->chunk_len);
       break;
     case MSG_USER_CONTROL:
     {
@@ -596,7 +605,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_WINDOW_ACK_SIZE:
     {
       client->window_size = load_be32 (&msg->buf->data[pos]);
-      debug ("%s window size set to %u\n", client->path, client->window_size);
+      DEBUG ("%s window size set to %u", client->path, client->window_size);
       break;
     }
 
@@ -620,7 +629,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     {
       AmfDec * dec = amf_dec_new (msg->buf, 0);
       gchar * type = amf_dec_load_string (dec);
-      debug ("notify %s\n", type);
+      DEBUG ("notify %s", type);
       if (msg->endpoint == STREAM_ID) {
         if (strcmp (type, "@setDataFrame") == 0) {
           client_handle_setdataframe (client, dec);
@@ -635,7 +644,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     {
       AmfDec * dec = amf_dec_new (msg->buf, 1);
       gchar * type = amf_dec_load_string (dec);
-      debug ("data %s\n", type);
+      DEBUG ("data %s", type);
       if (msg->endpoint == STREAM_ID) {
         if (strcmp (type, "@setDataFrame") == 0) {
           client_handle_setdataframe (client, dec);
@@ -648,7 +657,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_AUDIO:
       if (!client->publisher) {
-        printf ("not a publisher");
+        DEBUG ("not a publisher");
         return FALSE;
       }
       GSList * subscribers = connections_get_subscribers (client->connections, client->path);
@@ -668,7 +677,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_VIDEO:
     {
       if (!client->publisher) {
-        printf ("not a publisher");
+        DEBUG ("not a publisher");
         return FALSE;
       }
       guint8 flags = msg->buf->data[0];
@@ -700,7 +709,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       break;
 
     default:
-      debug ("unhandled message: %02x\n", msg->type);
+      DEBUG ("unhandled message: %02x", msg->type);
       hexdump (msg->buf->data, msg->buf->len);
       break;
   }
@@ -715,12 +724,12 @@ client_receive (Client * client)
   ssize_t got = recv (client->fd, &chunk[0], sizeof (chunk), 0);
 
   if (got == 0) {
-    printf ("EOF from a client\n");
+    DEBUG ("EOF from a client");
     return FALSE;
   } else if (got < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
-    printf ("unable to read from a client: %s\n", strerror (errno));
+    DEBUG ("unable to read from a client: %s", strerror (errno));
     return FALSE;
   }
   client->buf = g_byte_array_append (client->buf, chunk, got);
@@ -749,14 +758,14 @@ client_receive (Client * client)
     if (header_len >= 8) {
       msg->len = load_be24 (header.msg_len);
       if (msg->len < msg->buf->len) {
-        printf ("invalid msg length");
+        DEBUG ("invalid msg length");
         return FALSE;
       }
       msg->type = header.msg_type;
     }
 
     if (msg->len == 0) {
-      printf ("message without a header");
+      DEBUG ("message without a header");
       return FALSE;
     }
 
@@ -768,7 +777,7 @@ client_receive (Client * client)
     if (header_len >= 4) {
       guint32 ts = load_be24 (header.timestamp);
       if (ts == 0xffffff) {
-        printf ("ext timestamp not supported");
+        DEBUG ("ext timestamp not supported");
         return TRUE;
       }
       msg->timestamp = ts;

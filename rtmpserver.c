@@ -26,9 +26,13 @@
 #include <linux/sockios.h>
 
 // GOBJECT Stuff
-
+GST_DEBUG_CATEGORY (pex_rtmp_server_debug);
+#define GST_CAT_DEFAULT pex_rtmp_server_debug
 G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
-
+#define debug(fmt...) \
+  GST_INFO(fmt)
+#define ERROR(fmt...) \
+  GST_WARNING(fmt)
 #define DEFAULT_APPLICATION_NAME ""
 #define DEFAULT_PORT 1935
 
@@ -192,6 +196,9 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
           G_TYPE_NONE, 1, G_TYPE_STRING);
 
   g_type_class_add_private (gobject_class, sizeof (PexRtmpServerPrivate));
+
+  GST_DEBUG_CATEGORY_INIT (
+    pex_rtmp_server_debug, "pexrtmpserver", 0, "pexrtmpserver");
 }
 
 
@@ -215,7 +222,7 @@ recv_all (int fd, void *buf, size_t len)
     if (bytes < 0) {
       if (errno == EAGAIN || errno == EINTR)
         continue;
-      printf ("unable to recv: %s", strerror (errno));
+      debug ("unable to recv: %s", strerror (errno));
       return bytes;
     }
     if (bytes == 0)
@@ -238,7 +245,7 @@ send_all (int fd, const void *buf, size_t len)
     if (written < 0) {
       if (errno == EAGAIN || errno == EINTR)
         continue;
-      printf ("unable to send: %s\n", strerror (errno));
+      debug ("unable to send: %s", strerror (errno));
       return written;
     }
     if (written == 0)
@@ -284,7 +291,7 @@ rtmp_server_handshake_client (gint fd)
   if (recv_all (fd, &clientsig, sizeof serversig) < sizeof serversig)
     return FALSE;
   if (memcmp (serversig.random, clientsig.random, RANDOM_LEN) != 0) {
-    printf ("invalid handshake\n");
+    debug ("invalid handshake");
     return FALSE;
   }
 
@@ -332,13 +339,13 @@ rtmp_server_create_client (PexRtmpServer * srv)
   socklen_t addrlen = sizeof sin;
   int fd = accept (srv->priv->listen_fd, (struct sockaddr *)&sin, &addrlen);
   if (fd < 0) {
-    printf ("Unable to accept a client: %s\n", strerror (errno));
+    debug ("Unable to accept a client: %s", strerror (errno));
     return;
   }
 
   /* handshake */
   if (!rtmp_server_flash_handshake (srv, fd)) {
-    printf ("Handshake Failed\n");
+    ERROR ("Handshake Failed");
     close (fd);
     return;
   }
@@ -350,7 +357,7 @@ rtmp_server_create_client (PexRtmpServer * srv)
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT(srv));
   srv->priv->clients = g_slist_append (srv->priv->clients, client);
 
-  printf ("adding client %p\n", client);
+  debug ("adding client %p", client);
 
   /* update poll table */
   struct pollfd entry;
@@ -367,7 +374,7 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client, size_t i)
   srv->priv->poll_table = g_array_remove_index (srv->priv->poll_table, i);
 
   close (client->fd);
-  printf ("removing client %p\n", client);
+  debug ("removing client %p", client);
 
   if (client->path)
     connections_remove_client (srv->priv->connections, client, client->path);
@@ -403,7 +410,7 @@ rtmp_server_update_send_recv_queues (Client * client)
   }
   client->read_queue_size = val;
 
-//   printf ("READQ %d, WRITEQ %d\n",
+//   debug ("READQ %d, WRITEQ %d",
 //           client->read_queue_size, client->write_queue_size);
 }
 
@@ -445,7 +452,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     /* ready to send */
     if (entry->revents & POLLOUT) {
       if (!client_try_to_send (client)) {
-        printf ("client error, send failed\n");
+        ERROR ("client error, send failed");
         rtmp_server_remove_client (srv, client, i);
         --i;
         continue;
@@ -456,7 +463,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
       if (client == NULL) {
         rtmp_server_create_client (srv);
       } else if (!client_receive (client)) {
-        printf ("client error: client_recv_from_client failed\n");
+        ERROR ("client error: client_recv_from_client failed");
         rtmp_server_remove_client (srv, client, i);
         --i;
       }
@@ -556,7 +563,7 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
 {
   PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
 
-  printf ("Stopping...\n");
+  debug ("Stopping...");
   priv->running = FALSE;
   g_thread_join (priv->thread);
 
