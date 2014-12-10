@@ -52,6 +52,7 @@ enum
   SIGNAL_ON_PLAY_DONE,
   SIGNAL_ON_PUBLISH,
   SIGNAL_ON_PUBLISH_DONE,
+  SIGNAL_ON_QUEUE_OVERFLOW,
   LAST_SIGNAL
 };
 
@@ -70,6 +71,7 @@ struct _PexRtmpServerPrivate
   GSList * clients;
   gboolean running;
   GThread * thread;
+  GTimer * last_queue_overflow;
 
   Connections * connections;
   PexRtmpHandshake * handshake;
@@ -100,6 +102,7 @@ pex_rtmp_server_init (PexRtmpServer *self)
   self->priv->port = DEFAULT_PORT;
   self->priv->thread = NULL;
   self->priv->handshake = pex_rtmp_handshake_new ();
+  self->priv->last_queue_overflow = NULL;
 }
 
 static void
@@ -192,6 +195,11 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
 
   pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE] =
       g_signal_new ("on-publish-done", PEX_TYPE_RTMP_SERVER,
+          G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+          G_TYPE_NONE, 1, G_TYPE_STRING);
+
+  pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW] =
+      g_signal_new ("on-queue-overflow", PEX_TYPE_RTMP_SERVER,
           G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
           G_TYPE_NONE, 1, G_TYPE_STRING);
 
@@ -395,23 +403,35 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client, size_t i)
 }
 
 static void
-rtmp_server_update_send_recv_queues (Client * client)
+rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
 {
   int val, error;
+
   error = ioctl (client->fd, SIOCOUTQ, &val);
   if (error) {
     val = 0;
   }
+
+  gboolean decreasing = (val - client->write_queue_size < 0);
   client->write_queue_size = val;
-
-  error = ioctl (client->fd, SIOCINQ, &val);
-  if (error) {
-    val = 0;
+  if (!decreasing && client->write_queue_size > 30000) {
+      if (srv->priv->last_queue_overflow == NULL) {
+          srv->priv->last_queue_overflow = g_timer_new();
+      }
+      guint elapsed = g_timer_elapsed (srv->priv->last_queue_overflow, NULL);
+      if (elapsed >= 2) {
+          GST_DEBUG_OBJECT (srv,
+                            "Emitting signal on-queue-overflow due to %d bytes in queue",
+                            val);
+          g_signal_emit (
+              srv,
+              pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW],
+              0,
+              client->path);
+          g_timer_start (srv->priv->last_queue_overflow);
+      }
   }
-  client->read_queue_size = val;
 
-//   debug ("READQ %d, WRITEQ %d",
-//           client->read_queue_size, client->write_queue_size);
 }
 
 static gboolean
@@ -420,7 +440,9 @@ rtmp_server_do_poll (PexRtmpServer * srv)
   for (size_t i = 0; i < srv->priv->poll_table->len; ++i) {
     Client * client = (Client *) g_slist_nth_data (srv->priv->clients, i);
     if (client != NULL) {
-      rtmp_server_update_send_recv_queues (client);
+      if (!client->publisher) {
+        rtmp_server_update_send_queues (srv, client);
+      }
       struct pollfd * entry = (struct pollfd *)&g_array_index (
           srv->priv->poll_table, struct pollfd, i);
       if (client->send_queue->len > 0) {
@@ -499,25 +521,6 @@ rtmp_server_func (gpointer data)
   return NULL;
 }
 
-int
-pex_rtmp_server_get_queue_size(PexRtmpServer *srv, gchar * path, gboolean is_publisher)
-{
-  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
-
-  if (!is_publisher) {
-    GSList * subscribers = connections_get_subscribers (priv->connections, path);
-    for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
-      Client * subscriber = (Client *)walk->data;
-      return subscriber->write_queue_size;
-    }
-    return 0;
-  } else {
-    Client * publisher = (Client *) connections_get_publisher (priv->connections, path);
-    if (!publisher)
-      return 0;
-    return publisher->read_queue_size;
-  }
-}
 gboolean
 pex_rtmp_server_start (PexRtmpServer * srv)
 {
@@ -566,7 +569,9 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
   debug ("Stopping...");
   priv->running = FALSE;
   g_thread_join (priv->thread);
-
+  if (priv->last_queue_overflow != NULL) {
+    g_timer_destroy (priv->last_queue_overflow);
+  }
   close (priv->listen_fd);
   g_array_free (priv->poll_table, TRUE);
   priv->poll_table = NULL;
