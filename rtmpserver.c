@@ -420,9 +420,11 @@ rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
       }
       guint elapsed = g_timer_elapsed (srv->priv->last_queue_overflow, NULL);
       if (elapsed >= 2) {
-          GST_DEBUG_OBJECT (srv,
-                            "Emitting signal on-queue-overflow due to %d bytes in queue",
-                            val);
+          GST_DEBUG_OBJECT (
+              srv,
+              "(%s) Emitting signal on-queue-overflow due to %d bytes in queue",
+              client->path,
+              val);
           g_signal_emit (
               srv,
               pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW],
