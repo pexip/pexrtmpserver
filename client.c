@@ -308,6 +308,14 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
 static void
 client_start_playback (Client * client)
 {
+  AmfEnc * control = amf_enc_new ();
+  amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
+  amf_enc_add_int (control, htonl (STREAM_ID));
+
+  client_rtmp_send (client, MSG_USER_CONTROL, CONTROL_ID,
+                    control->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  amf_enc_free (control);
+
   GstStructure * status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Play.Reset",
       "description", G_TYPE_STRING, "Resetting and playing stream.",
@@ -348,43 +356,22 @@ client_start_playback (Client * client)
       invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
   amf_enc_free (invoke);
 
-  status = gst_structure_new ("object",
-      "code", G_TYPE_STRING, "NetStream.Data.Start",
-      NULL);
-  invoke = amf_enc_new ();
-  amf_enc_write_string (invoke, "onStatus");
-  amf_enc_write_object (invoke, status);
-
-  client_rtmp_send (client, MSG_NOTIFY, STREAM_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
-  amf_enc_free (invoke);
-  gst_structure_free (status);
-
-  invoke = amf_enc_new ();
-  amf_enc_add_short (invoke, htons(CONTROL_BUFFER_READY));
-  amf_enc_add_int (invoke, htonl (STREAM_ID));
-
-  client_rtmp_send (client, MSG_USER_CONTROL, STREAM_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
-  amf_enc_free (invoke);
-
   client->playing = TRUE;
   client->ready = FALSE;
 
   connections_add_subscriber (client->connections, client, client->path);
 
-  /* send any available metadata from the relevant publisher */
-  Client * publisher = connections_get_publisher (client->connections, client->path);
-  if (publisher && publisher->metadata) {
-    DEBUG("(%s) METADATA %"GST_PTR_FORMAT, client->path, publisher->metadata);
-    AmfEnc * invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "onMetaData");
-    amf_enc_write_ecma (invoke, publisher->metadata);
-
-    client_rtmp_send (client, MSG_NOTIFY, STREAM_ID,
-        invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
-    amf_enc_free (invoke);
-  }
+  /* send pexip metadata to the client */
+  GstStructure * metadata = gst_structure_new ("metadata",
+      "Server", G_TYPE_STRING, "Pexip RTMP Server", NULL);
+  DEBUG("(%s) METADATA %"GST_PTR_FORMAT, client->path, metadata);
+  invoke = amf_enc_new ();
+  amf_enc_write_string (invoke, "onMetaData");
+  amf_enc_write_object (invoke, metadata);
+  client_rtmp_send (client, MSG_NOTIFY, STREAM_ID,
+      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  amf_enc_free (invoke);
+  gst_structure_free (metadata);
 }
 
 static gboolean
@@ -476,20 +463,6 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
     gst_structure_free (client->metadata);
   client->metadata = amf_dec_load_object (dec);
   DEBUG("(%s) METADATA %"GST_PTR_FORMAT, client->path, client->metadata);
-
-  AmfEnc * notify = amf_enc_new ();
-  amf_enc_write_string (notify, "onMetaData");
-  amf_enc_write_ecma (notify, client->metadata);
-
-  /* update all relevant subscribers with this metadata */
-  GSList * subscribers = connections_get_subscribers (client->connections, client->path);
-  for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
-    Client * subscriber = (Client *)walk->data;
-    client_rtmp_send (subscriber, MSG_NOTIFY, STREAM_ID,
-        notify->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
-  }
-
-  amf_enc_free (notify);
 }
 
 static gboolean
@@ -686,13 +659,6 @@ client_handle_message (Client * client, RTMP_Message * msg)
         Client * subscriber = (Client *)walk->data;
 
         if (flags >> 4 == FLV_KEY_FRAME && !subscriber->ready) {
-          AmfEnc * control = amf_enc_new ();
-          amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
-          amf_enc_add_int (control, htonl (STREAM_ID));
-
-          client_rtmp_send (subscriber, MSG_USER_CONTROL, CONTROL_ID,
-              control->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
-          amf_enc_free (control);
           subscriber->ready = TRUE;
         }
         if (subscriber->ready) {
