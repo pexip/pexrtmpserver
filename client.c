@@ -18,11 +18,6 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-#include <openssl/rc4.h>
-#include <openssl/md5.h>
-#include <openssl/bio.h>
-#include <openssl/buffer.h>
-
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
 #define DEBUG(fmt...) \
@@ -67,20 +62,13 @@ client_try_to_send (Client * client)
   if (len > 4096)
     len = 4096;
 
-  ssize_t written;
-
-  if (client->crypto) {
-    written = SSL_write (client->ssl,
-        client->send_queue->data, client->send_queue->len);
-  } else {
-    #ifdef __APPLE__
-    written = send (client->fd,
-        client->send_queue->data, client->send_queue->len, 0);
-    #else
-    written = send (client->fd,
-        client->send_queue->data, client->send_queue->len, MSG_NOSIGNAL);
-    #endif
-  }
+#ifdef __APPLE__
+  ssize_t written = send (client->fd,
+      client->send_queue->data, client->send_queue->len, 0);
+#else
+  ssize_t written = send (client->fd,
+      client->send_queue->data, client->send_queue->len, MSG_NOSIGNAL);
+#endif
 
   if (written < 0) {
     if (errno == EAGAIN || errno == EINTR)
@@ -699,13 +687,7 @@ gboolean
 client_receive (Client * client)
 {
   guint8 chunk[4096];
-  ssize_t got;
-
-  if (client->crypto) {
-    got = SSL_read (client->ssl, &chunk[0], sizeof (chunk));
-  } else {
-    got = recv (client->fd, &chunk[0], sizeof (chunk), 0);
-  }
+  ssize_t got = recv (client->fd, &chunk[0], sizeof (chunk), 0);
 
   if (got == 0) {
     DEBUG ("EOF from a client");
@@ -799,6 +781,7 @@ client_receive (Client * client)
   return TRUE;
 }
 
+
 Client *
 client_new (gint fd, Connections * connections, GObject * server)
 {
@@ -821,11 +804,6 @@ client_new (gint fd, Connections * connections, GObject * server)
   client->send_queue = g_byte_array_new ();
   client->buf = g_byte_array_new ();
 
-  /* crypto */
-  client->ssl_ctx = SSL_CTX_new (SSLv23_method ());
-  SSL_CTX_set_options (client->ssl_ctx, SSL_OP_ALL);
-  SSL_CTX_set_default_verify_paths (client->ssl_ctx);
-
   return client;
 }
 
@@ -842,9 +820,5 @@ client_free (Client * client)
   if (client->metadata)
     gst_structure_free (client->metadata);
   g_free (client->path);
-
-  /* crypto */
-  SSL_CTX_free (client->ssl_ctx);
-
   g_free (client);
 }
