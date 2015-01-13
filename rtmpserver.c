@@ -558,11 +558,6 @@ pex_rtmp_server_start (PexRtmpServer * srv)
   /* FIXME: inserting NULL client is silly... */
   priv->clients = g_slist_append (priv->clients, NULL);
 
-  /* crypto */
-  SSL_load_error_strings();   /* readable error messages */
-  SSL_library_init ();        /* initialize library */
-  OpenSSL_add_all_digests (); /* adds all digest algorithms to the table */
-
   priv->running = TRUE;
   priv->thread = g_thread_new ("RTMPServer", rtmp_server_func, srv);
   return TRUE;
@@ -586,9 +581,6 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
   priv->clients = NULL;
   connections_free (priv->connections);
   priv->connections = NULL;
-
-  /* crypto */
-  EVP_cleanup (); /* removes all ciphers and digests from the table */
 }
 
 void pex_rtmp_server_free (PexRtmpServer * srv)
