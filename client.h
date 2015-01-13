@@ -2,6 +2,7 @@
 #define __CLIENT_H__
 
 #include <gst/gst.h>
+#include <openssl/ssl.h>
 #include "connections.h"
 
 typedef struct _Client Client;
@@ -43,6 +44,11 @@ struct _Client
   guint32 total_bytes_received;
 
   int write_queue_size;
+
+  /* crypto */
+  gboolean crypto;
+  SSL_CTX * ssl_ctx;
+  SSL * ssl;
 };
 
 Client * client_new (gint fd, Connections * connection, GObject * server);
