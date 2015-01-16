@@ -32,7 +32,9 @@ struct _PexRtmpServerClass
 
 GType pex_rtmp_server_get_type (void);
 
-PexRtmpServer * pex_rtmp_server_new (const gchar * application_name, gint port);
+PexRtmpServer * pex_rtmp_server_new (const gchar * application_name,
+    gint port, gint ssl_port,
+    const gchar * cert, const gchar * key);
 
 gboolean pex_rtmp_server_start (PexRtmpServer * self);
 void pex_rtmp_server_stop (PexRtmpServer * self);

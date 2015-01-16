@@ -22,14 +22,12 @@
 #include <openssl/md5.h>
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
+#include <openssl/err.h>
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
-#define DEBUG(fmt...) \
-  GST_INFO(fmt)
-#define ERROR(fmt...) \
-  GST_WARNING(fmt)
-
+#define debug(fmt...) GST_DEBUG(fmt)
+#define warning(fmt...) GST_WARNING(fmt)
 
 static gboolean
 is_safe (guint8 b)
@@ -44,9 +42,9 @@ hexdump (const void *buf, size_t len)
   for (size_t i = 0; i < len; i += 16) {
     for (int j = 0; j < 16; ++j) {
       if (i + j < len)
-        DEBUG ("%.2x ", data[i + j]);
+        debug ("%.2x ", data[i + j]);
       else
-        DEBUG ("   ");
+        debug ("   ");
     }
     for (int j = 0; j < 16; ++j) {
       if (i + j < len) {
@@ -69,7 +67,7 @@ client_try_to_send (Client * client)
 
   ssize_t written;
 
-  if (client->crypto) {
+  if (client->use_ssl) {
     written = SSL_write (client->ssl,
         client->send_queue->data, client->send_queue->len);
   } else {
@@ -85,7 +83,7 @@ client_try_to_send (Client * client)
   if (written < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
-    ERROR ("unable to write to a client: %s", strerror (errno));
+    warning ("unable to write to a client: %s", strerror (errno));
     return FALSE;
   }
 
@@ -173,7 +171,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   //}
 
   gchar * params_str = gst_structure_to_string (params);
-  DEBUG ("connect: %s", params_str);
+  debug ("connect: %s", params_str);
   g_free (params_str);
   gst_structure_free (params);
 
@@ -232,7 +230,7 @@ client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
   g_free (amf_dec_load (dec));           /* NULL */
 
   gchar * path = amf_dec_load_string (dec);
-  DEBUG ("fcpublish %s", path);
+  debug ("fcpublish %s", path);
 
 
   GstStructure * status = gst_structure_new ("object",
@@ -272,7 +270,7 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec)); /* NULL */
   gchar * path = amf_dec_load_string (dec);
-  DEBUG ("publish %s", path);
+  debug ("publish %s", path);
 
   client->publisher = TRUE;
   g_free (client->path);
@@ -281,11 +279,11 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   gboolean reject_publish = FALSE;
   g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
   if (reject_publish) {
-    DEBUG ("Not publishing due to signal rejecting publish");
+    debug ("Not publishing due to signal rejecting publish");
     return FALSE;
   }
   connections_add_publisher (client->connections, client, path);
-  DEBUG ("publisher connected.");
+  debug ("publisher connected.");
 
   GstStructure * status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
@@ -376,7 +374,7 @@ client_start_playback (Client * client)
   /* send pexip metadata to the client */
   GstStructure * metadata = gst_structure_new ("metadata",
       "Server", G_TYPE_STRING, "Pexip RTMP Server", NULL);
-  DEBUG("(%s) METADATA %"GST_PTR_FORMAT, client->path, metadata);
+  debug("(%s) METADATA %"GST_PTR_FORMAT, client->path, metadata);
   invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "onMetaData");
   amf_enc_write_object (invoke, metadata);
@@ -397,10 +395,10 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   gboolean reject_play = FALSE;
   g_signal_emit_by_name(client->server, "on-play", path, &reject_play);
   if (reject_play) {
-    DEBUG ("%p Not playing due to signal returning 0", client);
+    debug ("%p Not playing due to signal returning 0", client);
     return FALSE;
   }
-  DEBUG ("play %s", path);
+  debug ("play %s", path);
 
   client_start_playback (client);
 
@@ -417,7 +415,7 @@ client_handle_play2 (Client * client, double txid, AmfDec * dec)
 
   GstStructure * params = amf_dec_load_object (dec);
   const gchar * path = gst_structure_get_string (params, "streamName");
-  DEBUG ("play2 %s", path);
+  debug ("play2 %s", path);
   gst_structure_free (params);
 
   client_start_playback (client);
@@ -433,7 +431,7 @@ client_handle_pause (Client * client, double txid, AmfDec * dec)
 
   gboolean paused = amf_dec_load_boolean (dec);
   if (paused) {
-    DEBUG ("pausing");
+    debug ("pausing");
 
     GstStructure * status = gst_structure_new ("object",
         "code", G_TYPE_STRING, "NetStream.Pause.Notify",
@@ -474,7 +472,7 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
   if (client->metadata)
     gst_structure_free (client->metadata);
   client->metadata = amf_dec_load_object (dec);
-  DEBUG("(%s) METADATA %"GST_PTR_FORMAT, client->path, client->metadata);
+  debug ("(%s) METADATA %"GST_PTR_FORMAT, client->path, client->metadata);
 }
 
 static gboolean
@@ -498,7 +496,7 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   gchar * method = amf_dec_load_string (dec);
   double txid = amf_dec_load_number (dec);
 
-  DEBUG ("%p: invoked %s with txid %lf ", client, method, txid);
+  debug ("%p: invoked %s with txid %lf ", client, method, txid);
 
   if (msg->endpoint == CONTROL_ID) {
     if (strcmp (method, "connect") == 0) {
@@ -546,7 +544,7 @@ gboolean
 client_handle_message (Client * client, RTMP_Message * msg)
 {
   /*
-     DEBUG("RTMP message %02x, len %zu, timestamp %ld", msg->type, msg->len,
+     debug("RTMP message %02x, len %zu, timestamp %ld", msg->type, msg->len,
      msg->timestamp);
    */
   gboolean ret = TRUE;
@@ -563,7 +561,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
   switch (msg->type) {
     case MSG_ACK:
       if (pos + 4 > msg->buf->len) {
-        DEBUG ("Not enough data");
+        debug ("Not enough data");
         return FALSE;
       }
       client->read_seq = load_be32 (&msg->buf->data[pos]);
@@ -571,11 +569,11 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_SET_CHUNK:
       if (pos + 4 > msg->buf->len) {
-        DEBUG ("Not enough data");
+        debug ("Not enough data");
         return FALSE;
       }
       client->chunk_len = load_be32(&msg->buf->data[pos]);
-      DEBUG ("chunk size set to %d", (int)client->chunk_len);
+      debug ("chunk size set to %d", (int)client->chunk_len);
       break;
     case MSG_USER_CONTROL:
     {
@@ -590,7 +588,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_WINDOW_ACK_SIZE:
     {
       client->window_size = load_be32 (&msg->buf->data[pos]);
-      DEBUG ("%s window size set to %u", client->path, client->window_size);
+      debug ("%s window size set to %u", client->path, client->window_size);
       break;
     }
 
@@ -614,7 +612,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     {
       AmfDec * dec = amf_dec_new (msg->buf, 0);
       gchar * type = amf_dec_load_string (dec);
-      DEBUG ("notify %s", type);
+      debug ("notify %s", type);
       if (msg->endpoint == STREAM_ID) {
         if (strcmp (type, "@setDataFrame") == 0) {
           client_handle_setdataframe (client, dec);
@@ -629,7 +627,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     {
       AmfDec * dec = amf_dec_new (msg->buf, 1);
       gchar * type = amf_dec_load_string (dec);
-      DEBUG ("data %s", type);
+      debug ("data %s", type);
       if (msg->endpoint == STREAM_ID) {
         if (strcmp (type, "@setDataFrame") == 0) {
           client_handle_setdataframe (client, dec);
@@ -642,7 +640,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_AUDIO:
       if (!client->publisher) {
-        DEBUG ("not a publisher");
+        debug ("not a publisher");
         return FALSE;
       }
       GSList * subscribers = connections_get_subscribers (client->connections, client->path);
@@ -662,7 +660,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_VIDEO:
     {
       if (!client->publisher) {
-        DEBUG ("not a publisher");
+        debug ("not a publisher");
         return FALSE;
       }
       guint8 flags = msg->buf->data[0];
@@ -687,7 +685,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       break;
 
     default:
-      DEBUG ("unhandled message: %02x", msg->type);
+      debug ("unhandled message: %02x", msg->type);
       hexdump (msg->buf->data, msg->buf->len);
       break;
   }
@@ -701,19 +699,19 @@ client_receive (Client * client)
   guint8 chunk[4096];
   ssize_t got;
 
-  if (client->crypto) {
+  if (client->use_ssl) {
     got = SSL_read (client->ssl, &chunk[0], sizeof (chunk));
   } else {
     got = recv (client->fd, &chunk[0], sizeof (chunk), 0);
   }
 
   if (got == 0) {
-    DEBUG ("EOF from a client");
+    debug ("EOF from a client");
     return FALSE;
   } else if (got < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
-    DEBUG ("unable to read from a client: %s", strerror (errno));
+    debug ("unable to read from a client: %s", strerror (errno));
     return FALSE;
   }
   client->buf = g_byte_array_append (client->buf, chunk, got);
@@ -742,14 +740,14 @@ client_receive (Client * client)
     if (header_len >= 8) {
       msg->len = load_be24 (header.msg_len);
       if (msg->len < msg->buf->len) {
-        DEBUG ("invalid msg length");
+        debug ("invalid msg length");
         return FALSE;
       }
       msg->type = header.msg_type;
     }
 
     if (msg->len == 0) {
-      DEBUG ("message without a header");
+      debug ("message without a header");
       return FALSE;
     }
 
@@ -761,7 +759,7 @@ client_receive (Client * client)
     if (header_len >= 4) {
       guint32 ts = load_be24 (header.timestamp);
       if (ts == 0xffffff) {
-        DEBUG ("ext timestamp not supported");
+        debug ("ext timestamp not supported");
         return TRUE;
       }
       msg->timestamp = ts;
@@ -799,13 +797,81 @@ client_receive (Client * client)
   return TRUE;
 }
 
+size_t
+client_recv_all (Client * client, void * buf, size_t len)
+{
+  size_t pos = 0;
+  while (pos < len) {
+    ssize_t bytes;
+    if (client->use_ssl) {
+      bytes = SSL_read (client->ssl, (char *)buf + pos, len - pos);
+    } else {
+      bytes = recv (client->fd, (char *)buf + pos, len - pos, 0);
+    }
+    if (bytes < 0) {
+      if (errno == EAGAIN || errno == EINTR)
+        continue;
+      warning ("unable to recv: %s", strerror (errno));
+      return bytes;
+    }
+    if (bytes == 0)
+      break;
+    pos += bytes;
+  }
+  return pos;
+}
+
+size_t
+client_send_all (Client * client, const void * buf, size_t len)
+{
+  size_t pos = 0;
+  while (pos < len) {
+    ssize_t written;
+    if (client->use_ssl) {
+      written = SSL_write (client->ssl,
+          (const char *)buf + pos, len - pos);
+    } else {
+      #ifdef __APPLE__
+      written = send (client->fd,
+          (const char *)buf + pos, len - pos, 0);
+      #else
+      written = send (client->fd,
+          (const char *)buf + pos, len - pos, MSG_NOSIGNAL);
+      #endif
+    }
+    if (written < 0) {
+      if (errno == EAGAIN || errno == EINTR)
+        continue;
+      debug ("unable to send: %s", strerror (errno));
+      return written;
+    }
+    if (written == 0)
+      break;
+    pos += written;
+  }
+  return pos;
+}
+
+static void
+print_ssl_errors ()
+{
+  char tmp[4096];
+  gint error;
+  while ((error = ERR_get_error ()) != 0) {
+    memset (tmp, 0, sizeof (tmp));
+    ERR_error_string_n (error, tmp, sizeof (tmp) - 1);
+    warning ("ssl-error: %s", tmp);
+  }
+}
+
 Client *
-client_new (gint fd, Connections * connections, GObject * server)
+client_new (gint fd, Connections * connections, GObject * server, gboolean use_ssl)
 {
   Client * client = g_new0 (Client, 1);
 
   client->connections = connections;
   client->server = server;
+  client->use_ssl = use_ssl;
 
   client->fd = fd;
   client->chunk_len = DEFAULT_CHUNK_LEN;
@@ -821,10 +887,54 @@ client_new (gint fd, Connections * connections, GObject * server)
   client->send_queue = g_byte_array_new ();
   client->buf = g_byte_array_new ();
 
-  /* crypto */
-  client->ssl_ctx = SSL_CTX_new (SSLv23_method ());
-  SSL_CTX_set_options (client->ssl_ctx, SSL_OP_ALL);
-  SSL_CTX_set_default_verify_paths (client->ssl_ctx);
+  /* ssl */
+  if (use_ssl) {
+    client->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
+    //SSL_CTX_set_options (client->ssl_ctx, SSL_OP_ALL);
+    //SSL_CTX_set_default_verify_paths (client->ssl_ctx);
+
+    gchar * cert, * key;
+    g_object_get (server, "cert", &cert, "key", &key, NULL);
+
+    if (strlen (cert) > 0 ) {
+      BIO * cert_bio = BIO_new_mem_buf (cert, -1);
+      X509 * cert_x509 = PEM_read_bio_X509 (cert_bio, NULL, 0, NULL);
+      if (cert_x509) {
+        if (SSL_CTX_use_certificate (client->ssl_ctx, cert_x509) <= 0) {
+          warning ("did not like the certificate: %s", cert);
+          print_ssl_errors ();
+        }
+        X509_free (cert_x509);
+      }
+      BIO_free (cert_bio);
+    }
+
+    if (strlen (key) > 0) {
+      BIO * key_bio = BIO_new_mem_buf (key, -1);
+      EVP_PKEY * key_evp = PEM_read_bio_PrivateKey (key_bio, NULL, 0, NULL);
+      if (key_evp) {
+        if (SSL_CTX_use_PrivateKey (client->ssl_ctx, key_evp) <= 0) {
+          warning ("did not like the key: %s", key);
+          print_ssl_errors ();
+        }
+        EVP_PKEY_free (key_evp);
+      }
+      BIO_free (key_bio);
+    }
+
+    g_free (cert);
+    g_free (key);
+
+    SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_NONE, NULL);
+
+    client->ssl = SSL_new (client->ssl_ctx);
+    SSL_set_fd (client->ssl, fd);
+
+    if (SSL_accept (client->ssl) < 0) {
+      warning ("Unable to establish ssl-connection");
+      print_ssl_errors ();
+    }
+  }
 
   return client;
 }
@@ -843,8 +953,11 @@ client_free (Client * client)
     gst_structure_free (client->metadata);
   g_free (client->path);
 
-  /* crypto */
-  SSL_CTX_free (client->ssl_ctx);
+  /* ssl */
+  if (client->ssl_ctx)
+    SSL_CTX_free (client->ssl_ctx);
+  if (client->ssl)
+    SSL_free (client->ssl);
 
   g_free (client);
 }

@@ -14,11 +14,11 @@ static PyObject* pexrtmp_rtmp_server_start(pexip_PexipObject* self, PyObject* ar
     const char * application_name;
     int port;
 
-    if (!PyArg_ParseTuple(args, "si", &application_name, &port)) {
+    if (!PyArg_ParseTuple(args, "siiss", &application_name, &port, &ssl_port, &cert, &key)) {
         return NULL;
     }
 
-    self->server = rtmp_server_new(application_name, port);
+    self->server = rtmp_server_new(application_name, port, ssl_port, cert, key);
     if (self->server == NULL) {
         Py_RETURN_NONE;
     }

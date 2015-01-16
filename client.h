@@ -46,13 +46,17 @@ struct _Client
   int write_queue_size;
 
   /* crypto */
-  gboolean crypto;
+  gboolean use_ssl;
   SSL_CTX * ssl_ctx;
   SSL * ssl;
 };
 
-Client * client_new (gint fd, Connections * connection, GObject * server);
+Client * client_new (gint fd, Connections * connection,
+    GObject * server, gboolean use_ssl);
 void client_free (Client * client);
+
+size_t client_recv_all (Client * client, void * buf, size_t len);
+size_t client_send_all (Client * client, const void * buf, size_t len);
 
 gboolean client_try_to_send (Client * client);
 gboolean client_receive (Client * client);
