@@ -43,4 +43,8 @@ void pex_rtmp_connect_signal(PexRtmpServer * self, gchar * signal_name, gboolean
 int pex_rtmp_server_get_queue_size(PexRtmpServer *srv, gchar * path, gboolean publisher);
 #endif /* __RTMP_SERVER_H__ */
 
+gboolean pex_rtmp_server_parse_url (PexRtmpServer * self, const gchar * url,
+    gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
+    gchar ** path);
+
 

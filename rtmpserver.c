@@ -446,6 +446,85 @@ rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
   }
 }
 
+
+gboolean
+pex_rtmp_server_parse_url (PexRtmpServer * self, const gchar * url,
+    gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
+    gchar ** path)
+{
+  gboolean ret = TRUE;
+
+  gchar ** space_clip = NULL;
+  gchar ** protocol_clip = NULL;
+  gchar ** slash_clip = NULL;
+  gchar ** address_clip = NULL;
+
+  *protocol = NULL;
+  *port = 0;
+  *ip = NULL;
+  *application_name = NULL;
+  *path = NULL;
+
+  /* start by clipping off anything on the end (live=1) */
+  space_clip = g_strsplit (url, " ", 1024);
+  const gchar * url_nospace = space_clip[0];
+
+  if (url_nospace == NULL) {
+    GST_WARNING_OBJECT (self, "Unable to parse");
+    ret = FALSE;
+    goto done;
+  }
+
+  /* then clip before and after protocol (rtmp://) */
+  protocol_clip = g_strsplit (url_nospace, "://", 1024);
+  const gchar * protocol_tmp = protocol_clip[0];
+  const gchar * the_rest = protocol_clip[1];
+  if (!(protocol_tmp && the_rest && (g_strcmp0 (protocol_tmp, "rtmp") == 0 || g_strcmp0 (protocol_tmp, "rtmps") == 0))) {
+    GST_WARNING_OBJECT (self, "Unable to parse");
+    ret = FALSE;
+    goto done;
+  }
+
+  /* clip all "/" bits */
+  slash_clip = g_strsplit (the_rest, "/", 1024);
+  gint idx = 0;
+  while (slash_clip[idx] != NULL)
+    idx++;
+  if (idx < 3) {
+    GST_WARNING_OBJECT (self, "Not able to find address, application_name and path");
+    ret = FALSE;
+    goto done;
+  }
+
+  /* clip IP and port */
+  const gchar * address = slash_clip[0];
+  address_clip = g_strsplit (address, ":", 1024);
+  const gchar * port_str = address_clip[1];
+  if (port_str && strlen (port_str) > 0) {
+    *port = atoi (port_str);
+  } else {
+    GST_WARNING_OBJECT (self, "Specify the port, buster!");
+    ret = FALSE;
+    goto done;
+  }
+
+  *protocol = g_strdup (protocol_tmp);
+  *path = g_strdup (slash_clip[idx - 1]); /* path is last */
+  *application_name = g_strndup (&the_rest[strlen (address) + 1],
+      strlen (the_rest) - strlen (address) - strlen (*path) - 2);
+  *ip = g_strdup (address_clip[0]);
+
+  GST_DEBUG_OBJECT (self, "Parsed: Protocol: %s, Ip: %s, Port: %d, Application Name: %s, Path: %s",
+      *protocol, *ip, *port, *application_name, *path);
+
+done:
+  g_strfreev (space_clip);
+  g_strfreev (protocol_clip);
+  g_strfreev (slash_clip);
+  g_strfreev (address_clip);
+
+  return ret;
+}
 static gboolean
 rtmp_server_do_poll (PexRtmpServer * srv)
 {
