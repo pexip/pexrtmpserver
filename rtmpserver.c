@@ -525,6 +525,36 @@ done:
 
   return ret;
 }
+
+void
+pex_rtmp_server_dialout (PexRtmpServer * self,
+    const gchar * src_path, const gchar * url)
+{
+  (void)src_path;
+
+  struct sockaddr_in service;
+
+  memset(&service, 0, sizeof (struct sockaddr_in));
+  service.sin_family = AF_INET;
+
+  gchar * protocol = NULL;
+  gint port;
+  gchar * ip = NULL;
+  gchar * application_name = NULL;
+  gchar * dest_path = NULL;
+
+  if (!pex_rtmp_server_parse_url (self, url,
+      &protocol, &port, &ip, &application_name, &dest_path)) {
+    return;
+  }
+
+  g_free (protocol);
+  g_free (ip);
+  g_free (application_name);
+  g_free (dest_path);
+
+}
+
 static gboolean
 rtmp_server_do_poll (PexRtmpServer * srv)
 {
