@@ -17,13 +17,18 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <sys/poll.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <linux/sockios.h>
+
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
 
 // GOBJECT Stuff
 GST_DEBUG_CATEGORY (pex_rtmp_server_debug);
@@ -526,16 +531,69 @@ done:
   return ret;
 }
 
+#define INVALID_FD -1
+static gint
+pex_rtmp_server_connect (const gchar * ip, gint port)
+{
+  int ret;
+  int fd;
+  struct sockaddr_storage address;
+
+  memset (&address, 0, sizeof(struct sockaddr_storage));
+
+  struct addrinfo hints;
+  struct addrinfo *result = NULL;
+
+  memset(&hints, 0, sizeof(struct addrinfo));
+  hints.ai_family = AF_UNSPEC;     /* Allow IPv4 or IPv6 */
+  hints.ai_socktype = SOCK_STREAM; /* Stream soc */
+  hints.ai_protocol = IPPROTO_TCP; /* TCP protocol */
+
+  ret = getaddrinfo (ip, NULL, &hints, &result);
+  if (ret != 0) {
+    warning ("getaddrinfo: %s", gai_strerror(ret));
+    return INVALID_FD;
+  }
+  memcpy (&address, result->ai_addr, result->ai_addrlen);
+  freeaddrinfo (result);
+
+  fd = socket (address.ss_family, SOCK_STREAM, IPPROTO_TCP);
+  if (fd <= 0) {
+    warning ("could not create soc: %s", g_strerror (errno));
+    return INVALID_FD;
+  }
+
+  if (address.ss_family == AF_INET) {
+    ((struct sockaddr_in *)&address)->sin_port = htons (port);
+    ret = connect (fd, (struct sockaddr *)&address, sizeof (struct sockaddr_in));
+  } else {
+    ((struct sockaddr_in6 *)&address)->sin6_port = htons (port);
+    ret = connect (fd, (struct sockaddr *)&address, sizeof (struct sockaddr_in6));
+  }
+
+  if (ret != 0) {
+    warning ("could not connect on port %d: %s", port, g_strerror (errno));
+    return INVALID_FD;
+  }
+
+  /* set timeout */
+  struct timeval tv = {30, 0};
+  if (setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof (tv))) {
+    warning ("Could not set timeout");
+  }
+
+  /* Disable packet-accumulation delay (Nagle's algorithm) */
+  gint value = 1;
+  setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof (value));
+
+  return fd;
+}
+
 void
 pex_rtmp_server_dialout (PexRtmpServer * self,
     const gchar * src_path, const gchar * url)
 {
   (void)src_path;
-
-  struct sockaddr_in service;
-
-  memset(&service, 0, sizeof (struct sockaddr_in));
-  service.sin_family = AF_INET;
 
   gchar * protocol = NULL;
   gint port;
@@ -548,11 +606,19 @@ pex_rtmp_server_dialout (PexRtmpServer * self,
     return;
   }
 
+  gint fd = pex_rtmp_server_connect (ip, port);
+  if (fd == INVALID_FD) {
+    warning ("Not able to connect");
+    return;
+  }
+
+  g_usleep (G_USEC_PER_SEC);
+  close (fd);
+
   g_free (protocol);
   g_free (ip);
   g_free (application_name);
   g_free (dest_path);
-
 }
 
 static gboolean
