@@ -176,7 +176,6 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
   debug ("Handling result for txid %d", txid);
 
   if (txid == 1) {
-    // Our Connect is OK, send createStream
     debug ("Sending createStream");
     AmfEnc * invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "createStream");
@@ -186,8 +185,7 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
         invoke->buf, 0, 1, CHAN_RESULT);
     amf_enc_free (invoke);
   } else if (txid == 2) {
-    // Our createStream is OK, send publish
-    debug ("Sending publish");
+    debug ("Sending publish + @setDataFrame");
     AmfEnc * invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "publish");
     amf_enc_write_double (invoke, 0.0);
@@ -197,6 +195,23 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
     client_rtmp_send (client, MSG_INVOKE, STREAM_ID,
         invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
     amf_enc_free (invoke);
+
+    GstStructure * object = gst_structure_new ("object",
+        "videocodecid", G_TYPE_DOUBLE, 7.0,
+        "profile", G_TYPE_STRING, "baseline",
+        "fps", G_TYPE_DOUBLE, 30.0,
+        "keyFrameInterval", G_TYPE_DOUBLE, 48.0,
+        "codec", G_TYPE_STRING, "H264Avc",
+        "level", G_TYPE_STRING, "3.1",
+        NULL);
+    invoke = amf_enc_new ();
+    amf_enc_write_string (invoke, "@setDataFrame");
+    amf_enc_write_string (invoke, "onMetaData");
+    amf_enc_write_object (invoke, object);
+    client_rtmp_send (client, MSG_NOTIFY, STREAM_ID,
+        invoke->buf, 0, 1, CHAN_RESULT);
+    amf_enc_free (invoke);
+    gst_structure_free (object);
   }
 
   //g_value_unset (reply);
@@ -210,6 +225,13 @@ client_handle_onstatus (Client * client, double txid, AmfDec * dec)
   /* we won't handle this unless we are dialing out to a path */
   if (client->dialout_path == NULL)
     return;
+
+  gboolean reject_play = FALSE;
+  g_signal_emit_by_name (client->server, "on-play", client->path, &reject_play);
+  if (reject_play) {
+    debug ("%p Not playing due to signal returning 0", client);
+    return;
+  }
 
   g_free (amf_dec_load (dec));           /* NULL */
   GstStructure * object = amf_dec_load_object (dec);
