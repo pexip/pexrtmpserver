@@ -177,38 +177,62 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
 
   if (txid == 1) {
     // Our Connect is OK, send createStream
+    debug ("Sending createStream");
     AmfEnc * invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "createStream");
     amf_enc_write_double (invoke, 2.0);
     amf_enc_write_null (invoke);
     client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
-        invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+        invoke->buf, 0, 1, CHAN_RESULT);
     amf_enc_free (invoke);
   } else if (txid == 2) {
     // Our createStream is OK, send publish
+    debug ("Sending publish");
     AmfEnc * invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "publish");
     amf_enc_write_double (invoke, 0.0);
     amf_enc_write_null (invoke);
     amf_enc_write_string (invoke, client->dialout_path);
+    amf_enc_write_string (invoke, "live");
     client_rtmp_send (client, MSG_INVOKE, STREAM_ID,
         invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
     amf_enc_free (invoke);
-
-   /* make the client a subscriber on the local server */
-   connections_add_subscriber (client->connections, client, client->path);
   }
 
   //g_value_unset (reply);
   //g_value_unset (status);
 }
 
+static void
+client_handle_onstatus (Client * client, double txid, AmfDec * dec)
+{
+  (void)txid;
+  /* we won't handle this unless we are dialing out to a path */
+  if (client->dialout_path == NULL)
+    return;
+
+  g_free (amf_dec_load (dec));           /* NULL */
+  GstStructure * object = amf_dec_load_object (dec);
+
+  const gchar * code = gst_structure_get_string (object, "code");
+  debug ("onStatus - code: %s", code);
+  if (code && g_strcmp0 (code, "NetStream.Publish.Start") == 0) {
+    /* make the client a subscriber on the local server */
+    connections_add_subscriber (client->connections, client, client->path);
+  }
+
+  gst_structure_free (object);
+}
+
 void
-client_do_connect (Client * client, const gchar * application_name, const gchar * path)
+client_do_connect (Client * client, const gchar * tcUrl,
+    const gchar * application_name, const gchar * path)
 {
   #define SUPPORT_SND_AAC   0x0400
   #define SUPPORT_SND_SPEEX 0x0800
   #define SUPPORT_VID_H264  0x0080
+
+  debug ("connecting to: %s with path: %s", tcUrl, path);
 
   /* make a copy of the path to connect to */
   client->dialout_path = g_strdup (path);
@@ -217,13 +241,11 @@ client_do_connect (Client * client, const gchar * application_name, const gchar 
   GstStructure * status = gst_structure_new ("object",
       "app", G_TYPE_STRING, application_name,
       "flashVer", G_TYPE_STRING, "WIN 16,0,0,0,235",
-      //"swfUrl", G_TYPE_STRING, ,
-      //"tcUrl", G_TYPE_STRING, ,
+      "tcUrl", G_TYPE_STRING, tcUrl,
       "fpad", G_TYPE_BOOLEAN, TRUE, /* we are doing proxying */
       "audioCodecs", G_TYPE_DOUBLE, (gdouble)(SUPPORT_SND_AAC | SUPPORT_SND_SPEEX),
       "videoCodecs", G_TYPE_DOUBLE, (gdouble)SUPPORT_VID_H264,
       "videoFunctions", G_TYPE_DOUBLE, 0.0, /* We can't do seek */
-      //"pageUrl", G_TYPE_STRING, ,
       "objectEncoding", G_TYPE_DOUBLE, 0.0, /* AMF0 */
       NULL);
 
@@ -589,7 +611,7 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   gchar * method = amf_dec_load_string (dec);
   double txid = amf_dec_load_number (dec);
 
-  debug ("%p: invoked %s with txid %lf ", client, method, txid);
+  debug ("%p: invoked %s with txid %lf for Stream Id: %d ", client, method, txid, msg->endpoint);
 
   if (msg->endpoint == CONTROL_ID) {
     if (strcmp (method, "connect") == 0) {
@@ -605,6 +627,8 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   } else if (msg->endpoint == STREAM_ID) {
     if (strcmp (method, "publish") == 0) {
       ret = client_handle_publish (client, txid, dec);
+    } else if (strcmp (method, "onStatus") == 0) {
+      client_handle_onstatus (client, txid, dec);
     } else if (strcmp (method, "play") == 0) {
       ret = client_handle_play (client, txid, dec);
     } else if (strcmp (method, "play2") == 0) {
