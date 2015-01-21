@@ -46,9 +46,6 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_CERT ""
 #define DEFAULT_KEY ""
 
-#define PEX_RTMP_SERVER_LOCK(self) g_mutex_lock (&self->priv->lock)
-#define PEX_RTMP_SERVER_UNLOCK(self) g_mutex_unlock (&self->priv->lock)
-
 enum
 {
   PROP_0,
@@ -92,7 +89,6 @@ struct _PexRtmpServerPrivate
 
   Connections * connections;
   PexRtmpHandshake * handshake;
-  GMutex lock;
 };
 
 
@@ -110,7 +106,7 @@ pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
 }
 
 void __attribute__ ((unused))
-pex_rtmp_server_tcp_connect_signal (PexRtmpServer * self,
+pex_rtmp_server_connect_signal (PexRtmpServer * self,
     gchar * signal_name, gboolean (*callback)(gchar * path))
 {
   g_signal_connect(self, signal_name, G_CALLBACK (callback), NULL);
@@ -329,66 +325,6 @@ rtmp_server_handshake_client (Client * client)
 }
 
 gboolean
-rtmp_server_outgoing_handshake (PexRtmpServer * srv, Client * client)
-{
-  guint8 outbuf[HANDSHAKE_LENGTH];
-  guint8 inbuf[HANDSHAKE_LENGTH];
-
-  guint32 uptime = 0; /* FIXME: fill with something? */
-  (void)srv;
-
-  /* send first byte */
-  guint8 c = HANDSHAKE_PLAINTEXT;
-  if (client_send_all (client, &c, 1) < 1)
-    return FALSE;
-
-  /* Uptime */
-  uptime = htonl(uptime);
-  memcpy(&outbuf[0], &uptime, 4);
-  /* FMS - version */
-  memset(&outbuf[4], 0, 4);
-  /* "random" numbers */
-  for (gint i = 4; i < HANDSHAKE_LENGTH; i++)
-    outbuf[i] = 1; /* 1 is random... */
-  /* send */
-  if (client_send_all (client, outbuf, HANDSHAKE_LENGTH) < HANDSHAKE_LENGTH)
-    return FALSE;
-
-  /* receive first byte */
-  if (client_recv_all (client, &c, 1) < 1)
-    return FALSE;
-  if (c != HANDSHAKE_PLAINTEXT) {
-    g_warning ("only plaintext handshake supported");
-    return FALSE;
-  }
-
-  /* receive the rest */
-  if (client_recv_all (client, inbuf, HANDSHAKE_LENGTH) < HANDSHAKE_LENGTH)
-    return FALSE;
-
-  guint32 server_uptime;
-  memcpy(&server_uptime, &inbuf[0], 4);
-  server_uptime = ntohl(server_uptime);
-  debug ("Server Uptime: %d, FMS Version: %d.%d.%d.%d",
-      server_uptime, inbuf[4], inbuf[5], inbuf[6], inbuf[7]);
-
-  /* reflect back what we got */
-  if (client_send_all (client, inbuf, HANDSHAKE_LENGTH) < HANDSHAKE_LENGTH)
-    return FALSE;
-
-  /* receive again */
-  if (client_recv_all (client, inbuf, HANDSHAKE_LENGTH) < HANDSHAKE_LENGTH)
-    return FALSE;
-
-  /* and check that we are getting back the first thing we sent */
-  if (memcmp (inbuf, outbuf, HANDSHAKE_LENGTH) != 0) {
-    warning ("Invalid handshake");
-  }
-
-  return TRUE;
-}
-
-gboolean
 rtmp_server_flash_handshake (PexRtmpServer * srv, Client * client)
 {
   guint8 incoming_0[HANDSHAKE_LENGTH + 1];
@@ -445,15 +381,6 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   debug ("We got an %s connection", use_ssl ? "rtmps" : "rtmp");
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv), use_ssl);
 
-  /* ssl connection */
-  if (use_ssl) {
-    gchar * cert, * key;
-    g_object_get (srv, "cert", &cert, "key", &key, NULL);
-    client_add_incoming_ssl (client, cert, key);
-    g_free (cert);
-    g_free (key);
-  }
-
   /* handshake */
   if (!rtmp_server_flash_handshake (srv, client)) {
     warning ("Handshake Failed");
@@ -469,38 +396,6 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
 
   debug ("adding client %p to fd %d", client, fd);
-}
-
-static Client *
-rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd, const gchar * path)
-{
-  gboolean use_ssl = FALSE; /* FIXME: parse protocol */
-
-  debug ("We got an %s connection", use_ssl ? "rtmps" : "rtmp");
-  Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv), use_ssl);
-  client->path = g_strdup (path);
-
-  /* FIXME: ssl connection */
-//  if (use_ssl)
-//    client_add_outgoing_ssl (client);
-
-  /* handshake */
-  if (!rtmp_server_outgoing_handshake (srv, client)) {
-    warning ("Outgoing Handshake Failed");
-    client_free (client);
-    return NULL;
-  }
-
-  /* make the connection non-blocking */
-  set_nonblock (fd, TRUE);
-
-  /* create a poll entry, and link it to the client */
-  pex_rtmp_add_fd_to_poll_table (srv, fd);
-  g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
-
-  debug ("adding client %p to fd %d", client, fd);
-
-  return client;
 }
 
 static void
@@ -638,7 +533,7 @@ done:
 
 #define INVALID_FD -1
 static gint
-pex_rtmp_server_tcp_connect (const gchar * ip, gint port)
+pex_rtmp_server_connect (const gchar * ip, gint port)
 {
   int ret;
   int fd;
@@ -662,7 +557,6 @@ pex_rtmp_server_tcp_connect (const gchar * ip, gint port)
   memcpy (&address, result->ai_addr, result->ai_addrlen);
   freeaddrinfo (result);
 
-  address.ss_family = AF_INET;
   fd = socket (address.ss_family, SOCK_STREAM, IPPROTO_TCP);
   if (fd <= 0) {
     warning ("could not create soc: %s", g_strerror (errno));
@@ -712,19 +606,14 @@ pex_rtmp_server_dialout (PexRtmpServer * self,
     return;
   }
 
-  gint fd = pex_rtmp_server_tcp_connect (ip, port);
+  gint fd = pex_rtmp_server_connect (ip, port);
   if (fd == INVALID_FD) {
     warning ("Not able to connect");
     return;
   }
 
-  PEX_RTMP_SERVER_LOCK (self);
-  Client * client = rtmp_server_create_dialout_client (self, fd, src_path);
-  if (client) {
-    /* connect this client as a publisher on the remote server */
-    client_do_connect (client, application_name, dest_path);
-  }
-  PEX_RTMP_SERVER_UNLOCK (self);
+  g_usleep (G_USEC_PER_SEC);
+  close (fd);
 
   g_free (protocol);
   g_free (ip);
@@ -732,7 +621,6 @@ pex_rtmp_server_dialout (PexRtmpServer * self,
   g_free (dest_path);
 }
 
-/* called with PEX_RTMP_SERVER_LOCK held */
 static gboolean
 rtmp_server_do_poll (PexRtmpServer * srv)
 {
@@ -758,21 +646,17 @@ rtmp_server_do_poll (PexRtmpServer * srv)
   }
 
   /* waiting for traffic on all connections */
-  PEX_RTMP_SERVER_UNLOCK (srv);
   const gint timeout = 200; /* 200 ms second */
-  gint result = poll ((struct pollfd *)&priv->poll_table->data[0],
-      priv->poll_table->len, timeout);
-  PEX_RTMP_SERVER_LOCK (srv);
+  if (poll ((struct pollfd *)&priv->poll_table->data[0],
+      priv->poll_table->len, timeout) < 0) {
+    if (errno == EAGAIN || errno == EINTR)
+      return TRUE;
+    g_warning ("poll() failed: %s", strerror (errno));
+    return FALSE;
+  }
 
   if (priv->running == FALSE)
     return FALSE;
-
-  if (result < 0) {
-    if (errno == EAGAIN || errno == EINTR)
-      return TRUE;
-    warning ("poll() failed: %s", strerror (errno));
-    return FALSE;
-  }
 
   for (size_t i = 0; i < priv->poll_table->len; ++i) {
     if (priv->running == FALSE)
@@ -782,7 +666,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
         priv->poll_table, struct pollfd, i);
     Client * client = g_hash_table_lookup (priv->fd_to_client,
         GINT_TO_POINTER (entry->fd));
-    //debug ("fd %d has client %p", entry->fd, client);
+    debug ("fd %d has client %p", entry->fd, client);
 
     /* ready to send */
     if (client && entry->revents & POLLOUT) {
@@ -817,7 +701,6 @@ rtmp_server_func (gpointer data)
   gboolean ret = TRUE;
   signal (SIGPIPE, SIG_IGN);
 
-  PEX_RTMP_SERVER_LOCK (srv);
   while (srv->priv->running && ret) {
     ret = rtmp_server_do_poll (srv);
   }
@@ -833,7 +716,6 @@ rtmp_server_func (gpointer data)
     srv->priv->poll_table = g_array_remove_index (srv->priv->poll_table, i);
     i--;
   }
-  PEX_RTMP_SERVER_UNLOCK (srv);
 
   return NULL;
 }
@@ -872,7 +754,6 @@ pex_rtmp_server_start (PexRtmpServer * srv)
   priv->poll_table = g_array_new (FALSE, TRUE, sizeof (struct pollfd));
   priv->fd_to_client = g_hash_table_new (NULL, NULL);
   priv->connections = connections_new ();
-  g_mutex_init (&priv->lock);
 
   /* listen for normal and ssl connections */
   priv->listen_fd = add_listen_fd (priv->port);
@@ -897,10 +778,7 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
   PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
 
   debug ("Stopping...");
-  PEX_RTMP_SERVER_LOCK (srv);
   priv->running = FALSE;
-  PEX_RTMP_SERVER_UNLOCK (srv);
-
   g_thread_join (priv->thread);
   if (priv->last_queue_overflow != NULL) {
     g_timer_destroy (priv->last_queue_overflow);
@@ -913,8 +791,6 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
   g_hash_table_destroy (priv->fd_to_client);
   connections_free (priv->connections);
   priv->connections = NULL;
-
-  g_mutex_clear (&priv->lock);
 }
 
 void pex_rtmp_server_free (PexRtmpServer * srv)

@@ -247,7 +247,7 @@ pex_rtmp_handshake_verify_reply (PexRtmpHandshake * hs, guint8 reply[HANDSHAKE_L
   /* the client should send back the same thing we sent it after 4 bytes
      timestamp and 4 bytes server version */
   if (memcmp (hs->first_half + 8, reply + 8, HANDSHAKE_LENGTH - 8) != 0) {
-    debug ("Warning handshake verify failed. Acting like it was correct");
+    debug("Warning handshake verify failed. Acting like it was correct");
   }
   return TRUE;
 }
