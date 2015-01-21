@@ -176,16 +176,35 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
   debug ("Handling result for txid %d", txid);
 
   if (txid == 1) {
-    debug ("Sending createStream");
-    AmfEnc * invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "createStream");
+    debug ("Sending releaseStream + FCPublish + createStream");
+    AmfEnc * invoke;
+    invoke = amf_enc_new ();
+    amf_enc_write_string (invoke, "releaseStream");
     amf_enc_write_double (invoke, 2.0);
     amf_enc_write_null (invoke);
+    amf_enc_write_string (invoke, client->dialout_path);
     client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
-        invoke->buf, 0, 1, CHAN_RESULT);
+        invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
     amf_enc_free (invoke);
-  } else if (txid == 2) {
-    debug ("Sending publish + @setDataFrame");
+
+    invoke = amf_enc_new ();
+    amf_enc_write_string (invoke, "FCPublish");
+    amf_enc_write_double (invoke, 3.0);
+    amf_enc_write_null (invoke);
+    amf_enc_write_string (invoke, client->dialout_path);
+    client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
+        invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+    amf_enc_free (invoke);
+
+    invoke = amf_enc_new ();
+    amf_enc_write_string (invoke, "createStream");
+    amf_enc_write_double (invoke, 4.0);
+    amf_enc_write_null (invoke);
+    client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
+        invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+    amf_enc_free (invoke);
+  } else if (txid == 4) {
+    debug ("Sending publish");
     AmfEnc * invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "publish");
     amf_enc_write_double (invoke, 0.0);
@@ -195,23 +214,6 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
     client_rtmp_send (client, MSG_INVOKE, STREAM_ID,
         invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
     amf_enc_free (invoke);
-
-    GstStructure * object = gst_structure_new ("object",
-        "videocodecid", G_TYPE_DOUBLE, 7.0,
-        "profile", G_TYPE_STRING, "baseline",
-        "fps", G_TYPE_DOUBLE, 30.0,
-        "keyFrameInterval", G_TYPE_DOUBLE, 48.0,
-        "codec", G_TYPE_STRING, "H264Avc",
-        "level", G_TYPE_STRING, "3.1",
-        NULL);
-    invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "@setDataFrame");
-    amf_enc_write_string (invoke, "onMetaData");
-    amf_enc_write_object (invoke, object);
-    client_rtmp_send (client, MSG_NOTIFY, STREAM_ID,
-        invoke->buf, 0, 1, CHAN_RESULT);
-    amf_enc_free (invoke);
-    gst_structure_free (object);
   }
 
   //g_value_unset (reply);
@@ -241,6 +243,28 @@ client_handle_onstatus (Client * client, double txid, AmfDec * dec)
   if (code && g_strcmp0 (code, "NetStream.Publish.Start") == 0) {
     /* make the client a subscriber on the local server */
     connections_add_subscriber (client->connections, client, client->path);
+
+    GstStructure * meta = gst_structure_new ("object",
+        "videocodecid", G_TYPE_STRING, "avc1",
+        "profile", G_TYPE_STRING, "baseline",
+        "fps", G_TYPE_DOUBLE, 30.0,
+        "framerate", G_TYPE_DOUBLE, 30.0,
+        "keyFrameInterval", G_TYPE_DOUBLE, 48.0,
+        "codec", G_TYPE_STRING, "H264Avc",
+        "level", G_TYPE_STRING, "3.1",
+        "audiosamplerate", G_TYPE_DOUBLE, 48000.0,
+        "audiochannels", G_TYPE_DOUBLE, 1.0,
+        "audiocodecid", G_TYPE_STRING, "mp4a",
+        "audiodatarate", G_TYPE_DOUBLE, 64.0,
+        NULL);
+    AmfEnc * invoke = amf_enc_new ();
+    amf_enc_write_string (invoke, "@setDataFrame");
+    amf_enc_write_string (invoke, "onMetaData");
+    amf_enc_write_object (invoke, meta);
+    client_rtmp_send (client, MSG_NOTIFY, STREAM_ID,
+        invoke->buf, 0, 1, CHAN_RESULT);
+    amf_enc_free (invoke);
+    gst_structure_free (meta);
   }
 
   gst_structure_free (object);
@@ -262,14 +286,17 @@ client_do_connect (Client * client, const gchar * tcUrl,
   /* send connect */
   GstStructure * status = gst_structure_new ("object",
       "app", G_TYPE_STRING, application_name,
-      "flashVer", G_TYPE_STRING, "WIN 16,0,0,0,235",
       "tcUrl", G_TYPE_STRING, tcUrl,
-      "fpad", G_TYPE_BOOLEAN, TRUE, /* we are doing proxying */
-      "audioCodecs", G_TYPE_DOUBLE, (gdouble)(SUPPORT_SND_AAC | SUPPORT_SND_SPEEX),
-      "videoCodecs", G_TYPE_DOUBLE, (gdouble)SUPPORT_VID_H264,
-      "videoFunctions", G_TYPE_DOUBLE, 0.0, /* We can't do seek */
-      "objectEncoding", G_TYPE_DOUBLE, 0.0, /* AMF0 */
+      "type", G_TYPE_STRING, "nonprivate",
+      "flashVer", G_TYPE_STRING, "FMLE/3.0 (compatible; FMSc/1.0)",
+      "swfUrl", G_TYPE_STRING, tcUrl,
       NULL);
+
+//      "fpad", G_TYPE_BOOLEAN, TRUE, /* we are doing proxying */
+//      "audioCodecs", G_TYPE_DOUBLE, (gdouble)(SUPPORT_SND_AAC | SUPPORT_SND_SPEEX),
+//      "videoCodecs", G_TYPE_DOUBLE, (gdouble)SUPPORT_VID_H264,
+//      "videoFunctions", G_TYPE_DOUBLE, 0.0, /* We can't do seek */
+//      "objectEncoding", G_TYPE_DOUBLE, 0.0, /* AMF0 */
 
   AmfEnc * invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "connect");
@@ -280,13 +307,6 @@ client_do_connect (Client * client, const gchar * tcUrl,
       invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
   amf_enc_free (invoke);
   gst_structure_free (status);
-
-  // Send win ack size
-  invoke = amf_enc_new ();
-  amf_enc_add_int (invoke, htonl (client->window_size));
-  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
-  amf_enc_free (invoke);
 }
 
 static void
@@ -327,19 +347,11 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
       invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
   amf_enc_free (invoke);
 
-  // StreamBegin
-  AmfEnc * control = amf_enc_new ();
-  amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
-  amf_enc_add_int (control, htonl (STREAM_ID));
-  client_rtmp_send (client, MSG_USER_CONTROL, CONTROL_ID,
-                    control->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
-  amf_enc_free (control);
-
   GValue version = G_VALUE_INIT;
   g_value_init (&version, GST_TYPE_STRUCTURE);
   GstStructure * version_s = gst_structure_new ("object",
-      "capabilities", G_TYPE_DOUBLE, 255.0,
-      "fmsVer", G_TYPE_STRING, "FMS/4,5,1,484",
+      "fmsVer", G_TYPE_STRING, "FMS/3,5,3,824",
+      "capabilities", G_TYPE_DOUBLE, 127.0,
       "mode", G_TYPE_DOUBLE, 1.0,
       NULL);
   gst_value_set_structure (&version, version_s);
@@ -348,9 +360,9 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   GValue status = G_VALUE_INIT;
   g_value_init (&status, GST_TYPE_STRUCTURE);
   GstStructure * status_s = gst_structure_new ("object",
+      "level", G_TYPE_STRING, "status",
       "code", G_TYPE_STRING, "NetConnection.Connect.Success",
       "description", G_TYPE_STRING, "Connection succeeded.",
-      "level", G_TYPE_STRING, "status",
       "objectEncoding", G_TYPE_DOUBLE, 0.0,
       NULL);
   gst_value_set_structure (&status, status_s);
@@ -396,7 +408,7 @@ client_handle_createstream (Client * client, double txid)
   GValue null_value = G_VALUE_INIT;
   GValue stream_id = G_VALUE_INIT;
   g_value_init (&stream_id, G_TYPE_DOUBLE);
-  g_value_set_double (&stream_id, STREAM_ID);
+  g_value_set_double (&stream_id, (gdouble)STREAM_ID);
   client_send_reply (client, txid, &null_value, &stream_id);
 }
 
@@ -430,10 +442,10 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
 
   /* _result for publish */
   GstStructure * status = gst_structure_new ("object",
+      "level", G_TYPE_STRING, "status",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
       "description", G_TYPE_STRING, "Stream is now published.",
       "details", G_TYPE_STRING, path,
-      "level", G_TYPE_STRING, "status",
       NULL);
   AmfEnc * invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "onStatus");
@@ -442,7 +454,7 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   amf_enc_write_object (invoke, status);
 
   client_rtmp_send (client, MSG_INVOKE, STREAM_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+      invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
   amf_enc_free (invoke);
   gst_structure_free (status);
 
@@ -716,6 +728,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       client->chunk_len = load_be32(&msg->buf->data[pos]);
       debug ("chunk size set to %d", (int)client->chunk_len);
       break;
+
     case MSG_USER_CONTROL:
     {
       double method = load_be16 (&msg->buf->data[pos]);
@@ -726,6 +739,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       }
       break;
     }
+
     case MSG_WINDOW_ACK_SIZE:
     {
       client->window_size = load_be32 (&msg->buf->data[pos]);
