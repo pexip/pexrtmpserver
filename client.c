@@ -160,9 +160,95 @@ client_send_reply (Client * client, double txid, const GValue * reply,
   amf_enc_free (invoke);
 }
 
+/* Result messages come from a server to the client,
+   but in the dial-out case we are both! */
+static void
+client_handle_result (Client * client, gint txid, AmfDec * dec)
+{
+  /* we won't handle this unless we are dialing out to a path */
+  if (client->dialout_path == NULL)
+    return;
+
+  (void)dec;
+  //GValue * reply = amf_dec_load (dec);
+  //GValue * status = amf_dec_load (dec);
+
+  debug ("Handling result for txid %d", txid);
+
+  if (txid == 1) {
+    // Our Connect is OK, send createStream
+    AmfEnc * invoke = amf_enc_new ();
+    amf_enc_write_string (invoke, "createStream");
+    amf_enc_write_double (invoke, 2.0);
+    amf_enc_write_null (invoke);
+    client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
+        invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+    amf_enc_free (invoke);
+  } else if (txid == 2) {
+    // Our createStream is OK, send publish
+    AmfEnc * invoke = amf_enc_new ();
+    amf_enc_write_string (invoke, "publish");
+    amf_enc_write_double (invoke, 0.0);
+    amf_enc_write_null (invoke);
+    amf_enc_write_string (invoke, client->dialout_path);
+    client_rtmp_send (client, MSG_INVOKE, STREAM_ID,
+        invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+    amf_enc_free (invoke);
+
+   /* make the client a subscriber on the local server */
+   connections_add_subscriber (client->connections, client, client->path);
+  }
+
+  //g_value_unset (reply);
+  //g_value_unset (status);
+}
+
+void
+client_do_connect (Client * client, const gchar * application_name, const gchar * path)
+{
+  #define SUPPORT_SND_AAC   0x0400
+  #define SUPPORT_SND_SPEEX 0x0800
+  #define SUPPORT_VID_H264  0x0080
+
+  /* make a copy of the path to connect to */
+  client->dialout_path = g_strdup (path);
+
+  /* send connect */
+  GstStructure * status = gst_structure_new ("object",
+      "app", G_TYPE_STRING, application_name,
+      "flashVer", G_TYPE_STRING, "WIN 16,0,0,0,235",
+      //"swfUrl", G_TYPE_STRING, ,
+      //"tcUrl", G_TYPE_STRING, ,
+      "fpad", G_TYPE_BOOLEAN, TRUE, /* we are doing proxying */
+      "audioCodecs", G_TYPE_DOUBLE, (gdouble)(SUPPORT_SND_AAC | SUPPORT_SND_SPEEX),
+      "videoCodecs", G_TYPE_DOUBLE, (gdouble)SUPPORT_VID_H264,
+      "videoFunctions", G_TYPE_DOUBLE, 0.0, /* We can't do seek */
+      //"pageUrl", G_TYPE_STRING, ,
+      "objectEncoding", G_TYPE_DOUBLE, 0.0, /* AMF0 */
+      NULL);
+
+  AmfEnc * invoke = amf_enc_new ();
+  amf_enc_write_string (invoke, "connect");
+  amf_enc_write_double (invoke, 1.0);
+  amf_enc_write_object (invoke, status);
+
+  client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
+      invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+  amf_enc_free (invoke);
+  gst_structure_free (status);
+
+  // Send win ack size
+  invoke = amf_enc_new ();
+  amf_enc_add_int (invoke, htonl (client->window_size));
+  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID,
+      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  amf_enc_free (invoke);
+}
+
 static void
 client_handle_connect (Client * client, double txid, AmfDec * dec)
 {
+  AmfEnc * invoke;
   GstStructure * params = amf_dec_load_object (dec);
 
   /* FIXME: support multiple applications */
@@ -175,9 +261,16 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   g_free (params_str);
   gst_structure_free (params);
 
+  // Send win ack size
+  invoke = amf_enc_new ();
+  amf_enc_add_int (invoke, htonl (client->window_size));
+  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID,
+      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  amf_enc_free (invoke);
+
   // Send set peer bandwidth
-  AmfEnc * invoke = amf_enc_new ();
-  amf_enc_add_int (invoke, htonl(5000000));
+  invoke = amf_enc_new ();
+  amf_enc_add_int (invoke, htonl (5000000));
   amf_enc_add_char (invoke, AMF_DYNAMIC);
   client_rtmp_send (client, MSG_SET_PEER_BW, CONTROL_ID,
       invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
@@ -185,18 +278,18 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
 
   // Send set chunk size
   invoke = amf_enc_new ();
-  amf_enc_add_int (invoke, htonl(client->chunk_len));
+  amf_enc_add_int (invoke, htonl (client->chunk_len));
   client_rtmp_send(client, MSG_SET_CHUNK, CONTROL_ID,
       invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
   amf_enc_free (invoke);
 
-
-  // Send win ack size
-  invoke = amf_enc_new ();
-  amf_enc_add_int (invoke, htonl(client->window_size));
-  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
-  amf_enc_free (invoke);
+  // StreamBegin
+  AmfEnc * control = amf_enc_new ();
+  amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
+  amf_enc_add_int (control, htonl (STREAM_ID));
+  client_rtmp_send (client, MSG_USER_CONTROL, CONTROL_ID,
+                    control->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  amf_enc_free (control);
 
   GValue version = G_VALUE_INIT;
   g_value_init (&version, GST_TYPE_STRUCTURE);
@@ -232,7 +325,6 @@ client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
   gchar * path = amf_dec_load_string (dec);
   debug ("fcpublish %s", path);
 
-
   GstStructure * status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
       "description", G_TYPE_STRING, path,
@@ -253,7 +345,6 @@ client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
   GValue null_value = G_VALUE_INIT;
   client_send_reply (client, txid, &null_value, &null_value);
 }
-
 
 static void
 client_handle_createstream (Client * client, double txid)
@@ -285,6 +376,15 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   connections_add_publisher (client->connections, client, path);
   debug ("publisher connected.");
 
+  /* StreamBegin */
+  AmfEnc * control = amf_enc_new ();
+  amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
+  amf_enc_add_int (control, htonl (STREAM_ID));
+  client_rtmp_send (client, MSG_USER_CONTROL, CONTROL_ID,
+                    control->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  amf_enc_free (control);
+
+  /* _result for publish */
   GstStructure * status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
       "description", G_TYPE_STRING, "Stream is now published.",
@@ -305,23 +405,16 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   GValue null_value = G_VALUE_INIT;
   client_send_reply (client, txid, &null_value, &null_value);
 
-  /* Send Window Acknowledgement Size (5.4.4) */
-  AmfEnc * enc = amf_enc_new ();
-  amf_enc_add_int (enc, htonl (client->window_size));
-  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID,
-      enc->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
-  amf_enc_free (enc);
-
   return TRUE;
 }
 
 static void
 client_start_playback (Client * client)
 {
+  /* StreamBegin */
   AmfEnc * control = amf_enc_new ();
   amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
   amf_enc_add_int (control, htonl (STREAM_ID));
-
   client_rtmp_send (client, MSG_USER_CONTROL, CONTROL_ID,
                     control->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
   amf_enc_free (control);
@@ -505,6 +598,8 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
       client_handle_fcpublish (client, txid, dec);
     } else if (strcmp (method, "createStream") == 0) {
       client_handle_createstream (client, txid);
+    } else if (strcmp (method, "_result") == 0) {
+      client_handle_result (client, (gint)txid, dec);
     }
 
   } else if (msg->endpoint == STREAM_ID) {
@@ -533,7 +628,7 @@ static void
 client_send_ack (Client *client)
 {
   AmfEnc * enc= amf_enc_new ();
-  amf_enc_add_int (enc, htonl(client->total_bytes_received));
+  amf_enc_add_int (enc, htonl (client->total_bytes_received));
   client->bytes_received_since_ack = 0;
   client_rtmp_send(client, MSG_ACK, CONTROL_ID,
       enc->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
@@ -589,6 +684,21 @@ client_handle_message (Client * client, RTMP_Message * msg)
     {
       client->window_size = load_be32 (&msg->buf->data[pos]);
       debug ("%s window size set to %u", client->path, client->window_size);
+      break;
+    }
+
+    case MSG_SET_PEER_BW:
+    {
+      client->window_size = load_be32 (&msg->buf->data[pos]);
+      debug ("%s Got Set Peer BW msg, window size set to %u",
+          client->path, client->window_size);
+
+      // Send back the expected Window Ack Msg
+      AmfEnc * invoke = amf_enc_new ();
+      amf_enc_add_int (invoke, htonl (client->window_size));
+      client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID,
+      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+      amf_enc_free (invoke);
       break;
     }
 
@@ -672,6 +782,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
           subscriber->ready = TRUE;
         }
         if (subscriber->ready) {
+          debug ("Sending video from client %p (%s) to client %p (%s)",
+              client, client->path, subscriber, subscriber->path);
           client_rtmp_send (subscriber, MSG_VIDEO, STREAM_ID,
               msg->buf, msg->abs_timestamp, 0, CHAN_CONTROL);
         }
@@ -864,16 +976,65 @@ print_ssl_errors ()
   }
 }
 
+gboolean
+client_add_incoming_ssl (Client * client, gchar * cert, gchar * key)
+{
+  client->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
+  //SSL_CTX_set_options (client->ssl_ctx, SSL_OP_ALL);
+  //SSL_CTX_set_default_verify_paths (client->ssl_ctx);
+
+  if (strlen (cert) > 0 ) {
+    BIO * cert_bio = BIO_new_mem_buf (cert, -1);
+    X509 * cert_x509 = PEM_read_bio_X509 (cert_bio, NULL, 0, NULL);
+    if (cert_x509) {
+      if (SSL_CTX_use_certificate (client->ssl_ctx, cert_x509) <= 0) {
+        warning ("did not like the certificate: %s", cert);
+        print_ssl_errors ();
+        return FALSE;
+      }
+      X509_free (cert_x509);
+    }
+    BIO_free (cert_bio);
+  }
+
+  if (strlen (key) > 0) {
+    BIO * key_bio = BIO_new_mem_buf (key, -1);
+    EVP_PKEY * key_evp = PEM_read_bio_PrivateKey (key_bio, NULL, 0, NULL);
+    if (key_evp) {
+      if (SSL_CTX_use_PrivateKey (client->ssl_ctx, key_evp) <= 0) {
+        warning ("did not like the key: %s", key);
+        print_ssl_errors ();
+        return FALSE;
+      }
+      EVP_PKEY_free (key_evp);
+    }
+    BIO_free (key_bio);
+  }
+
+  SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_NONE, NULL);
+
+  client->ssl = SSL_new (client->ssl_ctx);
+  SSL_set_fd (client->ssl, client->fd);
+
+  if (SSL_accept (client->ssl) < 0) {
+    warning ("Unable to establish ssl-connection");
+    print_ssl_errors ();
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
 Client *
 client_new (gint fd, Connections * connections, GObject * server, gboolean use_ssl)
 {
   Client * client = g_new0 (Client, 1);
 
+  client->fd = fd;
   client->connections = connections;
   client->server = server;
   client->use_ssl = use_ssl;
 
-  client->fd = fd;
   client->chunk_len = DEFAULT_CHUNK_LEN;
   client->window_size = DEFAULT_WINDOW_SIZE;
 
@@ -886,55 +1047,6 @@ client_new (gint fd, Connections * connections, GObject * server, gboolean use_s
 
   client->send_queue = g_byte_array_new ();
   client->buf = g_byte_array_new ();
-
-  /* ssl */
-  if (use_ssl) {
-    client->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
-    //SSL_CTX_set_options (client->ssl_ctx, SSL_OP_ALL);
-    //SSL_CTX_set_default_verify_paths (client->ssl_ctx);
-
-    gchar * cert, * key;
-    g_object_get (server, "cert", &cert, "key", &key, NULL);
-
-    if (strlen (cert) > 0 ) {
-      BIO * cert_bio = BIO_new_mem_buf (cert, -1);
-      X509 * cert_x509 = PEM_read_bio_X509 (cert_bio, NULL, 0, NULL);
-      if (cert_x509) {
-        if (SSL_CTX_use_certificate (client->ssl_ctx, cert_x509) <= 0) {
-          warning ("did not like the certificate: %s", cert);
-          print_ssl_errors ();
-        }
-        X509_free (cert_x509);
-      }
-      BIO_free (cert_bio);
-    }
-
-    if (strlen (key) > 0) {
-      BIO * key_bio = BIO_new_mem_buf (key, -1);
-      EVP_PKEY * key_evp = PEM_read_bio_PrivateKey (key_bio, NULL, 0, NULL);
-      if (key_evp) {
-        if (SSL_CTX_use_PrivateKey (client->ssl_ctx, key_evp) <= 0) {
-          warning ("did not like the key: %s", key);
-          print_ssl_errors ();
-        }
-        EVP_PKEY_free (key_evp);
-      }
-      BIO_free (key_bio);
-    }
-
-    g_free (cert);
-    g_free (key);
-
-    SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_NONE, NULL);
-
-    client->ssl = SSL_new (client->ssl_ctx);
-    SSL_set_fd (client->ssl, fd);
-
-    if (SSL_accept (client->ssl) < 0) {
-      warning ("Unable to establish ssl-connection");
-      print_ssl_errors ();
-    }
-  }
 
   return client;
 }
@@ -952,6 +1064,7 @@ client_free (Client * client)
   if (client->metadata)
     gst_structure_free (client->metadata);
   g_free (client->path);
+  g_free (client->dialout_path);
 
   /* ssl */
   if (client->ssl_ctx)
