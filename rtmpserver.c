@@ -718,14 +718,18 @@ pex_rtmp_server_dialout (PexRtmpServer * self,
     return;
   }
 
+  gchar * tcUrl = g_strdup_printf ("%s://%s:%d/%s",
+      protocol, ip, port, application_name);
+
   PEX_RTMP_SERVER_LOCK (self);
   Client * client = rtmp_server_create_dialout_client (self, fd, src_path);
   if (client) {
     /* connect this client as a publisher on the remote server */
-    client_do_connect (client, application_name, dest_path);
+    client_do_connect (client, tcUrl, application_name, dest_path);
   }
   PEX_RTMP_SERVER_UNLOCK (self);
 
+  g_free (tcUrl);
   g_free (protocol);
   g_free (ip);
   g_free (application_name);
