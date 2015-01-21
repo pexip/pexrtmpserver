@@ -31,6 +31,7 @@ struct _Client
   gboolean publisher;           /* Is this a publisher */
   RTMP_Message messages[64];
   gchar * path;
+  gchar * dialout_path;
   GByteArray * buf;
 
   GByteArray * send_queue;
@@ -63,4 +64,11 @@ gboolean client_receive (Client * client);
 gboolean client_handle_message (Client * client, RTMP_Message * msg);
 gboolean client_window_size_reached (Client *client);
 
+gboolean client_add_incoming_ssl (Client * client,
+    gchar * cert, gchar * key);
+
+void client_do_connect (Client * client,
+    const gchar * application_name, const gchar * path);
+
 #endif /* __CLIENT_H__ */
+
