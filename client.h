@@ -23,38 +23,41 @@ typedef struct
 
 struct _Client
 {
+  gint fd;
   Connections * connections;
   GObject * server;
-  int fd;
+  gboolean use_ssl;
+  guint stream_id;
+  size_t chunk_size;
+
+  guint32 window_size;
+  RTMP_Message messages[64];
+  GByteArray * send_queue;
+  GByteArray * buf;
+
+  gchar * path;
+  gchar * dialout_path;
+
   gboolean playing;             /* Wants to receive the stream? */
   gboolean ready;               /* Wants to receive and seen a keyframe */
   gboolean publisher;           /* Is this a publisher */
-  RTMP_Message messages[64];
-  gchar * path;
-  gchar * dialout_path;
-  GByteArray * buf;
 
-  GByteArray * send_queue;
-  GstStructure *metadata;
-  size_t chunk_len;
+  GstStructure * metadata;
   guint32 written_seq;
   guint32 read_seq;
 
-  guint32 window_size;
   guint32 bytes_received_since_ack;
   guint32 total_bytes_received;
 
   int write_queue_size;
-  guint stream_id;
 
   /* crypto */
-  gboolean use_ssl;
   SSL_CTX * ssl_ctx;
   SSL * ssl;
 };
 
 Client * client_new (gint fd, Connections * connection,
-    GObject * server, gboolean use_ssl);
+    GObject * server, gboolean use_ssl, gint stream_id, gint chunk_size);
 void client_free (Client * client);
 
 size_t client_recv_all (Client * client, void * buf, size_t len);
