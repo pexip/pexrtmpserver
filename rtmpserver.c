@@ -348,9 +348,10 @@ rtmp_server_outgoing_handshake (PexRtmpServer * srv, Client * client)
   /* FMS - version */
   memset(&outbuf[4], 0, 4);
   /* "random" numbers */
-  for (gint i = 4; i < HANDSHAKE_LENGTH; i++)
+  for (gint i = 8; i < HANDSHAKE_LENGTH; i++)
     outbuf[i] = 1; /* 1 is random... */
   /* send */
+
   if (client_send_all (client, outbuf, HANDSHAKE_LENGTH) < HANDSHAKE_LENGTH)
     return FALSE;
 
