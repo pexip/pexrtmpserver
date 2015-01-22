@@ -45,6 +45,7 @@ struct _Client
   guint32 total_bytes_received;
 
   int write_queue_size;
+  guint stream_id;
 
   /* crypto */
   gboolean use_ssl;
