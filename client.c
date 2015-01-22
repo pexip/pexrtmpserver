@@ -121,8 +121,8 @@ client_rtmp_send (Client * client, guint8 type, guint32 endpoint,
     }
 
     size_t chunk = buf->len - pos;
-    if (chunk > client->chunk_len)
-      chunk = client->chunk_len;
+    if (chunk > client->chunk_size)
+      chunk = client->chunk_size;
     client->send_queue = g_byte_array_append (client->send_queue,
         &buf->data[pos], chunk);
 
@@ -336,7 +336,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
 
   // Send set chunk size
   invoke = amf_enc_new ();
-  amf_enc_add_int (invoke, htonl (client->chunk_len));
+  amf_enc_add_int (invoke, htonl (client->chunk_size));
   client_rtmp_send(client, MSG_SET_CHUNK, CONTROL_ID,
       invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
   amf_enc_free (invoke);
@@ -718,8 +718,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
         debug ("Not enough data");
         return FALSE;
       }
-      client->chunk_len = load_be32(&msg->buf->data[pos]);
-      debug ("chunk size set to %d", (int)client->chunk_len);
+      client->chunk_size = load_be32(&msg->buf->data[pos]);
+      debug ("chunk size set to %d", (int)client->chunk_size);
       break;
 
     case MSG_USER_CONTROL:
@@ -942,8 +942,8 @@ client_receive (Client * client)
     }
 
     size_t chunk = msg->len - msg->buf->len;
-    if (chunk > client->chunk_len)
-      chunk = client->chunk_len;
+    if (chunk > client->chunk_size)
+      chunk = client->chunk_size;
 
     if (client->buf->len < header_len + chunk) {
       /* need more data */
@@ -1079,7 +1079,8 @@ client_add_incoming_ssl (Client * client, gchar * cert, gchar * key)
 }
 
 Client *
-client_new (gint fd, Connections * connections, GObject * server, gboolean use_ssl)
+client_new (gint fd, Connections * connections, GObject * server,
+    gboolean use_ssl, gint stream_id, gint chunk_size)
 {
   Client * client = g_new0 (Client, 1);
 
@@ -1087,10 +1088,10 @@ client_new (gint fd, Connections * connections, GObject * server, gboolean use_s
   client->connections = connections;
   client->server = server;
   client->use_ssl = use_ssl;
+  client->stream_id = stream_id;
+  client->chunk_size = chunk_size;
 
-  client->chunk_len = DEFAULT_CHUNK_LEN;
   client->window_size = DEFAULT_WINDOW_SIZE;
-  client->stream_id = STREAM_ID;
 
   for (int i = 0; i < 64; ++i) {
     client->messages[i].timestamp = 0;

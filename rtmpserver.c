@@ -45,6 +45,8 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_SSL_PORT 443
 #define DEFAULT_CERT ""
 #define DEFAULT_KEY ""
+#define DEFAULT_STREAM_ID 1337
+#define DEFAULT_CHUNK_SIZE 128
 
 #define PEX_RTMP_SERVER_LOCK(self) g_mutex_lock (&self->priv->lock)
 #define PEX_RTMP_SERVER_UNLOCK(self) g_mutex_unlock (&self->priv->lock)
@@ -57,6 +59,8 @@ enum
   PROP_SSL_PORT,
   PROP_CERT,
   PROP_KEY,
+  PROP_STREAM_ID,
+  PROP_CHUNK_SIZE,
 };
 
 enum
@@ -79,6 +83,8 @@ struct _PexRtmpServerPrivate
   gint ssl_port;
   gchar * cert;
   gchar * key;
+  gint stream_id;
+  gint chunk_size;
 
   gint listen_fd;
   gint listen_ssl_fd;
@@ -172,6 +178,12 @@ pex_rtmp_server_set_property (GObject * obj, guint prop_id,
     case PROP_KEY:
       self->priv->key = g_value_dup_string (value);
       break;
+    case PROP_STREAM_ID:
+      self->priv->stream_id = g_value_get_int (value);
+      break;
+    case PROP_CHUNK_SIZE:
+      self->priv->chunk_size = g_value_get_int (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
   }
@@ -198,6 +210,12 @@ pex_rtmp_server_get_property (GObject * obj, guint prop_id,
       break;
     case PROP_KEY:
       g_value_set_string (value, self->priv->key);
+      break;
+    case PROP_STREAM_ID:
+      g_value_set_int (value, self->priv->stream_id);
+      break;
+    case PROP_CHUNK_SIZE:
+      g_value_set_int (value, self->priv->chunk_size);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
@@ -239,6 +257,18 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
           "The ssl key", DEFAULT_KEY,
           G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_STREAM_ID,
+      g_param_spec_int ("stream-id", "Stread ID",
+          "The ID to use for the RTMP Media stream",
+          0, G_MAXINT, DEFAULT_STREAM_ID,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_CHUNK_SIZE,
+      g_param_spec_int ("chunk-size", "Chunk Size",
+          "The chunk size to advertise for RTMP packets",
+          0, G_MAXINT, DEFAULT_CHUNK_SIZE,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
   pex_rtmp_server_signals[SIGNAL_ON_PLAY] =
       g_signal_new ("on-play", PEX_TYPE_RTMP_SERVER,
       G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
@@ -269,8 +299,6 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
   GST_DEBUG_CATEGORY_INIT (
     pex_rtmp_server_debug, "pexrtmpserver", 0, "pexrtmpserver");
 }
-
-
 
 static int
 set_nonblock (int fd, gboolean enabled)
@@ -350,8 +378,8 @@ rtmp_server_outgoing_handshake (PexRtmpServer * srv, Client * client)
   /* "random" numbers */
   for (gint i = 8; i < HANDSHAKE_LENGTH; i++)
     outbuf[i] = 1; /* 1 is random... */
-  /* send */
 
+  /* send */
   if (client_send_all (client, outbuf, HANDSHAKE_LENGTH) < HANDSHAKE_LENGTH)
     return FALSE;
 
@@ -444,7 +472,8 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 
   gboolean use_ssl = listen_fd == srv->priv->listen_ssl_fd;
   debug ("We got an %s connection", use_ssl ? "rtmps" : "rtmp");
-  Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv), use_ssl);
+  Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
+      use_ssl, srv->priv->stream_id, srv->priv->chunk_size);
 
   /* ssl connection */
   if (use_ssl) {
@@ -478,7 +507,8 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd, const gchar * p
   gboolean use_ssl = FALSE; /* FIXME: parse protocol */
 
   debug ("We got an %s connection", use_ssl ? "rtmps" : "rtmp");
-  Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv), use_ssl);
+  Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
+      use_ssl, srv->priv->stream_id, srv->priv->chunk_size);
   client->path = g_strdup (path);
 
   /* FIXME: ssl connection */
