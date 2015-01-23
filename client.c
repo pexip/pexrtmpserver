@@ -296,13 +296,12 @@ client_do_connect (Client * client, const gchar * tcUrl,
       "type", G_TYPE_STRING, "nonprivate",
       "flashVer", G_TYPE_STRING, "FMLE/3.0 (compatible; FMSc/1.0)",
       "swfUrl", G_TYPE_STRING, tcUrl,
+      "fpad", G_TYPE_BOOLEAN, TRUE, /* we are doing proxying */
+      "audioCodecs", G_TYPE_DOUBLE, (gdouble)(SUPPORT_SND_AAC | SUPPORT_SND_SPEEX),
+      "videoCodecs", G_TYPE_DOUBLE, (gdouble)SUPPORT_VID_H264,
+      "videoFunctions", G_TYPE_DOUBLE, 0.0, /* We can't do seek */
+      "objectEncoding", G_TYPE_DOUBLE, 0.0, /* AMF0 */
       NULL);
-
-//      "fpad", G_TYPE_BOOLEAN, TRUE, /* we are doing proxying */
-//      "audioCodecs", G_TYPE_DOUBLE, (gdouble)(SUPPORT_SND_AAC | SUPPORT_SND_SPEEX),
-//      "videoCodecs", G_TYPE_DOUBLE, (gdouble)SUPPORT_VID_H264,
-//      "videoFunctions", G_TYPE_DOUBLE, 0.0, /* We can't do seek */
-//      "objectEncoding", G_TYPE_DOUBLE, 0.0, /* AMF0 */
 
   AmfEnc * invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "connect");
@@ -1131,7 +1130,9 @@ client_free (Client * client)
   if (client->metadata)
     gst_structure_free (client->metadata);
   g_free (client->path);
+  client->path = NULL;
   g_free (client->dialout_path);
+  client->dialout_path = NULL;
 
   /* ssl */
   if (client->ssl_ctx)
