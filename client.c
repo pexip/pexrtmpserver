@@ -88,11 +88,6 @@ client_try_to_send (Client * client)
   }
 
   if (written > 0) {
-    if (client->dialout_path != NULL) {
-      printf("****************** SENDING ************\n");
-      gst_util_dump_mem(client->send_queue->data, written);
-      printf("****************** SENT    ************\n");
-    }
     client->send_queue = g_byte_array_remove_range (client->send_queue, 0, written);
   }
   return TRUE;
@@ -248,16 +243,16 @@ client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_
 
     GstStructure * meta = gst_structure_new ("object",
         "videocodecid", G_TYPE_STRING, "avc1",
-        /* "profile", G_TYPE_STRING, "baseline", */
-        /* "fps", G_TYPE_DOUBLE, 30.0, */
-        /* "framerate", G_TYPE_DOUBLE, 30.0, */
-        /* "keyFrameInterval", G_TYPE_DOUBLE, 48.0, */
-        /* "codec", G_TYPE_STRING, "H264Avc", */
-        /* "level", G_TYPE_STRING, "3.1", */
-        /* "audiosamplerate", G_TYPE_DOUBLE, 48000.0, */
-        /* "audiochannels", G_TYPE_DOUBLE, 1.0, */
-        /* "audiocodecid", G_TYPE_STRING, "mp4a", */
-        /* "audiodatarate", G_TYPE_DOUBLE, 64.0, */
+        "profile", G_TYPE_STRING, "baseline",
+        "fps", G_TYPE_DOUBLE, 30.0,
+        "framerate", G_TYPE_DOUBLE, 30.0,
+        "keyFrameInterval", G_TYPE_DOUBLE, 48.0,
+        "codec", G_TYPE_STRING, "H264Avc",
+        "level", G_TYPE_STRING, "3.1",
+        "audiosamplerate", G_TYPE_DOUBLE, 48000.0,
+        "audiochannels", G_TYPE_DOUBLE, 1.0,
+        "audiocodecid", G_TYPE_STRING, "mp4a",
+        "audiodatarate", G_TYPE_DOUBLE, 64.0,
         NULL);
     AmfEnc * invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "@setDataFrame");
@@ -850,12 +845,6 @@ client_handle_message (Client * client, RTMP_Message * msg)
           subscriber->ready = TRUE;
         }
         if (subscriber->ready) {
-          debug ("Sending video %p (%s) stream_id %d %d %u",
-              subscriber, subscriber->path, subscriber->msg_stream_id, msg->buf->len, msg->abs_timestamp);
-          debug ("VIDEO DATA %d", msg->buf->len);
-          printf ("---------\n");
-          gst_util_dump_mem(msg->buf->data, msg->buf->len);
-          printf ("---------\n");
           client_rtmp_send (subscriber, MSG_VIDEO, subscriber->msg_stream_id,
               msg->buf, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
         }
@@ -898,10 +887,6 @@ client_receive (Client * client)
     debug ("unable to read from a client: %s", strerror (errno));
     return FALSE;
   }
-  printf("****************** RECEIVING ************\n");
-  gst_util_dump_mem(chunk, got);
-  printf("****************** RECEIVED  ************\n");
-
   client->buf = g_byte_array_append (client->buf, chunk, got);
 
   while (client->buf->len != 0) {
