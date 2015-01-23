@@ -87,25 +87,28 @@ client_try_to_send (Client * client)
     return FALSE;
   }
 
-  if (written > 0)
+  if (written > 0) {
     client->send_queue = g_byte_array_remove_range (client->send_queue, 0, written);
-
+  }
   return TRUE;
 }
 
 static void
-client_rtmp_send (Client * client, guint8 type, guint32 endpoint,
-    GByteArray * buf, guint32 timestamp, gint fmt, gint channel_num)
+client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
+    GByteArray * buf, guint32 timestamp, guint8 chunk_stream_id)
 {
   RTMP_Header header;
-  guint8 chunk_stream_id = channel_num & 0x3f;
+  const gint fmt = 0; /* FIXME: start storing last header and b more clever here */
+  chunk_stream_id &= 0x3f;
   header.flags = chunk_stream_id | (fmt << 6);
   header.msg_type = type;
   set_be24 (header.timestamp, timestamp);
   set_be24 (header.msg_len, buf->len);
-  set_le32 (header.endpoint, endpoint);
+  set_le32 (header.msg_stream_id, msg_stream_id);
   size_t header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
-
+  debug ("Sending packet with:\n"
+      "format:%d, chunk_stream_id:%u, timestamp:%u, len:%u, type:%u, msg_stream_id:%u",
+      fmt, chunk_stream_id, timestamp, buf->len, type, msg_stream_id);
   client->send_queue = g_byte_array_append (client->send_queue,
       (guint8 *)&header, header_len);
 
@@ -116,7 +119,6 @@ client_rtmp_send (Client * client, guint8 type, guint32 endpoint,
     if (pos) {
       guint8 flags = chunk_stream_id | (3 << 6);
       client->send_queue = g_byte_array_append (client->send_queue, &flags, 1);
-
       client->written_seq += 1;
     }
 
@@ -147,8 +149,8 @@ client_send_reply (Client * client, double txid, const GValue * reply,
   amf_enc_write_value (invoke, reply);
   amf_enc_write_value (invoke, status);
 
-  client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+  client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
   amf_enc_free (invoke);
 }
 
@@ -172,8 +174,8 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
     amf_enc_write_double (invoke, 2.0);
     amf_enc_write_null (invoke);
     amf_enc_write_string (invoke, client->dialout_path);
-    client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
-        invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+    client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
+        invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
     amf_enc_free (invoke);
 
     invoke = amf_enc_new ();
@@ -181,24 +183,26 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
     amf_enc_write_double (invoke, 3.0);
     amf_enc_write_null (invoke);
     amf_enc_write_string (invoke, client->dialout_path);
-    client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
-        invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+    client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
+        invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
     amf_enc_free (invoke);
 
     invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "createStream");
     amf_enc_write_double (invoke, 4.0);
     amf_enc_write_null (invoke);
-    client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
-        invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+    client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
+        invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
     amf_enc_free (invoke);
   } else if (txid == 4) {
     GValue * reply = amf_dec_load (dec);
     GValue * status = amf_dec_load (dec);
-    client->stream_id = (guint)g_value_get_double(status);
-    debug("Got stream id %d", client->stream_id);
+    client->msg_stream_id = (guint)g_value_get_double(status);
+    debug("Got message stream id %d", client->msg_stream_id);
     g_value_unset (reply);
     g_value_unset (status);
+    g_free (reply);
+    g_free (status);
 
     debug ("Sending publish");
     AmfEnc * invoke = amf_enc_new ();
@@ -207,11 +211,10 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
     amf_enc_write_null (invoke);
     amf_enc_write_string (invoke, client->dialout_path);
     amf_enc_write_string (invoke, "live");
-    client_rtmp_send (client, MSG_INVOKE, client->stream_id,
-        invoke->buf, 0, DEFAULT_FMT, CHAN_STREAM);
+    client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
+        invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
     amf_enc_free (invoke);
   }
-
 }
 
 static void
@@ -256,7 +259,7 @@ client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_
     amf_enc_write_string (invoke, "onMetaData");
     amf_enc_write_object (invoke, meta);
     client_rtmp_send (client, MSG_NOTIFY, stream_id,
-        invoke->buf, 0, DEFAULT_FMT, CHAN_STREAM);
+        invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
     amf_enc_free (invoke);
     gst_structure_free (meta);
   }
@@ -297,8 +300,8 @@ client_do_connect (Client * client, const gchar * tcUrl,
   amf_enc_write_double (invoke, 1.0);
   amf_enc_write_object (invoke, status);
 
-  client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+  client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
   amf_enc_free (invoke);
   gst_structure_free (status);
 }
@@ -322,23 +325,23 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   // Send win ack size
   invoke = amf_enc_new ();
   amf_enc_add_int (invoke, htonl (client->window_size));
-  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (invoke);
 
   // Send set peer bandwidth
   invoke = amf_enc_new ();
   amf_enc_add_int (invoke, htonl (5000000));
   amf_enc_add_char (invoke, AMF_DYNAMIC);
-  client_rtmp_send (client, MSG_SET_PEER_BW, CONTROL_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  client_rtmp_send (client, MSG_SET_PEER_BW, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (invoke);
 
   // Send set chunk size
   invoke = amf_enc_new ();
   amf_enc_add_int (invoke, htonl (client->chunk_size));
-  client_rtmp_send(client, MSG_SET_CHUNK, CONTROL_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  client_rtmp_send(client, MSG_SET_CHUNK, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (invoke);
 
   GValue version = G_VALUE_INIT;
@@ -387,8 +390,8 @@ client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
   amf_enc_write_null (invoke);
   amf_enc_write_object (invoke, status);
 
-  client_rtmp_send (client, MSG_INVOKE, CONTROL_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (invoke);
   gst_structure_free (status);
 
@@ -402,7 +405,7 @@ client_handle_createstream (Client * client, double txid)
   GValue null_value = G_VALUE_INIT;
   GValue stream_id = G_VALUE_INIT;
   g_value_init (&stream_id, G_TYPE_DOUBLE);
-  g_value_set_double (&stream_id, (gdouble)client->stream_id);
+  g_value_set_double (&stream_id, (gdouble)client->msg_stream_id);
   client_send_reply (client, txid, &null_value, &stream_id);
 }
 
@@ -429,9 +432,9 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   /* StreamBegin */
   AmfEnc * control = amf_enc_new ();
   amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
-  amf_enc_add_int (control, htonl (client->stream_id));
-  client_rtmp_send (client, MSG_USER_CONTROL, CONTROL_ID,
-                    control->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  amf_enc_add_int (control, htonl (client->msg_stream_id));
+  client_rtmp_send (client, MSG_USER_CONTROL, MSG_STREAM_ID_CONTROL,
+                    control->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (control);
 
   /* _result for publish */
@@ -447,8 +450,8 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   amf_enc_write_null (invoke);
   amf_enc_write_object (invoke, status);
 
-  client_rtmp_send (client, MSG_INVOKE, client->stream_id,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_RESULT);
+  client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
+      invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
   amf_enc_free (invoke);
   gst_structure_free (status);
 
@@ -464,9 +467,9 @@ client_start_playback (Client * client)
   /* StreamBegin */
   AmfEnc * control = amf_enc_new ();
   amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
-  amf_enc_add_int (control, htonl (client->stream_id));
-  client_rtmp_send (client, MSG_USER_CONTROL, CONTROL_ID,
-                    control->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  amf_enc_add_int (control, htonl (client->msg_stream_id));
+  client_rtmp_send (client, MSG_USER_CONTROL, MSG_STREAM_ID_CONTROL,
+                    control->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (control);
 
   GstStructure * status = gst_structure_new ("object",
@@ -480,8 +483,8 @@ client_start_playback (Client * client)
   amf_enc_write_null (invoke);
   amf_enc_write_object (invoke, status);
 
-  client_rtmp_send (client, MSG_INVOKE, client->stream_id,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_STREAM);
+  client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
+      invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
   amf_enc_free (invoke);
   gst_structure_free (status);
 
@@ -495,8 +498,8 @@ client_start_playback (Client * client)
   amf_enc_write_null (invoke);
   amf_enc_write_object (invoke, status);
 
-  client_rtmp_send (client, MSG_INVOKE, client->stream_id,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_STREAM);
+  client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
+      invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
   amf_enc_free (invoke);
   gst_structure_free (status);
 
@@ -505,8 +508,8 @@ client_start_playback (Client * client)
   amf_enc_write_bool (invoke, TRUE);
   amf_enc_write_bool (invoke, TRUE);
 
-  client_rtmp_send (client, MSG_NOTIFY, client->stream_id,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_STREAM);
+  client_rtmp_send (client, MSG_NOTIFY, client->msg_stream_id,
+      invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
   amf_enc_free (invoke);
 
   client->playing = TRUE;
@@ -521,8 +524,8 @@ client_start_playback (Client * client)
   invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "onMetaData");
   amf_enc_write_object (invoke, metadata);
-  client_rtmp_send (client, MSG_NOTIFY, client->stream_id,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_STREAM);
+  client_rtmp_send (client, MSG_NOTIFY, client->msg_stream_id,
+      invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
   amf_enc_free (invoke);
   gst_structure_free (metadata);
 }
@@ -587,8 +590,8 @@ client_handle_pause (Client * client, double txid, AmfDec * dec)
     amf_enc_write_null (invoke);
     amf_enc_write_object (invoke, status);
 
-    client_rtmp_send (client, MSG_INVOKE, client->stream_id,
-        invoke->buf, 0, DEFAULT_FMT, CHAN_STREAM);
+    client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
+        invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
     client->playing = FALSE;
   } else {
     client_start_playback (client);
@@ -626,8 +629,8 @@ client_handle_user_control (Client * client, const double method, const double t
   guint16 ping_response_id = 7;
   amf_enc_add_short (enc, htons (ping_response_id));
   amf_enc_add_int (enc, htonl (timestamp));
-  client_rtmp_send (client, MSG_USER_CONTROL, CONTROL_ID,
-      enc->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  client_rtmp_send (client, MSG_USER_CONTROL, MSG_STREAM_ID_CONTROL,
+      enc->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free(enc);
   return TRUE;
 }
@@ -639,11 +642,11 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   gchar * method = amf_dec_load_string (dec);
   double txid = amf_dec_load_number (dec);
 
-  debug ("%p: invoked %s with txid %lf for Stream Id: %d ", client, method, txid, msg->endpoint);
+  debug ("%p: invoked %s with txid %lf for Stream Id: %d ", client, method, txid, msg->msg_stream_id);
 
   if (strcmp (method, "onStatus") == 0) {
-    client_handle_onstatus (client, txid, dec, msg->endpoint);
-  } else if (msg->endpoint == CONTROL_ID) {
+    client_handle_onstatus (client, txid, dec, msg->msg_stream_id);
+  } else if (msg->msg_stream_id == MSG_STREAM_ID_CONTROL) {
     if (strcmp (method, "connect") == 0) {
       client_handle_connect (client, txid, dec);
     } else if (strcmp (method, "FCPublish") == 0) {
@@ -653,7 +656,7 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
     } else if (strcmp (method, "_result") == 0) {
       client_handle_result (client, (gint)txid, dec);
     }
-  } else if (msg->endpoint == client->stream_id) {
+  } else if (msg->msg_stream_id == client->msg_stream_id) {
     if (strcmp (method, "publish") == 0) {
       ret = client_handle_publish (client, txid, dec);
     } else if (strcmp (method, "play") == 0) {
@@ -681,8 +684,8 @@ client_send_ack (Client *client)
   AmfEnc * enc= amf_enc_new ();
   amf_enc_add_int (enc, htonl (client->total_bytes_received));
   client->bytes_received_since_ack = 0;
-  client_rtmp_send(client, MSG_ACK, CONTROL_ID,
-      enc->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+  client_rtmp_send(client, MSG_ACK, MSG_STREAM_ID_CONTROL,
+      enc->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free(enc);
 }
 
@@ -749,8 +752,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
       // Send back the expected Window Ack Msg
       AmfEnc * invoke = amf_enc_new ();
       amf_enc_add_int (invoke, htonl (client->window_size));
-      client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, CONTROL_ID,
-      invoke->buf, 0, DEFAULT_FMT, CHAN_CONTROL);
+      client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
       amf_enc_free (invoke);
       break;
     }
@@ -776,7 +779,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       AmfDec * dec = amf_dec_new (msg->buf, 0);
       gchar * type = amf_dec_load_string (dec);
       debug ("notify %s", type);
-      if (msg->endpoint == client->stream_id) {
+      if (msg->msg_stream_id == client->msg_stream_id) {
         if (strcmp (type, "@setDataFrame") == 0) {
           client_handle_setdataframe (client, dec);
         }
@@ -791,7 +794,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       AmfDec * dec = amf_dec_new (msg->buf, 1);
       gchar * type = amf_dec_load_string (dec);
       debug ("data %s", type);
-      if (msg->endpoint == client->stream_id) {
+      if (msg->msg_stream_id == client->msg_stream_id) {
         if (strcmp (type, "@setDataFrame") == 0) {
           client_handle_setdataframe (client, dec);
         }
@@ -811,11 +814,11 @@ client_handle_message (Client * client, RTMP_Message * msg)
         Client * subscriber = (Client *)walk->data;
 
 /* FIXME: this is the best way, can we make it so ?
-        client_rtmp_send (subscriber, MSG_AUDIO, subscriber->stream_id,
-            msg->buf, msg->timestamp, msg->fmt, CHAN_CONTROL);
+        client_rtmp_send (subscriber, MSG_AUDIO, subscriber->msg_stream_id,
+            msg->buf, msg->timestamp, msg->fmt, CHUNK_STREAM_ID_CONTROL);
 */
-        client_rtmp_send (subscriber, MSG_AUDIO, subscriber->stream_id,
-            msg->buf, msg->abs_timestamp, DEFAULT_FMT, CHAN_STREAM);
+        client_rtmp_send (subscriber, MSG_AUDIO, subscriber->msg_stream_id,
+            msg->buf, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
       }
       break;
 
@@ -835,10 +838,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
           subscriber->ready = TRUE;
         }
         if (subscriber->ready) {
-          debug ("Sending video from client %p (%s) to client %p (%s)",
-              client, client->path, subscriber, subscriber->path);
-          client_rtmp_send (subscriber, MSG_VIDEO, subscriber->stream_id,
-              msg->buf, msg->abs_timestamp, DEFAULT_FMT, CHAN_STREAM);
+          client_rtmp_send (subscriber, MSG_VIDEO, subscriber->msg_stream_id,
+              msg->buf, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
         }
       }
       break;
@@ -917,7 +918,7 @@ client_receive (Client * client)
     }
 
     if (header_len >= 12) {
-      msg->endpoint = load_le32 (header.endpoint);
+      msg->msg_stream_id = load_le32 (header.msg_stream_id);
     }
 
     /* timestamp */
@@ -1088,8 +1089,9 @@ client_new (gint fd, Connections * connections, GObject * server,
   client->connections = connections;
   client->server = server;
   client->use_ssl = use_ssl;
-  client->stream_id = stream_id;
+  client->msg_stream_id = stream_id;
   client->chunk_size = chunk_size;
+  debug ("Chunk Size: %d, Stream ID:%d\n", chunk_size, stream_id);
 
   client->window_size = DEFAULT_WINDOW_SIZE;
 
