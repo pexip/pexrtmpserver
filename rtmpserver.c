@@ -525,6 +525,12 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd, const gchar * p
   /* make the connection non-blocking */
   set_nonblock (fd, TRUE);
 
+  /* create a poll entry, and link it to the client */
+  pex_rtmp_add_fd_to_poll_table (srv, fd);
+  g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
+
+  debug ("adding client %p to fd %d", client, fd);
+
   return client;
 }
 
@@ -752,11 +758,6 @@ pex_rtmp_server_dialout (PexRtmpServer * self,
     /* connect this client as a publisher on the remote server */
     client_do_connect (client, tcUrl, application_name, dest_path);
   }
-  /* create a poll entry, and link it to the client */
-  pex_rtmp_add_fd_to_poll_table (self, fd);
-  g_hash_table_insert (self->priv->fd_to_client, GINT_TO_POINTER (fd), client);
-
-  debug ("adding client %p to fd %d", client, fd);
   PEX_RTMP_SERVER_UNLOCK (self);
 
   g_free (tcUrl);
