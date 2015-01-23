@@ -17,7 +17,7 @@ typedef struct
   size_t len;
   guint32 timestamp;
   guint32 abs_timestamp;
-  guint32 endpoint;
+  guint32 msg_stream_id;
   GByteArray * buf;
 } RTMP_Message;
 
@@ -27,7 +27,7 @@ struct _Client
   Connections * connections;
   GObject * server;
   gboolean use_ssl;
-  guint stream_id;
+  guint msg_stream_id;
   size_t chunk_size;
 
   guint32 window_size;
