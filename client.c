@@ -119,7 +119,7 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
 
   client->written_seq += header_len;
 
-  size_t pos = 0;
+  guint pos = 0;
   while (pos < buf->len) {
     if (pos) {
       guint8 flags = chunk_stream_id | (3 << 6);
@@ -127,9 +127,9 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
       client->written_seq += 1;
     }
 
-    size_t chunk = buf->len - pos;
-    if (chunk > client->chunk_size)
-      chunk = client->chunk_size;
+    guint chunk = buf->len - pos;
+    if (chunk > client->send_chunk_size)
+      chunk = client->send_chunk_size;
     client->send_queue = g_byte_array_append (client->send_queue,
         &buf->data[pos], chunk);
 
@@ -272,14 +272,23 @@ client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_
   gst_structure_free (object);
 }
 
+static void
+client_set_chunk_size (Client * client, gint chunk_size)
+{
+  debug ("Setting new send-chunk-size to %d", chunk_size);
+
+  AmfEnc * invoke = amf_enc_new ();
+  amf_enc_add_int (invoke, htonl (chunk_size));
+  client_rtmp_send(client, MSG_SET_CHUNK, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
+  amf_enc_free (invoke);
+  client->send_chunk_size = chunk_size;
+}
+
 void
 client_do_connect (Client * client, const gchar * tcUrl,
     const gchar * application_name, const gchar * path)
 {
-  #define SUPPORT_SND_AAC   0x0400
-  #define SUPPORT_SND_SPEEX 0x0800
-  #define SUPPORT_VID_H264  0x0080
-
   debug ("connecting to: %s with path: %s", tcUrl, path);
 
   /* make a copy of the path to connect to */
@@ -309,6 +318,8 @@ client_do_connect (Client * client, const gchar * tcUrl,
       invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
   amf_enc_free (invoke);
   gst_structure_free (status);
+
+  client_set_chunk_size (client, client->chunk_size);
 }
 
 static void
@@ -327,14 +338,14 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   g_free (params_str);
   gst_structure_free (params);
 
-  // Send win ack size
+  /* Send win ack size */
   invoke = amf_enc_new ();
   amf_enc_add_int (invoke, htonl (client->window_size));
   client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, MSG_STREAM_ID_CONTROL,
       invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (invoke);
 
-  // Send set peer bandwidth
+  /* Send set peer bandwidth */
   invoke = amf_enc_new ();
   amf_enc_add_int (invoke, htonl (5000000));
   amf_enc_add_char (invoke, AMF_DYNAMIC);
@@ -342,12 +353,8 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
       invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (invoke);
 
-  // Send set chunk size
-  invoke = amf_enc_new ();
-  amf_enc_add_int (invoke, htonl (client->chunk_size));
-  client_rtmp_send(client, MSG_SET_CHUNK, MSG_STREAM_ID_CONTROL,
-      invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
-  amf_enc_free (invoke);
+  /* Set sending chunk size */
+  client_set_chunk_size (client, client->chunk_size);
 
   GValue version = G_VALUE_INIT;
   g_value_init (&version, GST_TYPE_STRUCTURE);
@@ -726,8 +733,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
         debug ("Not enough data");
         return FALSE;
       }
-      client->chunk_size = load_be32(&msg->buf->data[pos]);
-      debug ("chunk size set to %d", (int)client->chunk_size);
+      client->recv_chunk_size = load_be32 (&msg->buf->data[pos]);
+      debug ("receive chunk size set to %d", client->recv_chunk_size);
       break;
 
     case MSG_USER_CONTROL:
@@ -958,8 +965,8 @@ client_receive (Client * client)
     }
 
     size_t chunk = msg->len - msg->buf->len;
-    if (chunk > client->chunk_size)
-      chunk = client->chunk_size;
+    if (chunk > client->recv_chunk_size)
+      chunk = client->recv_chunk_size;
 
     if (client->buf->len < header_len + chunk) {
       /* need more data */
@@ -1096,7 +1103,7 @@ client_add_incoming_ssl (Client * client, gchar * cert, gchar * key)
 
 Client *
 client_new (gint fd, Connections * connections, GObject * server,
-    gboolean use_ssl, gint stream_id, gint chunk_size)
+    gboolean use_ssl, gint stream_id, guint chunk_size)
 {
   Client * client = g_new0 (Client, 1);
 
@@ -1106,6 +1113,9 @@ client_new (gint fd, Connections * connections, GObject * server,
   client->use_ssl = use_ssl;
   client->msg_stream_id = stream_id;
   client->chunk_size = chunk_size;
+  client->recv_chunk_size = DEFAULT_CHUNK_SIZE;
+  client->send_chunk_size = DEFAULT_CHUNK_SIZE;
+
   debug ("Chunk Size: %d, Stream ID:%d\n", chunk_size, stream_id);
 
   client->window_size = DEFAULT_WINDOW_SIZE;
