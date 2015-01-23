@@ -3,8 +3,7 @@
 
 #include <gst/gst.h>
 
-#define PORT	1935
-
+#define DEFAULT_CHUNK_SIZE 128      /* 5.4.1 */
 #define DEFAULT_WINDOW_SIZE 128000
 
 #define HANDSHAKE_PLAINTEXT	0x03
@@ -37,14 +36,18 @@
 #define CONTROL_BUFFER_EMPTY    0x1f
 #define CONTROL_BUFFER_READY    0x20
 
-#define MSG_STREAM_ID_CONTROL		0
+#define MSG_STREAM_ID_CONTROL    0
 
-#define CHUNK_STREAM_ID_CONTROL		2
-#define CHUNK_STREAM_ID_RESULT		3
-#define CHUNK_STREAM_ID_STREAM		4
+#define CHUNK_STREAM_ID_CONTROL  2
+#define CHUNK_STREAM_ID_RESULT   3
+#define CHUNK_STREAM_ID_STREAM   4
 
 #define FLV_KEY_FRAME		0x01
 #define FLV_INTER_FRAME		0x02
+
+#define SUPPORT_SND_AAC   0x0400
+#define SUPPORT_SND_SPEEX 0x0800
+#define SUPPORT_VID_H264  0x0080
 
 #define PACKED	__attribute__((packed))
 

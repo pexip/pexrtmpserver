@@ -28,7 +28,10 @@ struct _Client
   GObject * server;
   gboolean use_ssl;
   guint msg_stream_id;
-  size_t chunk_size;
+  guint chunk_size;
+
+  guint recv_chunk_size;
+  guint send_chunk_size;
 
   guint32 window_size;
   RTMP_Message messages[64];
@@ -57,7 +60,7 @@ struct _Client
 };
 
 Client * client_new (gint fd, Connections * connection,
-    GObject * server, gboolean use_ssl, gint stream_id, gint chunk_size);
+    GObject * server, gboolean use_ssl, gint stream_id, guint chunk_size);
 void client_free (Client * client);
 
 size_t client_recv_all (Client * client, void * buf, size_t len);
