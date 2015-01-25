@@ -204,7 +204,7 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
     g_free (reply);
     g_free (status);
 
-    debug ("Sending publish");
+    debug ("Sending publish to %s", client->dialout_path);
     AmfEnc * invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "publish");
     amf_enc_write_double (invoke, 0.0);
@@ -294,7 +294,8 @@ client_do_connect (Client * client, const gchar * tcUrl,
       "app", G_TYPE_STRING, application_name,
       "tcUrl", G_TYPE_STRING, tcUrl,
       "type", G_TYPE_STRING, "nonprivate",
-      "flashVer", G_TYPE_STRING, "FMLE/3.0 (compatible; FMSc/1.0)",
+      "fpad", G_TYPE_BOOLEAN, TRUE,
+      "flashVer", G_TYPE_STRING, "Pexip RTMP Server",
       "swfUrl", G_TYPE_STRING, tcUrl,
       NULL);
 
