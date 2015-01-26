@@ -135,6 +135,8 @@ pex_rtmp_server_init (PexRtmpServer *self)
   self->priv->thread = NULL;
   self->priv->handshake = pex_rtmp_handshake_new ();
   self->priv->last_queue_overflow = NULL;
+
+  g_mutex_init (&self->priv->lock);
 }
 
 static void
@@ -152,6 +154,7 @@ pex_rtmp_server_finalize (GObject * obj)
   g_free (self->priv->cert);
   g_free (self->priv->key);
   pex_rtmp_handshake_free (self->priv->handshake);
+  g_mutex_clear (&self->priv->lock);
 
   G_OBJECT_CLASS (pex_rtmp_server_parent_class)->finalize (obj);
 }
@@ -680,7 +683,7 @@ pex_rtmp_server_tcp_connect (const gchar * ip, gint port)
   struct addrinfo hints;
   struct addrinfo *result = NULL;
 
-  memset(&hints, 0, sizeof(struct addrinfo));
+  memset (&hints, 0, sizeof(struct addrinfo));
   hints.ai_family = AF_UNSPEC;     /* Allow IPv4 or IPv6 */
   hints.ai_socktype = SOCK_STREAM; /* Stream soc */
   hints.ai_protocol = IPPROTO_TCP; /* TCP protocol */
@@ -726,30 +729,30 @@ pex_rtmp_server_tcp_connect (const gchar * ip, gint port)
   return fd;
 }
 
-void
+gboolean
 pex_rtmp_server_dialout (PexRtmpServer * self,
     const gchar * src_path, const gchar * url)
 {
-  (void)src_path;
-
+  gboolean ret = FALSE;
   gchar * protocol = NULL;
   gint port;
   gchar * ip = NULL;
   gchar * application_name = NULL;
   gchar * dest_path = NULL;
+  gchar * tcUrl = NULL;
 
   if (!pex_rtmp_server_parse_url (self, url,
       &protocol, &port, &ip, &application_name, &dest_path)) {
-    return;
+    goto done;
   }
 
   gint fd = pex_rtmp_server_tcp_connect (ip, port);
   if (fd == INVALID_FD) {
     warning ("Not able to connect");
-    return;
+    goto done;
   }
 
-  gchar * tcUrl = g_strdup_printf ("%s://%s:%d/%s",
+  tcUrl = g_strdup_printf ("%s://%s:%d/%s",
       protocol, ip, port, application_name);
 
   PEX_RTMP_SERVER_LOCK (self);
@@ -757,14 +760,18 @@ pex_rtmp_server_dialout (PexRtmpServer * self,
   if (client) {
     /* connect this client as a publisher on the remote server */
     client_do_connect (client, tcUrl, application_name, dest_path);
+    ret = TRUE;
   }
   PEX_RTMP_SERVER_UNLOCK (self);
 
+done:
   g_free (tcUrl);
   g_free (protocol);
   g_free (ip);
   g_free (application_name);
   g_free (dest_path);
+
+  return ret;
 }
 
 /* called with PEX_RTMP_SERVER_LOCK held */
@@ -907,7 +914,6 @@ pex_rtmp_server_start (PexRtmpServer * srv)
   priv->poll_table = g_array_new (FALSE, TRUE, sizeof (struct pollfd));
   priv->fd_to_client = g_hash_table_new (NULL, NULL);
   priv->connections = connections_new ();
-  g_mutex_init (&priv->lock);
 
   /* listen for normal and ssl connections */
   priv->listen_fd = add_listen_fd (priv->port);
@@ -948,8 +954,6 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
   g_hash_table_destroy (priv->fd_to_client);
   connections_free (priv->connections);
   priv->connections = NULL;
-
-  g_mutex_clear (&priv->lock);
 }
 
 void pex_rtmp_server_free (PexRtmpServer * srv)

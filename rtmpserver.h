@@ -41,7 +41,7 @@ void pex_rtmp_server_stop (PexRtmpServer * self);
 void pex_rtmp_server_free (PexRtmpServer * self);
 void pex_rtmp_connect_signal(PexRtmpServer * self, gchar * signal_name, gboolean (*callback)(gchar * path));
 int pex_rtmp_server_get_queue_size(PexRtmpServer *srv, gchar * path, gboolean publisher);
-void pex_rtmp_server_dialout (PexRtmpServer * self, const gchar * path, const gchar * url);
+gboolean pex_rtmp_server_dialout (PexRtmpServer * self, const gchar * path, const gchar * url);
 
 gboolean pex_rtmp_server_parse_url (PexRtmpServer * self, const gchar * url,
     gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
