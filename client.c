@@ -867,6 +867,34 @@ client_handle_message (Client * client, RTMP_Message * msg)
   return ret;
 }
 
+static RTMP_Message *
+rtmp_message_new ()
+{
+  RTMP_Message * msg = g_new0 (RTMP_Message, 1);
+  msg->buf = g_byte_array_new ();
+  return msg;
+}
+
+static void
+rtmp_message_free (RTMP_Message * msg)
+{
+  g_byte_array_free (msg->buf, TRUE);
+  g_free (msg);
+}
+
+static RTMP_Message *
+client_get_rtmp_message (Client * client, guint8 chunk_stream_id)
+{
+  RTMP_Message * msg = g_hash_table_lookup (client->rtmp_messages,
+      GINT_TO_POINTER (chunk_stream_id));
+  if (msg == NULL) {
+    msg = rtmp_message_new ();
+    g_hash_table_insert (client->rtmp_messages,
+        GINT_TO_POINTER (chunk_stream_id), msg);
+  }
+  return msg;
+}
+
 gboolean
 client_receive (Client * client)
 {
@@ -893,7 +921,7 @@ client_receive (Client * client)
   while (client->buf->len != 0) {
     guint8 flags = client->buf->data[0];
     guint8 fmt = flags >> 6; /* 5.3.1.2 */
-    guint8 stream_id = flags & 0x3f;
+    guint8 chunk_stream_id = flags & 0x3f;
     size_t header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
 
     if (client->buf->len < header_len) {
@@ -903,8 +931,7 @@ client_receive (Client * client)
 
     RTMP_Header header;
     memcpy (&header, &client->buf->data[0], header_len);
-
-    RTMP_Message * msg = &client->messages[stream_id];
+    RTMP_Message * msg = client_get_rtmp_message (client, chunk_stream_id);
 
     /* only get fmt from beginning of a new message */
     if (msg->buf->len == 0) {
@@ -1106,12 +1133,8 @@ client_new (gint fd, Connections * connections, GObject * server,
 
   client->window_size = DEFAULT_WINDOW_SIZE;
 
-  for (int i = 0; i < 64; ++i) {
-    client->messages[i].timestamp = 0;
-    client->messages[i].abs_timestamp = 0;
-    client->messages[i].len = 0;
-    client->messages[i].buf = g_byte_array_new ();
-  }
+  client->rtmp_messages = g_hash_table_new_full (NULL, NULL, NULL,
+      (GDestroyNotify)rtmp_message_free);
 
   client->send_queue = g_byte_array_new ();
   client->buf = g_byte_array_new ();
@@ -1122,9 +1145,7 @@ client_new (gint fd, Connections * connections, GObject * server,
 void
 client_free (Client * client)
 {
-  for (int i = 0; i < 64; ++i) {
-    g_byte_array_free (client->messages[i].buf, TRUE);
-  }
+  g_hash_table_destroy (client->rtmp_messages);
 
   g_byte_array_free (client->buf, TRUE);
   g_byte_array_free (client->send_queue, TRUE);

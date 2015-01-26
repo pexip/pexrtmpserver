@@ -34,7 +34,7 @@ struct _Client
   guint send_chunk_size;
 
   guint32 window_size;
-  RTMP_Message messages[64];
+  GHashTable * rtmp_messages;
   GByteArray * send_queue;
   GByteArray * buf;
 
