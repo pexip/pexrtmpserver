@@ -14,7 +14,7 @@ typedef struct
 {
   guint8 fmt;
   guint8 type;
-  size_t len;
+  guint len;
   guint32 timestamp;
   guint32 abs_timestamp;
   guint32 msg_stream_id;
@@ -28,8 +28,8 @@ struct _Client
   GObject * server;
   gboolean use_ssl;
   guint msg_stream_id;
-  guint chunk_size;
 
+  guint chunk_size;
   guint recv_chunk_size;
   guint send_chunk_size;
 
@@ -52,7 +52,7 @@ struct _Client
   guint32 bytes_received_since_ack;
   guint32 total_bytes_received;
 
-  int write_queue_size;
+  gint write_queue_size;
 
   /* crypto */
   SSL_CTX * ssl_ctx;
@@ -63,8 +63,8 @@ Client * client_new (gint fd, Connections * connection,
     GObject * server, gboolean use_ssl, gint stream_id, guint chunk_size);
 void client_free (Client * client);
 
-size_t client_recv_all (Client * client, void * buf, size_t len);
-size_t client_send_all (Client * client, const void * buf, size_t len);
+guint client_recv_all (Client * client, void * buf, guint len);
+guint client_send_all (Client * client, const void * buf, guint len);
 
 gboolean client_try_to_send (Client * client);
 gboolean client_receive (Client * client);
