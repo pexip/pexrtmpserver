@@ -75,7 +75,7 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
   set_be24 (header.timestamp, timestamp);
   set_be24 (header.msg_len, buf->len);
   set_le32 (header.msg_stream_id, msg_stream_id);
-  size_t header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
+  guint header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
   GST_LOG_OBJECT (client->server, "Sending packet with:\n"
       "format:%d, chunk_stream_id:%u, timestamp:%u, len:%u, type:%u, msg_stream_id:%u",
       fmt, chunk_stream_id, timestamp, buf->len, type, msg_stream_id);
@@ -686,7 +686,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       client_send_ack (client);
   }
 
-  size_t pos = 0;
+  guint pos = 0;
   switch (msg->type) {
     case MSG_ACK:
       if (pos + 4 > msg->buf->len) {
@@ -894,7 +894,7 @@ client_receive (Client * client)
     guint8 flags = client->buf->data[0];
     guint8 fmt = flags >> 6; /* 5.3.1.2 */
     guint8 chunk_stream_id = flags & 0x3f;
-    size_t header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
+    guint header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
 
     if (client->buf->len < header_len) {
       /* need more data */
@@ -949,7 +949,7 @@ client_receive (Client * client)
       msg->abs_timestamp += msg->timestamp;
     }
 
-    size_t chunk = msg->len - msg->buf->len;
+    guint chunk = msg->len - msg->buf->len;
     if (chunk > client->recv_chunk_size)
       chunk = client->recv_chunk_size;
 
@@ -970,10 +970,10 @@ client_receive (Client * client)
   return TRUE;
 }
 
-size_t
-client_recv_all (Client * client, void * buf, size_t len)
+guint
+client_recv_all (Client * client, void * buf, guint len)
 {
-  size_t pos = 0;
+  guint pos = 0;
   while (pos < len) {
     ssize_t bytes;
     if (client->use_ssl) {
@@ -994,10 +994,10 @@ client_recv_all (Client * client, void * buf, size_t len)
   return pos;
 }
 
-size_t
-client_send_all (Client * client, const void * buf, size_t len)
+guint
+client_send_all (Client * client, const void * buf, guint len)
 {
-  size_t pos = 0;
+  guint pos = 0;
   while (pos < len) {
     ssize_t written;
     if (client->use_ssl) {
