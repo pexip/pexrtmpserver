@@ -48,4 +48,3 @@ gboolean pex_rtmp_server_parse_url (PexRtmpServer * self, const gchar * url,
     gchar ** path);
 
 #endif /* __RTMP_SERVER_H__ */
-
