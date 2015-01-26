@@ -644,12 +644,16 @@ pex_rtmp_server_parse_url (PexRtmpServer * self, const gchar * url,
   const gchar * address = slash_clip[0];
   address_clip = g_strsplit (address, ":", 1024);
   const gchar * port_str = address_clip[1];
-  if (port_str && strlen (port_str) > 0) {
-    *port = atoi (port_str);
+  if (port_str) {
+    if (strlen (port_str) > 0) {
+      *port = atoi (port_str);
+    } else {
+      GST_WARNING_OBJECT (self, "Specify the port, buster!");
+      ret = FALSE;
+      goto done;
+    }
   } else {
-    GST_WARNING_OBJECT (self, "Specify the port, buster!");
-    ret = FALSE;
-    goto done;
+    *port = 1935;
   }
 
   *protocol = g_strdup (protocol_tmp);
