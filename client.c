@@ -26,36 +26,6 @@
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
-#define debug(fmt...) GST_DEBUG(fmt)
-#define warning(fmt...) GST_WARNING(fmt)
-
-static gboolean
-is_safe (guint8 b)
-{
-  return b >= ' ' && b < 128;
-}
-
-static void
-hexdump (const void *buf, size_t len)
-{
-  const guint8 * data = (const guint8 *) buf;
-  for (size_t i = 0; i < len; i += 16) {
-    for (int j = 0; j < 16; ++j) {
-      if (i + j < len)
-        debug ("%.2x ", data[i + j]);
-      else
-        debug ("   ");
-    }
-    for (int j = 0; j < 16; ++j) {
-      if (i + j < len) {
-        putc (is_safe (data[i + j]) ? data[i + j] : '.', stdout);
-      } else {
-        putc (' ', stdout);
-      }
-    }
-    putc ('\n', stdout);
-  }
-}
 
 gboolean
 client_try_to_send (Client * client)
@@ -83,7 +53,7 @@ client_try_to_send (Client * client)
   if (written < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
-    warning ("unable to write to a client (%s): %s", client->path, strerror (errno));
+    GST_WARNING_OBJECT (client->server, "unable to write to a client (%s): %s", client->path, strerror (errno));
     return FALSE;
   }
 
@@ -106,7 +76,7 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
   set_be24 (header.msg_len, buf->len);
   set_le32 (header.msg_stream_id, msg_stream_id);
   size_t header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
-  debug ("Sending packet with:\n"
+  GST_LOG_OBJECT (client->server, "Sending packet with:\n"
       "format:%d, chunk_stream_id:%u, timestamp:%u, len:%u, type:%u, msg_stream_id:%u",
       fmt, chunk_stream_id, timestamp, buf->len, type, msg_stream_id);
   client->send_queue = g_byte_array_append (client->send_queue,
@@ -164,10 +134,10 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
     return;
 
   (void)dec;
-  debug ("Handling result for txid %d", txid);
+  GST_DEBUG_OBJECT (client->server, "Handling result for txid %d", txid);
 
   if (txid == 1) {
-    debug ("Sending releaseStream + FCPublish + createStream");
+    GST_DEBUG_OBJECT (client->server, "Sending releaseStream + FCPublish + createStream");
     AmfEnc * invoke;
     invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "releaseStream");
@@ -198,13 +168,13 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
     GValue * reply = amf_dec_load (dec);
     GValue * status = amf_dec_load (dec);
     client->msg_stream_id = (guint)g_value_get_double(status);
-    debug("Got message stream id %d", client->msg_stream_id);
+    GST_DEBUG_OBJECT (client->server, "Got message stream id %d", client->msg_stream_id);
     g_value_unset (reply);
     g_value_unset (status);
     g_free (reply);
     g_free (status);
 
-    debug ("Sending publish to %s", client->dialout_path);
+    GST_DEBUG_OBJECT (client->server, "Sending publish to %s", client->dialout_path);
     AmfEnc * invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "publish");
     amf_enc_write_double (invoke, 0.0);
@@ -217,26 +187,26 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
   }
 }
 
-static void
+static gboolean
 client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_id)
 {
   (void)txid;
   /* we won't handle this unless we are dialing out to a path */
   if (client->dialout_path == NULL)
-    return;
+    return TRUE;
 
   gboolean reject_play = FALSE;
   g_signal_emit_by_name (client->server, "on-play", client->path, &reject_play);
   if (reject_play) {
-    debug ("%p Not playing due to signal returning 0", client);
-    return;
+    GST_DEBUG_OBJECT (client->server, "%p Not playing due to signal returning 0", client);
+    return FALSE;
   }
 
   g_free (amf_dec_load (dec));           /* NULL */
   GstStructure * object = amf_dec_load_object (dec);
 
   const gchar * code = gst_structure_get_string (object, "code");
-  debug ("onStatus - code: %s", code);
+  GST_DEBUG_OBJECT (client->server, "onStatus - code: %s", code);
   if (code && g_strcmp0 (code, "NetStream.Publish.Start") == 0) {
     /* make the client a subscriber on the local server */
     connections_add_subscriber (client->connections, client, client->path);
@@ -265,12 +235,13 @@ client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_
   }
 
   gst_structure_free (object);
+  return TRUE;
 }
 
 static void
 client_set_chunk_size (Client * client, gint chunk_size)
 {
-  debug ("Setting new send-chunk-size to %d", chunk_size);
+  GST_DEBUG_OBJECT (client->server, "Setting new send-chunk-size to %d", chunk_size);
 
   AmfEnc * invoke = amf_enc_new ();
   amf_enc_add_int (invoke, htonl (chunk_size));
@@ -284,7 +255,7 @@ void
 client_do_connect (Client * client, const gchar * tcUrl,
     const gchar * application_name, const gchar * path)
 {
-  debug ("connecting to: %s with path: %s", tcUrl, path);
+  GST_DEBUG_OBJECT (client->server, "connecting to: %s with path: %s", tcUrl, path);
 
   /* make a copy of the path to connect to */
   client->dialout_path = g_strdup (path);
@@ -326,11 +297,11 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
 
   /* FIXME: support multiple applications */
   //if (strcmp (app, application_name) != 0) {
-  //  g_warning ("Unsupported application: %s", app);
+  //  g_GST_WARNING_OBJECT (client->server, "Unsupported application: %s", app);
   //}
 
   gchar * params_str = gst_structure_to_string (params);
-  debug ("connect: %s", params_str);
+  GST_DEBUG_OBJECT (client->server, "connect: %s", params_str);
   g_free (params_str);
   gst_structure_free (params);
 
@@ -384,7 +355,7 @@ client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
   g_free (amf_dec_load (dec));           /* NULL */
 
   gchar * path = amf_dec_load_string (dec);
-  debug ("fcpublish %s", path);
+  GST_DEBUG_OBJECT (client->server, "fcpublish %s", path);
 
   GstStructure * status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
@@ -422,7 +393,7 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec)); /* NULL */
   gchar * path = amf_dec_load_string (dec);
-  debug ("publish %s", path);
+  GST_DEBUG_OBJECT (client->server, "publish %s", path);
 
   client->publisher = TRUE;
   g_free (client->path);
@@ -431,11 +402,11 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   gboolean reject_publish = FALSE;
   g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
   if (reject_publish) {
-    debug ("Not publishing due to signal rejecting publish");
+    GST_DEBUG_OBJECT (client->server, "Not publishing due to signal rejecting publish");
     return FALSE;
   }
   connections_add_publisher (client->connections, client, path);
-  debug ("publisher connected.");
+  GST_DEBUG_OBJECT (client->server, "publisher connected.");
 
   /* StreamBegin */
   AmfEnc * control = amf_enc_new ();
@@ -528,7 +499,8 @@ client_start_playback (Client * client)
   /* send pexip metadata to the client */
   GstStructure * metadata = gst_structure_new ("metadata",
       "Server", G_TYPE_STRING, "Pexip RTMP Server", NULL);
-  debug("(%s) METADATA %"GST_PTR_FORMAT, client->path, metadata);
+  GST_DEBUG_OBJECT (client->server, "(%s) METADATA %"GST_PTR_FORMAT,
+      client->path, metadata);
   invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "onMetaData");
   amf_enc_write_object (invoke, metadata);
@@ -549,10 +521,10 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   gboolean reject_play = FALSE;
   g_signal_emit_by_name(client->server, "on-play", path, &reject_play);
   if (reject_play) {
-    debug ("%p Not playing due to signal returning 0", client);
+    GST_DEBUG_OBJECT (client->server, "%p Not playing due to signal returning 0", client);
     return FALSE;
   }
-  debug ("play %s", path);
+  GST_DEBUG_OBJECT (client->server, "play %s", path);
 
   client_start_playback (client);
 
@@ -569,7 +541,7 @@ client_handle_play2 (Client * client, double txid, AmfDec * dec)
 
   GstStructure * params = amf_dec_load_object (dec);
   const gchar * path = gst_structure_get_string (params, "streamName");
-  debug ("play2 %s", path);
+  GST_DEBUG_OBJECT (client->server, "play2 %s", path);
   gst_structure_free (params);
 
   client_start_playback (client);
@@ -585,7 +557,7 @@ client_handle_pause (Client * client, double txid, AmfDec * dec)
 
   gboolean paused = amf_dec_load_boolean (dec);
   if (paused) {
-    debug ("pausing");
+    GST_DEBUG_OBJECT (client->server, "pausing");
 
     GstStructure * status = gst_structure_new ("object",
         "code", G_TYPE_STRING, "NetStream.Pause.Notify",
@@ -613,20 +585,20 @@ static void
 client_handle_setdataframe (Client * client, AmfDec * dec)
 {
   if (!client->publisher) {
-    g_warning ("not a publisher");
+    GST_WARNING_OBJECT (client->server, "not a publisher");
     return;
   }
 
   gchar * type = amf_dec_load_string (dec);
   if (strcmp (type, "onMetaData") != 0) {
-    g_warning ("can only set metadata");
+    GST_WARNING_OBJECT (client->server, "can only set metadata");
   }
   g_free (type);
 
   if (client->metadata)
     gst_structure_free (client->metadata);
   client->metadata = amf_dec_load_object (dec);
-  debug ("(%s) METADATA %"GST_PTR_FORMAT, client->path, client->metadata);
+  GST_DEBUG_OBJECT (client->server, "(%s) METADATA %"GST_PTR_FORMAT, client->path, client->metadata);
 }
 
 static gboolean
@@ -650,10 +622,10 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   gchar * method = amf_dec_load_string (dec);
   double txid = amf_dec_load_number (dec);
 
-  debug ("%p: invoked %s with txid %lf for Stream Id: %d ", client, method, txid, msg->msg_stream_id);
+  GST_DEBUG_OBJECT (client->server, "%p: invoked %s with txid %lf for Stream Id: %d ", client, method, txid, msg->msg_stream_id);
 
   if (strcmp (method, "onStatus") == 0) {
-    client_handle_onstatus (client, txid, dec, msg->msg_stream_id);
+    ret = client_handle_onstatus (client, txid, dec, msg->msg_stream_id);
   } else if (msg->msg_stream_id == MSG_STREAM_ID_CONTROL) {
     if (strcmp (method, "connect") == 0) {
       client_handle_connect (client, txid, dec);
@@ -718,7 +690,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
   switch (msg->type) {
     case MSG_ACK:
       if (pos + 4 > msg->buf->len) {
-        debug ("Not enough data");
+        GST_DEBUG_OBJECT (client->server, "Not enough data");
         return FALSE;
       }
       client->read_seq = load_be32 (&msg->buf->data[pos]);
@@ -726,11 +698,11 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_SET_CHUNK:
       if (pos + 4 > msg->buf->len) {
-        debug ("Not enough data");
+        GST_DEBUG_OBJECT (client->server, "Not enough data");
         return FALSE;
       }
       client->recv_chunk_size = load_be32 (&msg->buf->data[pos]);
-      debug ("receive chunk size set to %d", client->recv_chunk_size);
+      GST_DEBUG_OBJECT (client->server, "receive chunk size set to %d", client->recv_chunk_size);
       break;
 
     case MSG_USER_CONTROL:
@@ -747,14 +719,14 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_WINDOW_ACK_SIZE:
     {
       client->window_size = load_be32 (&msg->buf->data[pos]);
-      debug ("%s window size set to %u", client->path, client->window_size);
+      GST_DEBUG_OBJECT (client->server, "%s window size set to %u", client->path, client->window_size);
       break;
     }
 
     case MSG_SET_PEER_BW:
     {
       client->window_size = load_be32 (&msg->buf->data[pos]);
-      debug ("%s Got Set Peer BW msg, window size set to %u",
+      GST_DEBUG_OBJECT (client->server, "%s Got Set Peer BW msg, window size set to %u",
           client->path, client->window_size);
 
       // Send back the expected Window Ack Msg
@@ -786,7 +758,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     {
       AmfDec * dec = amf_dec_new (msg->buf, 0);
       gchar * type = amf_dec_load_string (dec);
-      debug ("notify %s", type);
+      GST_DEBUG_OBJECT (client->server, "notify %s", type);
       if (msg->msg_stream_id == client->msg_stream_id) {
         if (strcmp (type, "@setDataFrame") == 0) {
           client_handle_setdataframe (client, dec);
@@ -801,7 +773,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     {
       AmfDec * dec = amf_dec_new (msg->buf, 1);
       gchar * type = amf_dec_load_string (dec);
-      debug ("data %s", type);
+      GST_DEBUG_OBJECT (client->server, "data %s", type);
       if (msg->msg_stream_id == client->msg_stream_id) {
         if (strcmp (type, "@setDataFrame") == 0) {
           client_handle_setdataframe (client, dec);
@@ -814,7 +786,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_AUDIO:
       if (!client->publisher) {
-        debug ("not a publisher");
+        GST_DEBUG_OBJECT (client->server, "not a publisher");
         return FALSE;
       }
       GSList * subscribers = connections_get_subscribers (client->connections, client->path);
@@ -834,7 +806,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_VIDEO:
     {
       if (!client->publisher) {
-        debug ("not a publisher");
+        GST_DEBUG_OBJECT (client->server, "not a publisher");
         return FALSE;
       }
       guint8 flags = msg->buf->data[0];
@@ -854,13 +826,13 @@ client_handle_message (Client * client, RTMP_Message * msg)
     }
 
     case MSG_FLASH_VIDEO:
-      g_warning ("streaming FLV not supported");
+      GST_WARNING_OBJECT (client->server, "streaming FLV not supported");
       ret = FALSE;
       break;
 
     default:
-      debug ("unhandled message: %02x", msg->type);
-      hexdump (msg->buf->data, msg->buf->len);
+      GST_DEBUG_OBJECT (client->server, "unhandled message: %02x", msg->type);
+      gst_util_dump_mem (msg->buf->data, msg->buf->len);
       break;
   }
 
@@ -908,12 +880,12 @@ client_receive (Client * client)
   }
 
   if (got == 0) {
-    debug ("EOF from a client");
+    GST_DEBUG_OBJECT (client->server, "EOF from a client");
     return FALSE;
   } else if (got < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
-    debug ("unable to read from a client: %s", strerror (errno));
+    GST_DEBUG_OBJECT (client->server, "unable to read from a client: %s", strerror (errno));
     return FALSE;
   }
   client->buf = g_byte_array_append (client->buf, chunk, got);
@@ -941,14 +913,14 @@ client_receive (Client * client)
     if (header_len >= 8) {
       msg->len = load_be24 (header.msg_len);
       if (msg->len < msg->buf->len) {
-        debug ("invalid msg length");
+        GST_DEBUG_OBJECT (client->server, "invalid msg length");
         return FALSE;
       }
       msg->type = header.msg_type;
     }
 
     if (msg->len == 0) {
-      debug ("message without a header");
+      GST_DEBUG_OBJECT (client->server, "message without a header");
       return FALSE;
     }
 
@@ -960,7 +932,7 @@ client_receive (Client * client)
     if (header_len >= 4) {
       guint32 ts = load_be24 (header.timestamp);
       if (ts == 0xffffff) {
-        debug ("ext timestamp not supported");
+        GST_DEBUG_OBJECT (client->server, "ext timestamp not supported");
         return TRUE;
       }
       msg->timestamp = ts;
@@ -1012,7 +984,7 @@ client_recv_all (Client * client, void * buf, size_t len)
     if (bytes < 0) {
       if (errno == EAGAIN || errno == EINTR)
         continue;
-      warning ("unable to recv: %s", strerror (errno));
+      GST_WARNING_OBJECT (client->server, "unable to recv: %s", strerror (errno));
       return bytes;
     }
     if (bytes == 0)
@@ -1043,7 +1015,7 @@ client_send_all (Client * client, const void * buf, size_t len)
     if (written < 0) {
       if (errno == EAGAIN || errno == EINTR)
         continue;
-      debug ("unable to send: %s", strerror (errno));
+      GST_DEBUG_OBJECT (client->server, "unable to send: %s", strerror (errno));
       return written;
     }
     if (written == 0)
@@ -1054,14 +1026,14 @@ client_send_all (Client * client, const void * buf, size_t len)
 }
 
 static void
-print_ssl_errors ()
+print_ssl_errors (Client * client)
 {
   char tmp[4096];
   gint error;
   while ((error = ERR_get_error ()) != 0) {
     memset (tmp, 0, sizeof (tmp));
     ERR_error_string_n (error, tmp, sizeof (tmp) - 1);
-    warning ("ssl-error: %s", tmp);
+    GST_WARNING_OBJECT (client->server, "ssl-error: %s", tmp);
   }
 }
 
@@ -1077,8 +1049,8 @@ client_add_incoming_ssl (Client * client, gchar * cert, gchar * key)
     X509 * cert_x509 = PEM_read_bio_X509 (cert_bio, NULL, 0, NULL);
     if (cert_x509) {
       if (SSL_CTX_use_certificate (client->ssl_ctx, cert_x509) <= 0) {
-        warning ("did not like the certificate: %s", cert);
-        print_ssl_errors ();
+        GST_WARNING_OBJECT (client->server, "did not like the certificate: %s", cert);
+        print_ssl_errors (client);
         return FALSE;
       }
       X509_free (cert_x509);
@@ -1091,8 +1063,8 @@ client_add_incoming_ssl (Client * client, gchar * cert, gchar * key)
     EVP_PKEY * key_evp = PEM_read_bio_PrivateKey (key_bio, NULL, 0, NULL);
     if (key_evp) {
       if (SSL_CTX_use_PrivateKey (client->ssl_ctx, key_evp) <= 0) {
-        warning ("did not like the key: %s", key);
-        print_ssl_errors ();
+        GST_WARNING_OBJECT (client->server, "did not like the key: %s", key);
+        print_ssl_errors (client);
         return FALSE;
       }
       EVP_PKEY_free (key_evp);
@@ -1106,8 +1078,8 @@ client_add_incoming_ssl (Client * client, gchar * cert, gchar * key)
   SSL_set_fd (client->ssl, client->fd);
 
   if (SSL_accept (client->ssl) < 0) {
-    warning ("Unable to establish ssl-connection");
-    print_ssl_errors ();
+    GST_WARNING_OBJECT (client->server, "Unable to establish ssl-connection");
+    print_ssl_errors (client);
     return FALSE;
   }
 
@@ -1129,7 +1101,7 @@ client_new (gint fd, Connections * connections, GObject * server,
   client->recv_chunk_size = DEFAULT_CHUNK_SIZE;
   client->send_chunk_size = DEFAULT_CHUNK_SIZE;
 
-  debug ("Chunk Size: %d, Stream ID:%d\n", chunk_size, stream_id);
+  GST_DEBUG_OBJECT (client->server, "Chunk Size: %d, Stream ID:%d\n", chunk_size, stream_id);
 
   client->window_size = DEFAULT_WINDOW_SIZE;
 
