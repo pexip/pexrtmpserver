@@ -103,7 +103,7 @@ pex_rtmp_handshake_process (PexRtmpHandshake * hs, const guint8 * org_data, gint
 
   guint8 type = org_data[0];
   if (type != 3) {
-    debug ("Invalid handshake type");
+    debug ("Invalid handshake type %d", type);
     return FALSE;
   }
 
