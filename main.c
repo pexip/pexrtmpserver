@@ -18,7 +18,6 @@ static GOptionEntry entries[] =
   { "application-name", 'a', 0, G_OPTION_ARG_STRING, &app_name,     "Set the Application Name", NULL },
   { "dialout-path",     'd', 0, G_OPTION_ARG_STRING, &dialout_path, "The rtmp-path to forward to the dialed out address", NULL },
   { "dialout-url",      'u', 0, G_OPTION_ARG_STRING, &dialout_url,  "The rtmp:// address to dial out to", NULL },
-  { NULL }
 };
 
 int
