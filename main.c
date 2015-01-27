@@ -7,44 +7,55 @@
 
 
 /* defaults */
-#define APP_NAME "live"
-#define PORT 1935
+static gint port = 1935;
+static gchar app_name[] = "pexip";
+static gchar * dialout_url = NULL;
+static gchar * dialout_path = NULL;
+
+static GOptionEntry entries[] =
+{
+  { "port",             'p', 0, G_OPTION_ARG_INT,    &port,         "Set rtmp listening port to N", "N" },
+  { "application-name", 'a', 0, G_OPTION_ARG_STRING, &app_name,     "Set the Application Name", NULL },
+  { "dialout-path",     'd', 0, G_OPTION_ARG_STRING, &dialout_path, "The rtmp-path to forward to the dialed out address", NULL },
+  { "dialout-url",      'u', 0, G_OPTION_ARG_STRING, &dialout_url,  "The rtmp:// address to dial out to", NULL },
+  { NULL }
+};
 
 int
-main (int argc, char **argv)
+main (int argc, char *argv[])
 {
-  int port;
-  const char * application_name;
+  GError *error = NULL;
+  GOptionContext *context;
 
-  if (argc == 1) {
-    port = PORT;
-    application_name = (char *) APP_NAME;
+  context = g_option_context_new ("RTMP ");
+  g_option_context_add_main_entries (context, entries, NULL);
+  //g_option_context_add_group (context, gtk_get_option_group (TRUE));
+  if (!g_option_context_parse (context, &argc, &argv, &error)) {
+    g_print ("option parsing failed: %s\n", error->message);
+    exit (1);
   }
-  if (argc == 2) {
-    port = atoi (argv[1]);
-    application_name = (char *) APP_NAME;
-  }
-  if (argc == 3) {
-    printf ("ARGV: %s %s\n", argv[1], argv[2]);
-    port = atoi (argv[1]);
-    application_name = argv[2];
-  }
-  printf ("Argc: %d, app_name: %s, port: %d\n", argc, application_name, port);
 
   gst_init (NULL, NULL);
 
-  PexRtmpServer * srv = pex_rtmp_server_new (application_name, port, 0, NULL, NULL);
+  PexRtmpServer * srv = pex_rtmp_server_new (app_name, port, 0, NULL, NULL);
   if (srv == NULL)
     return 1;
 
   pex_rtmp_server_start (srv);
-  printf ("ready\n");
+  printf ("ready...\n");
+
+  if (dialout_path && dialout_url) {
+    pex_rtmp_server_dialout (srv, dialout_path, dialout_url);
+    printf ("dialed out from path %s to %s\n", dialout_path, dialout_url);
+  }
 
   /* we will run for 5 minutes */
   g_usleep (G_USEC_PER_SEC * 60 * 5);
 
+  printf ("stopping...");
   pex_rtmp_server_stop (srv);
   g_object_unref (srv);
 
   return 0;
 }
+
