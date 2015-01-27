@@ -586,7 +586,7 @@ rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
 
   gboolean decreasing = (val - client->write_queue_size < 0);
   client->write_queue_size = val;
-  if (!decreasing && client->write_queue_size > 30000) {
+  if (!decreasing && client->write_queue_size > 75000) {
     if (srv->priv->last_queue_overflow == NULL) {
       srv->priv->last_queue_overflow = g_timer_new ();
     }
