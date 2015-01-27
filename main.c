@@ -5,6 +5,13 @@
 
 #include "rtmpserver.h"
 
+/*
+./gst-launch videotestsrc ! video/x-raw-yuv, width=1280, height=720, pixel-aspect-ratio=1/1 ! \
+pexh264enc intra-period=20 bitrate=2000000 level=41 timing-info=1 ! \
+video/x-h264, stream-format=byte-stream, alignment=nal ! h264parse ! mux.video \
+flvmux name=mux ! rtmpsink location=rtmp://localhost/pexip/youtube -v \
+audiotestsrc ! audio/x-raw-int,rate=48000,channels=1 ! pexaacenc !  mux.audio
+*/
 
 /* defaults */
 static gint port = 1935;
@@ -28,7 +35,6 @@ main (int argc, char *argv[])
 
   context = g_option_context_new ("RTMP ");
   g_option_context_add_main_entries (context, entries, NULL);
-  //g_option_context_add_group (context, gtk_get_option_group (TRUE));
   if (!g_option_context_parse (context, &argc, &argv, &error)) {
     g_print ("option parsing failed: %s\n", error->message);
     exit (1);
