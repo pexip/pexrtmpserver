@@ -195,13 +195,6 @@ client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_
   if (client->dialout_path == NULL)
     return TRUE;
 
-  gboolean reject_play = FALSE;
-  g_signal_emit_by_name (client->server, "on-play", client->path, &reject_play);
-  if (reject_play) {
-    GST_DEBUG_OBJECT (client->server, "%p Not playing due to signal returning 0", client);
-    return FALSE;
-  }
-
   g_free (amf_dec_load (dec));           /* NULL */
   GstStructure * object = amf_dec_load_object (dec);
 
@@ -234,6 +227,9 @@ client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_
     amf_enc_free (invoke);
     gst_structure_free (meta);
   }
+
+  gboolean reject_play = FALSE;
+  g_signal_emit_by_name (client->server, "on-play", client->path, &reject_play);
 
   gst_structure_free (object);
   return TRUE;
