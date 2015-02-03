@@ -6,9 +6,10 @@
 #define DEFAULT_CHUNK_SIZE 128      /* 5.4.1 */
 #define DEFAULT_WINDOW_SIZE 128000
 
-#define HANDSHAKE_PLAINTEXT	0x03
+#define HANDSHAKE_PLAINTEXT 0x03
+#define HANDSHAKE_CRYPTO    0x06
 
-#define RANDOM_LEN		(1536 - 8)
+#define RANDOM_LEN    (1536 - 8)
 
 #define MSG_SET_CHUNK       0x01
 #define MSG_ACK             0x03
@@ -64,10 +65,10 @@ static const size_t CHUNK_MSG_HEADER_LENGTH[] = { 12, 8, 4, 1 };
 struct _RTMP_Header
 {
   guint8 flags;
-  gchar timestamp[3];
-  gchar msg_len[3];
+  guint8 timestamp[3];
+  guint8 msg_len[3];
   guint8 msg_type;
-  gchar msg_stream_id[4];   /* Note, this is little-endian while others are BE */
+  guint8 msg_stream_id[4]; /* Note, this is little-endian while others are BE */
 } PACKED;
 
 typedef struct _Handshake Handshake;
