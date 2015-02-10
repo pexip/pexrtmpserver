@@ -1,54 +1,50 @@
 #include "utils.h"
-#include <arpa/inet.h>
 
 /*
  * Used to do unaligned loads on archs that don't support them. GCC can mostly
  * optimize these away.
  */
-uint32_t
-load_be32 (const void *p)
+guint32
+load_be32 (const void * p)
 {
-  uint32_t val;
-  memcpy (&val, p, sizeof val);
-  return ntohl (val);
+  guint32 val = *((guint32 *)p);
+  return GUINT32_FROM_BE (val);
 }
 
-uint16_t
-load_be16 (const void *p)
+guint16
+load_be16 (const void * p)
 {
-  uint16_t val;
-  memcpy (&val, p, sizeof val);
-  return ntohs (val);
+  guint16 val = *((guint16 *)p);
+  return GUINT16_FROM_BE (val);
 }
 
-uint32_t
-load_le32 (const void *p)
+guint32
+load_le32 (const void * p)
 {
-  const uint8_t *data = (const uint8_t *) p;
-  return data[0] | ((uint32_t) data[1] << 8) |
-      ((uint32_t) data[2] << 16) | ((uint32_t) data[3] << 24);
+  guint32 val = *((guint32 *)p);
+  return val;
 }
 
-uint32_t
-load_be24 (const void *p)
+guint32
+load_be24 (const void * p)
 {
-  const uint8_t *data = (const uint8_t *) p;
-  return data[2] | ((uint32_t) data[1] << 8) | ((uint32_t) data[0] << 16);
+  const guint8 * data = (const guint8 *) p;
+  return data[2] | ((guint32)data[1] << 8) | ((guint32)data[0] << 16);
 }
 
 void
-set_be24 (void *p, uint32_t val)
+set_be24 (void * p, guint32 val)
 {
-  uint8_t *data = (uint8_t *) p;
+  guint8 * data = (guint8 *)p;
   data[0] = val >> 16;
   data[1] = val >> 8;
   data[2] = val;
 }
 
 void
-set_le32 (void *p, uint32_t val)
+set_le32 (void * p, guint32 val)
 {
-  uint8_t *data = (uint8_t *) p;
+  guint8 * data = (guint8 *)p;
   data[0] = val;
   data[1] = val >> 8;
   data[2] = val >> 16;

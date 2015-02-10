@@ -74,7 +74,7 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
   header.msg_type = type;
   set_be24 (header.timestamp, timestamp);
   set_be24 (header.msg_len, buf->len);
-  set_le32 (header.msg_stream_id, msg_stream_id);
+  header.msg_stream_id = msg_stream_id;
   guint header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
   GST_LOG_OBJECT (client->server, "Sending packet with:\n"
       "format:%d, chunk_stream_id:%u, timestamp:%u, len:%u, type:%u, msg_stream_id:%u",
@@ -599,9 +599,8 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
 }
 
 static gboolean
-client_handle_user_control (Client * client, const double method, const double timestamp)
+client_handle_user_control (Client * client, const guint32 timestamp)
 {
-  (void) method;
   AmfEnc * enc= amf_enc_new ();
   guint16 ping_response_id = 7;
   amf_enc_add_short (enc, htons (ping_response_id));
@@ -704,11 +703,11 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_USER_CONTROL:
     {
-      double method = load_be16 (&msg->buf->data[pos]);
+      guint16 method = load_be16 (&msg->buf->data[pos]);
       if (method == 6)
       {
-        double timestamp = load_be32 (&msg->buf->data[pos+2]);
-        ret = client_handle_user_control (client, method, timestamp);
+        guint32 timestamp = load_be32 (&msg->buf->data[pos+2]);
+        ret = client_handle_user_control (client, timestamp);
       }
       break;
     }
@@ -922,7 +921,7 @@ client_receive (Client * client)
     }
 
     if (header_len >= 12) {
-      msg->msg_stream_id = load_le32 (header.msg_stream_id);
+      msg->msg_stream_id = header.msg_stream_id;
     }
 
     /* timestamp */
