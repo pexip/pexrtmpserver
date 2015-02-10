@@ -68,7 +68,7 @@ struct _RTMP_Header
   guint8 timestamp[3];
   guint8 msg_len[3];
   guint8 msg_type;
-  guint8 msg_stream_id[4]; /* Note, this is little-endian while others are BE */
+  guint32 msg_stream_id; /* Note, this is little-endian while others are BE */
 } PACKED;
 
 typedef struct _Handshake Handshake;
