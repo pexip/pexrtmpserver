@@ -69,13 +69,20 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
 {
   RTMP_Header header;
   const gint fmt = 0; /* FIXME: start storing last header and b more clever here */
+  guint header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
+
   chunk_stream_id &= 0x3f;
   header.flags = chunk_stream_id | (fmt << 6);
   header.msg_type = type;
-  set_be24 (header.timestamp, timestamp);
+  if (timestamp >= EXT_TIMESTAMP_LIMIT) {
+    set_be24 (header.timestamp, EXT_TIMESTAMP_LIMIT);
+    header.ext_timestamp = GUINT32_FROM_BE (timestamp);
+    header_len = EXT_TIMESTAMP_HEADER_LENGTH;
+  } else {
+    set_be24 (header.timestamp, timestamp);
+  }
   set_be24 (header.msg_len, buf->len);
   header.msg_stream_id = msg_stream_id;
-  guint header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
   GST_LOG_OBJECT (client->server, "Sending packet with:\n"
       "format:%d, chunk_stream_id:%u, timestamp:%u, len:%u, type:%u, msg_stream_id:%u",
       fmt, chunk_stream_id, timestamp, buf->len, type, msg_stream_id);
@@ -897,8 +904,7 @@ client_receive (Client * client)
       break;
     }
 
-    RTMP_Header header;
-    memcpy (&header, &client->buf->data[0], header_len);
+    RTMP_Header * header = (RTMP_Header *)&client->buf->data[0];
     RTMP_Message * msg = client_get_rtmp_message (client, chunk_stream_id);
 
     /* only get fmt from beginning of a new message */
@@ -907,29 +913,30 @@ client_receive (Client * client)
     }
 
     if (header_len >= 8) {
-      msg->len = load_be24 (header.msg_len);
+      msg->len = load_be24 (header->msg_len);
       if (msg->len < msg->buf->len) {
-        GST_DEBUG_OBJECT (client->server, "invalid msg length");
+        GST_WARNING_OBJECT (client->server, "invalid msg length");
         return FALSE;
       }
-      msg->type = header.msg_type;
+      msg->type = header->msg_type;
     }
 
     if (msg->len == 0) {
-      GST_DEBUG_OBJECT (client->server, "message without a header");
+      GST_WARNING_OBJECT (client->server, "message without a header");
       return FALSE;
     }
 
     if (header_len >= 12) {
-      msg->msg_stream_id = header.msg_stream_id;
+      msg->msg_stream_id = header->msg_stream_id;
     }
 
     /* timestamp */
     if (header_len >= 4) {
-      guint32 ts = load_be24 (header.timestamp);
-      if (ts == 0xffffff) {
-        GST_DEBUG_OBJECT (client->server, "ext timestamp not supported");
-        return TRUE;
+      guint32 ts = load_be24 (header->timestamp);
+      if (ts == EXT_TIMESTAMP_LIMIT) {
+        GST_DEBUG_OBJECT (client->server, "Using extended timestamp");
+        ts = GUINT32_FROM_BE (header->ext_timestamp);
+        header_len = EXT_TIMESTAMP_HEADER_LENGTH;
       }
       msg->timestamp = ts;
 
