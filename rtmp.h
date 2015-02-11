@@ -70,7 +70,6 @@ struct _RTMP_Header
   guint8 msg_len[3];
   guint8 msg_type;
   guint32 msg_stream_id; /* Note, this is little-endian while others are BE */
-  guint32 ext_timestamp; /* FIXME: this is only valid for fmt=0, must revisit when intending to send fmt:1,2,3 */
 } PACKED;
 
 typedef struct _Handshake Handshake;
