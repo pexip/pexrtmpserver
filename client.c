@@ -77,7 +77,7 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
   if (timestamp >= EXT_TIMESTAMP_LIMIT) {
     set_be24 (header.timestamp, EXT_TIMESTAMP_LIMIT);
     header.ext_timestamp = GUINT32_FROM_BE (timestamp);
-    header_len = EXT_TIMESTAMP_HEADER_LENGTH;
+    header_len += 4;
   } else {
     set_be24 (header.timestamp, timestamp);
   }
@@ -935,8 +935,8 @@ client_receive (Client * client)
       guint32 ts = load_be24 (header->timestamp);
       if (ts == EXT_TIMESTAMP_LIMIT) {
         GST_DEBUG_OBJECT (client->server, "Using extended timestamp");
-        ts = GUINT32_FROM_BE (header->ext_timestamp);
-        header_len = EXT_TIMESTAMP_HEADER_LENGTH;
+        ts = load_be32 (&client->buf->data[header_len]);
+        header_len += 4;
       }
       msg->timestamp = ts;
 

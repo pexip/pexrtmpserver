@@ -61,7 +61,6 @@ struct _Handshake
 /* Chunk Message Header sizes based on "fmt" sizes, see 5.3.1.2 in spec */
 static const gint CHUNK_MSG_HEADER_LENGTH[] = { 12, 8, 4, 1 };
 static const guint32 EXT_TIMESTAMP_LIMIT = 0xffffff;
-static const gint EXT_TIMESTAMP_HEADER_LENGTH = 16;
 
 /* This is the Chunk Message Header FIXME: rename? */
 struct _RTMP_Header
@@ -71,7 +70,7 @@ struct _RTMP_Header
   guint8 msg_len[3];
   guint8 msg_type;
   guint32 msg_stream_id; /* Note, this is little-endian while others are BE */
-  guint32 ext_timestamp;
+  guint32 ext_timestamp; /* FIXME: this is only valid for fmt=0, must revisit when intending to send fmt:1,2,3 */
 } PACKED;
 
 typedef struct _Handshake Handshake;
