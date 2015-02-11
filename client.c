@@ -76,8 +76,6 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
   header.msg_type = type;
   if (timestamp >= EXT_TIMESTAMP_LIMIT) {
     set_be24 (header.timestamp, EXT_TIMESTAMP_LIMIT);
-    header.ext_timestamp = GUINT32_FROM_BE (timestamp);
-    header_len += 4;
   } else {
     set_be24 (header.timestamp, timestamp);
   }
@@ -88,8 +86,14 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
       fmt, chunk_stream_id, timestamp, buf->len, type, msg_stream_id);
   client->send_queue = g_byte_array_append (client->send_queue,
       (guint8 *)&header, header_len);
-
   client->written_seq += header_len;
+
+  if (timestamp >= EXT_TIMESTAMP_LIMIT) {
+    guint32 ext_timestamp = GUINT32_FROM_BE (timestamp);
+    client->send_queue = g_byte_array_append (client->send_queue,
+        (guint8 *)&ext_timestamp, 4);
+    client->written_seq += 4;
+  }
 
   guint pos = 0;
   while (pos < buf->len) {
