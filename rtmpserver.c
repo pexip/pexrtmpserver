@@ -515,18 +515,18 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 }
 
 static Client *
-rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd, const gchar * path)
+rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
+    const gchar * path, const gchar * protocol)
 {
-  gboolean use_ssl = FALSE; /* FIXME: parse protocol */
+  gboolean use_ssl = (g_strcmp0 (protocol, "rtmps") == 0);
 
-  GST_DEBUG_OBJECT (srv, "We got an %s connection", use_ssl ? "rtmps" : "rtmp");
+  GST_DEBUG_OBJECT (srv, "Initiating a %s connection", protocol);
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
       use_ssl, srv->priv->stream_id, srv->priv->chunk_size);
   client->path = g_strdup (path);
 
-  /* FIXME: ssl connection */
-//  if (use_ssl)
-//    client_add_outgoing_ssl (client);
+  if (use_ssl)
+    client_add_outgoing_ssl (client);
 
   /* handshake */
   if (!rtmp_server_outgoing_handshake (srv, client)) {
@@ -773,7 +773,7 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
       protocol, ip, port, application_name);
 
   PEX_RTMP_SERVER_LOCK (srv);
-  Client * client = rtmp_server_create_dialout_client (srv, fd, src_path);
+  Client * client = rtmp_server_create_dialout_client (srv, fd, src_path, protocol);
   if (client) {
     /* connect this client as a publisher on the remote server */
     client_do_connect (client, tcUrl, application_name, dest_path);
