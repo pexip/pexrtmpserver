@@ -73,6 +73,7 @@ gboolean client_window_size_reached (Client *client);
 
 gboolean client_add_incoming_ssl (Client * client,
     gchar * cert, gchar * key);
+gboolean client_add_outgoing_ssl (Client * client);
 
 void client_do_connect (Client * client, const gchar * tcUrl,
     const gchar * application_name, const gchar * path);

@@ -1089,6 +1089,27 @@ client_add_incoming_ssl (Client * client, gchar * cert, gchar * key)
   return TRUE;
 }
 
+gboolean
+client_add_outgoing_ssl (Client * client)
+{
+  client->ssl_ctx = SSL_CTX_new (SSLv23_method());
+  SSL_CTX_set_options (client->ssl_ctx, SSL_OP_ALL);
+  SSL_CTX_set_default_verify_paths (client->ssl_ctx);
+
+  //SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_NONE, NULL);
+
+  client->ssl = SSL_new (client->ssl_ctx);
+  SSL_set_fd (client->ssl, client->fd);
+
+  if (SSL_connect (client->ssl) < 0) {
+    GST_WARNING_OBJECT (client->server, "Unable to establish ssl-connection");
+    print_ssl_errors (client);
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
 Client *
 client_new (gint fd, Connections * connections, GObject * server,
     gboolean use_ssl, gint stream_id, guint chunk_size)
