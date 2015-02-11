@@ -1125,7 +1125,8 @@ client_new (gint fd, Connections * connections, GObject * server,
   client->recv_chunk_size = DEFAULT_CHUNK_SIZE;
   client->send_chunk_size = DEFAULT_CHUNK_SIZE;
 
-  GST_DEBUG_OBJECT (client->server, "Chunk Size: %d, Stream ID:%d\n", chunk_size, stream_id);
+  GST_DEBUG_OBJECT (client->server, "Chunk Size: %d, Stream ID:%d\n",
+      chunk_size, stream_id);
 
   client->window_size = DEFAULT_WINDOW_SIZE;
 
