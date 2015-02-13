@@ -46,5 +46,7 @@ gboolean pex_rtmp_server_dialout (PexRtmpServer * self, const gchar * path, cons
 gboolean pex_rtmp_server_parse_url (PexRtmpServer * self, const gchar * url,
     gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
     gchar ** path);
+gint pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
+    const gchar * ip, gint port);
 
 #endif /* __RTMP_SERVER_H__ */

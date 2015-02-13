@@ -687,7 +687,7 @@ done:
 }
 
 #define INVALID_FD -1
-static gint
+gint
 pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
     const gchar * ip, gint port)
 {
