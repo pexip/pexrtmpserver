@@ -4,6 +4,7 @@
 #include <gst/gst.h>
 #include <openssl/ssl.h>
 #include "connections.h"
+#include "handshake.h"
 
 typedef struct _Client Client;
 
@@ -53,6 +54,9 @@ struct _Client
   guint32 total_bytes_received;
 
   gint write_queue_size;
+
+  PexRtmpHandshake * handshake;
+  PexRtmpHandshakeState handshake_state;
 
   /* crypto */
   SSL_CTX * ssl_ctx;

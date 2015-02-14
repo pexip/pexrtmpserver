@@ -5,7 +5,15 @@
 
 #define HANDSHAKE_LENGTH 1536
 
+enum _PexRtmpHandshakeState
+{
+  HANDSHAKE_START,
+  HANDSHAKE_MIDDLE,
+  HANDSHAKE_DONE,
+};
+
 typedef struct _PexRtmpHandshake PexRtmpHandshake;
+typedef enum _PexRtmpHandshakeState PexRtmpHandshakeState;
 
 PexRtmpHandshake * pex_rtmp_handshake_new ();
 void pex_rtmp_handshake_free (PexRtmpHandshake * hs);

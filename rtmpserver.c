@@ -12,7 +12,6 @@
 #include <gst/gst.h>
 #include "client.h"
 #include "rtmp.h"
-#include "handshake.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -95,7 +94,6 @@ struct _PexRtmpServerPrivate
   GTimer * last_queue_overflow;
 
   Connections * connections;
-  PexRtmpHandshake * handshake;
   GMutex lock;
 };
 
@@ -132,7 +130,6 @@ pex_rtmp_server_init (PexRtmpServer *srv)
   priv->key = NULL;
 
   priv->thread = NULL;
-  priv->handshake = pex_rtmp_handshake_new ();
   priv->last_queue_overflow = NULL;
 
   priv->poll_table = g_array_new (TRUE, TRUE, sizeof (struct pollfd));
@@ -157,7 +154,6 @@ pex_rtmp_server_finalize (GObject * obj)
   g_free (priv->application_name);
   g_free (priv->cert);
   g_free (priv->key);
-  pex_rtmp_handshake_free (priv->handshake);
   g_mutex_clear (&priv->lock);
 
   g_array_free (priv->poll_table, TRUE);
@@ -321,54 +317,6 @@ set_nonblock (int fd, gboolean enabled)
   return fcntl (fd, F_SETFL, flags);
 }
 
-#if 0
-static gboolean
-rtmp_server_handshake_client (Client * client)
-{
-  Handshake serversig;
-  Handshake clientsig;
-  guint8 c;
-
-  if (client_recv_all (client, &c, 1) < 1)
-    return FALSE;
-  if (c != HANDSHAKE_PLAINTEXT) {
-    GST_WARNING_OBJECT (srv, "only plaintext handshake supported");
-    return FALSE;
-  }
-
-  if (client_send_all (client, &c, 1) < 1)
-    return FALSE;
-
-  memset (&serversig, 0, sizeof serversig);
-  serversig.flags[0] = 0x03;
-  for (int i = 0; i < RANDOM_LEN; ++i) {
-    serversig.random[i] = rand ();
-  }
-
-  if (client_send_all (client, &serversig, sizeof serversig) < sizeof serversig)
-    return FALSE;
-
-  /* Echo client's signature back */
-  if (client_recv_all (client, &clientsig, sizeof serversig) < sizeof serversig)
-    return FALSE;
-
-  if (client_send_all (client, &clientsig, sizeof serversig) < sizeof serversig)
-    return FALSE;
-
-  if (client_recv_all (client, &clientsig, sizeof serversig) < sizeof serversig)
-    return FALSE;
-  if (memcmp (serversig.random, clientsig.random, RANDOM_LEN) != 0) {
-    GST_DEBUG_OBJECT (srv, "invalid handshake");
-    return FALSE;
-  }
-
-  //client->read_seq = 1 + sizeof serversig * 2;
-  //client->written_seq = 1 + sizeof serversig * 2;
-
-  return TRUE;
-}
-#endif
-
 gboolean
 rtmp_server_outgoing_handshake (PexRtmpServer * srv, Client * client)
 {
@@ -430,36 +378,6 @@ rtmp_server_outgoing_handshake (PexRtmpServer * srv, Client * client)
   return TRUE;
 }
 
-gboolean
-rtmp_server_flash_handshake (PexRtmpServer * srv, Client * client)
-{
-  guint8 incoming_0[HANDSHAKE_LENGTH + 1];
-  guint8 incoming_1[HANDSHAKE_LENGTH];
-  guint8 * outgoing;
-  guint outgoing_length;
-  
-  /* receive the handshake from the client */
-  if (client_recv_all (client, &incoming_0, sizeof (incoming_0)) < sizeof (incoming_0))
-    return FALSE;
-
-  if (!pex_rtmp_handshake_process (srv->priv->handshake,
-      incoming_0, sizeof (incoming_0))) {
-    return FALSE;
-  }
-
-  /* send a reply */
-  outgoing = pex_rtmp_handshake_get_buffer (srv->priv->handshake);
-  outgoing_length = pex_rtmp_handshake_get_length (srv->priv->handshake);
-  if (client_send_all (client, outgoing, outgoing_length) < outgoing_length)
-    return FALSE;
-
-  /* receive another handshake */
-  if (client_recv_all (client, &incoming_1, sizeof (incoming_1)) < sizeof (incoming_1))
-    return FALSE;
-
-  return pex_rtmp_handshake_verify_reply (srv->priv->handshake, incoming_1);
-}
-
 static void
 pex_rtmp_add_fd_to_poll_table (PexRtmpServer * srv, gint fd)
 {
@@ -495,13 +413,6 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
     client_add_incoming_ssl (client, cert, key);
     g_free (cert);
     g_free (key);
-  }
-
-  /* handshake */
-  if (!rtmp_server_flash_handshake (srv, client)) {
-    GST_WARNING_OBJECT (srv, "Handshake Failed");
-    client_free (client);
-    return;
   }
 
   /* make the connection non-blocking */
