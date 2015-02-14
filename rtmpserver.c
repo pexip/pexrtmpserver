@@ -445,6 +445,8 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
     client_free (client);
     return NULL;
   }
+  /* FIXME: until we have non-blocking outgoing as well */
+  client->handshake_state = HANDSHAKE_DONE;
 
   /* make the connection non-blocking */
   set_nonblock (fd, TRUE);
