@@ -53,7 +53,8 @@ client_try_to_send (Client * client)
   if (written < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
-    GST_WARNING_OBJECT (client->server, "unable to write to a client (%s): %s", client->path, strerror (errno));
+    GST_WARNING_OBJECT (client->server, "unable to write to a client (%s): %s",
+        client->path, strerror (errno));
     return FALSE;
   }
 
@@ -606,7 +607,8 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
   if (client->metadata)
     gst_structure_free (client->metadata);
   client->metadata = amf_dec_load_object (dec);
-  GST_DEBUG_OBJECT (client->server, "(%s) METADATA %"GST_PTR_FORMAT, client->path, client->metadata);
+  GST_DEBUG_OBJECT (client->server, "(%s) METADATA %"GST_PTR_FORMAT,
+      client->path, client->metadata);
 }
 
 static gboolean
@@ -629,7 +631,8 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   gchar * method = amf_dec_load_string (dec);
   double txid = amf_dec_load_number (dec);
 
-  GST_DEBUG_OBJECT (client->server, "%p: invoked %s with txid %lf for Stream Id: %d ", client, method, txid, msg->msg_stream_id);
+  GST_DEBUG_OBJECT (client->server, "%p: invoked %s with txid %lf for Stream Id: %d ",
+      client, method, txid, msg->msg_stream_id);
 
   if (strcmp (method, "onStatus") == 0) {
     ret = client_handle_onstatus (client, txid, dec, msg->msg_stream_id);
@@ -679,10 +682,8 @@ client_send_ack (Client *client)
 gboolean
 client_handle_message (Client * client, RTMP_Message * msg)
 {
-  /*
-     debug("RTMP message %02x, len %zu, timestamp %ld", msg->type, msg->len,
-     msg->timestamp);
-   */
+  GST_DEBUG_OBJECT (client->server, "RTMP message %02x, len %u, timestamp %u",
+      msg->type, msg->len,msg->timestamp);
   gboolean ret = TRUE;
 
   /* send window-size ACK if we have reached it */
@@ -709,7 +710,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
         return FALSE;
       }
       client->recv_chunk_size = load_be32 (&msg->buf->data[pos]);
-      GST_DEBUG_OBJECT (client->server, "receive chunk size set to %d", client->recv_chunk_size);
+      GST_DEBUG_OBJECT (client->server, "receive chunk size set to %d",
+          client->recv_chunk_size);
       break;
 
     case MSG_USER_CONTROL:
@@ -726,7 +728,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_WINDOW_ACK_SIZE:
     {
       client->window_size = load_be32 (&msg->buf->data[pos]);
-      GST_DEBUG_OBJECT (client->server, "%s window size set to %u", client->path, client->window_size);
+      GST_DEBUG_OBJECT (client->server, "%s window size set to %u",
+          client->path, client->window_size);
       break;
     }
 
@@ -796,7 +799,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
         GST_DEBUG_OBJECT (client->server, "not a publisher");
         return FALSE;
       }
-      GSList * subscribers = connections_get_subscribers (client->connections, client->path);
+      GSList * subscribers =
+          connections_get_subscribers (client->connections, client->path);
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
         Client * subscriber = (Client *)walk->data;
 
@@ -817,7 +821,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
         return FALSE;
       }
       guint8 flags = msg->buf->data[0];
-      GSList * subscribers = connections_get_subscribers (client->connections, client->path);
+      GSList * subscribers =
+          connections_get_subscribers (client->connections, client->path);
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
         Client * subscriber = (Client *)walk->data;
 
@@ -874,11 +879,44 @@ client_get_rtmp_message (Client * client, guint8 chunk_stream_id)
   return msg;
 }
 
+static gboolean
+client_incoming_handshake (Client * client)
+{
+  if (client->handshake_state == HANDSHAKE_START) {
+    guint len = HANDSHAKE_LENGTH + 1;
+    if (client->buf->len >= len) {
+      /* receive the handshake from the client */
+      if (!pex_rtmp_handshake_process (client->handshake, client->buf->data, len))
+        return FALSE;
+      client->buf = g_byte_array_remove_range (client->buf, 0, len);
+
+      /* send a reply */
+      client->send_queue = g_byte_array_append (client->send_queue,
+          pex_rtmp_handshake_get_buffer (client->handshake),
+          pex_rtmp_handshake_get_length (client->handshake));
+      client_try_to_send (client);
+
+      client->handshake_state = HANDSHAKE_MIDDLE;
+    }
+  } else if (client->handshake_state == HANDSHAKE_MIDDLE) {
+    guint len = HANDSHAKE_LENGTH;
+    if (client->buf->len >= len) {
+      /* receive another handshake */
+      if (!pex_rtmp_handshake_verify_reply (client->handshake, client->buf->data))
+        return FALSE;
+      client->buf = g_byte_array_remove_range (client->buf, 0, len);
+
+      client->handshake_state = HANDSHAKE_DONE;
+    }
+  }
+  return TRUE;
+}
+
 gboolean
 client_receive (Client * client)
 {
   guint8 chunk[4096];
-  ssize_t got;
+  gint got;
 
   if (client->use_ssl) {
     got = SSL_read (client->ssl, &chunk[0], sizeof (chunk));
@@ -892,10 +930,18 @@ client_receive (Client * client)
   } else if (got < 0) {
     if (errno == EAGAIN || errno == EINTR)
       return TRUE;
-    GST_DEBUG_OBJECT (client->server, "unable to read from a client: %s", strerror (errno));
+    GST_DEBUG_OBJECT (client->server, "unable to read from a client: %s",
+        strerror (errno));
     return FALSE;
   }
   client->buf = g_byte_array_append (client->buf, chunk, got);
+  GST_LOG_OBJECT (client->server, "Read %d bytes", got);
+
+  if (client->handshake_state != HANDSHAKE_DONE) {
+    gboolean ret = client_incoming_handshake (client);
+    if (client->handshake_state != HANDSHAKE_DONE)
+      return ret;
+  }
 
   while (client->buf->len != 0) {
     guint8 flags = client->buf->data[0];
@@ -944,7 +990,8 @@ client_receive (Client * client)
       }
       msg->timestamp = ts;
 
-      /* for type 0 we receive the absolute timestamp, for type 1, 2, and 3 we get a delta */
+      /* for type 0 we receive the absolute timestamp,
+         for type 1, 2, and 3 we get a delta */
       if (fmt == 0)
         msg->abs_timestamp = ts;
       else
@@ -1140,6 +1187,9 @@ client_new (gint fd, Connections * connections, GObject * server,
   client->send_queue = g_byte_array_new ();
   client->buf = g_byte_array_new ();
 
+  client->handshake = pex_rtmp_handshake_new ();
+  client->handshake_state = HANDSHAKE_START;
+
   return client;
 }
 
@@ -1155,6 +1205,8 @@ client_free (Client * client)
     gst_structure_free (client->metadata);
   g_free (client->path);
   g_free (client->dialout_path);
+
+  pex_rtmp_handshake_free (client->handshake);
 
   /* ssl */
   if (client->ssl_ctx)
