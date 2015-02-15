@@ -77,6 +77,7 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
     /* calculate timestamp delta */
     timestamp = abs_timestamp - client->prev_header.abs_timestamp;
 
+#if 0
     /* type 2 check */
     if (client->prev_header.msg_len == buf->len) {
       fmt = 2;
@@ -85,6 +86,7 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
       if (client->prev_header.timestamp == timestamp)
         fmt = 3;
     }
+#endif
   }
 
   /* store relevant header-data */
