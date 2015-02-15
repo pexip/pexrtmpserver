@@ -66,12 +66,35 @@ client_try_to_send (Client * client)
 
 static void
 client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
-    GByteArray * buf, guint32 timestamp, guint8 chunk_stream_id)
+    GByteArray * buf, guint32 abs_timestamp, guint8 chunk_stream_id)
 {
-  RTMP_Header header;
-  const gint fmt = 0; /* FIXME: start storing last header and b more clever here */
-  guint header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
+  gint fmt = 0;
+  guint32 timestamp = abs_timestamp;
 
+  /* type 1 check */
+  if (client->prev_header.msg_stream_id == msg_stream_id) {
+    fmt = 1;
+    /* calculate timestamp delta */
+    timestamp = abs_timestamp - client->prev_header.abs_timestamp;
+
+    /* type 2 check */
+    if (client->prev_header.msg_len == buf->len) {
+      fmt = 2;
+
+      /* type 3 check */
+      if (client->prev_header.timestamp == timestamp)
+        fmt = 3;
+    }
+  }
+
+  /* store relevant header-data */
+  client->prev_header.timestamp = timestamp;
+  client->prev_header.msg_stream_id = msg_stream_id;
+  client->prev_header.abs_timestamp = abs_timestamp;
+  client->prev_header.msg_len = buf->len;
+
+  RTMP_Header header;
+  guint header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
   chunk_stream_id &= 0x3f;
   header.flags = chunk_stream_id | (fmt << 6);
   header.msg_type = type;

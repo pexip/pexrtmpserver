@@ -22,6 +22,14 @@ typedef struct
   GByteArray * buf;
 } RTMP_Message;
 
+typedef struct
+{
+  guint32 timestamp;
+  guint32 msg_stream_id;
+  guint32 abs_timestamp;
+  guint msg_len;
+} RTMP_Header_State;
+
 struct _Client
 {
   gint fd;
@@ -30,6 +38,7 @@ struct _Client
   gboolean use_ssl;
   guint msg_stream_id;
 
+  RTMP_Header_State prev_header;
   guint chunk_size;
   guint recv_chunk_size;
   guint send_chunk_size;
