@@ -65,11 +65,12 @@ client_try_to_send (Client * client)
 }
 
 static void
-client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
+client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
     GByteArray * buf, guint32 abs_timestamp, guint8 chunk_stream_id)
 {
   gint fmt = 0;
   guint32 timestamp = abs_timestamp;
+  guint msg_len = buf->len;
 
   /* type 1 check */
   if (client->prev_header.msg_stream_id == msg_stream_id) {
@@ -77,39 +78,39 @@ client_rtmp_send (Client * client, guint8 type, guint32 msg_stream_id,
     /* calculate timestamp delta */
     timestamp = abs_timestamp - client->prev_header.abs_timestamp;
 
-#if 0
     /* type 2 check */
-    if (client->prev_header.msg_len == buf->len) {
+    if (client->prev_header.msg_len == msg_len &&
+        client->prev_header.msg_type_id == msg_type_id) {
       fmt = 2;
 
       /* type 3 check */
       if (client->prev_header.timestamp == timestamp)
         fmt = 3;
     }
-#endif
   }
 
   /* store relevant header-data */
   client->prev_header.timestamp = timestamp;
   client->prev_header.msg_stream_id = msg_stream_id;
   client->prev_header.abs_timestamp = abs_timestamp;
-  client->prev_header.msg_len = buf->len;
+  client->prev_header.msg_len = msg_len;
+  client->prev_header.msg_type_id = msg_type_id;
 
   RTMP_Header header;
   guint header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
   chunk_stream_id &= 0x3f;
   header.flags = chunk_stream_id | (fmt << 6);
-  header.msg_type = type;
+  header.msg_type_id = msg_type_id;
   if (timestamp >= EXT_TIMESTAMP_LIMIT) {
     set_be24 (header.timestamp, EXT_TIMESTAMP_LIMIT);
   } else {
     set_be24 (header.timestamp, timestamp);
   }
-  set_be24 (header.msg_len, buf->len);
+  set_be24 (header.msg_len, msg_len);
   header.msg_stream_id = msg_stream_id;
   GST_LOG_OBJECT (client->server, "Sending packet with:\n"
-      "format:%d, chunk_stream_id:%u, timestamp:%u, len:%u, type:%u, msg_stream_id:%u",
-      fmt, chunk_stream_id, timestamp, buf->len, type, msg_stream_id);
+      "format:%d, chunk_stream_id:%u, timestamp:%u, msg_len:%u, msg_type_id:%u, msg_stream_id:%u",
+      fmt, chunk_stream_id, timestamp, msg_len, msg_type_id, msg_stream_id);
   client->send_queue = g_byte_array_append (client->send_queue,
       (guint8 *)&header, header_len);
   client->written_seq += header_len;
@@ -993,7 +994,7 @@ client_receive (Client * client)
         GST_WARNING_OBJECT (client->server, "invalid msg length");
         return FALSE;
       }
-      msg->type = header->msg_type;
+      msg->type = header->msg_type_id;
     }
 
     if (msg->len == 0) {
