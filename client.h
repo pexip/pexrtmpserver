@@ -26,6 +26,7 @@ typedef struct
 {
   guint32 timestamp;
   guint32 msg_stream_id;
+  guint8 msg_type_id;
   guint32 abs_timestamp;
   guint msg_len;
 } RTMP_Header_State;
