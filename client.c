@@ -72,6 +72,7 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
   guint32 timestamp = abs_timestamp;
   guint msg_len = buf->len;
 
+#if 0 /* FIXME: disable pending investigation on why YouTube fails */
   /* type 1 check */
   if (msg_stream_id != MSG_STREAM_ID_CONTROL &&
       client->prev_header.msg_stream_id == msg_stream_id) {
@@ -89,6 +90,7 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
         fmt = 3;
     }
   }
+#endif
 
   /* store relevant header-data */
   client->prev_header.timestamp = timestamp;
