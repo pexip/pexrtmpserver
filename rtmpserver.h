@@ -34,7 +34,9 @@ GType pex_rtmp_server_get_type (void);
 
 PexRtmpServer * pex_rtmp_server_new (const gchar * application_name,
     gint port, gint ssl_port,
-    const gchar * cert, const gchar * key);
+    const gchar * cert, const gchar * key,
+    const gchar * ca_cert_file, const gchar * ca_cert_dir,
+    const gchar * ciphers, gboolean ssl3_enabled);
 
 gboolean pex_rtmp_server_start (PexRtmpServer * self);
 void pex_rtmp_server_stop (PexRtmpServer * self);

@@ -18,11 +18,10 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-#include <openssl/rc4.h>
-#include <openssl/md5.h>
+#include <openssl/crypto.h>
 #include <openssl/bio.h>
-#include <openssl/buffer.h>
 #include <openssl/err.h>
+#include <openssl/x509v3.h>
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
@@ -1120,12 +1119,191 @@ print_ssl_errors (Client * client)
   }
 }
 
-gboolean
-client_add_incoming_ssl (Client * client, gchar * cert, gchar * key)
+static int
+match_dns_name (const gchar * remote_host, ASN1_IA5STRING * candidate)
 {
+  const gchar * data = (gchar *) ASN1_STRING_data (candidate);
+  int len = ASN1_STRING_length (candidate);
+  int host_len = strlen (remote_host);
+
+  if ((int) strnlen (data, len) != len) {
+    /* Candidate contains embedded NULs: reject it */
+    return 0;
+  }
+
+  /* See RFC6125 $6.4. We assume that any IDN has been pre-normalised
+   * to remove any U-labels. */
+  if (len == host_len && g_ascii_strncasecmp (remote_host, data, len) == 0) {
+    /* Exact match */
+    return 1;
+  }
+
+  if (g_hostname_is_ip_address (remote_host)) {
+    /* Do not attempt to match wildcards against IP addresses */
+    return 0;
+  }
+
+  /* Wildcards: permit the left-most label to be '*' only and match
+   * the left-most reference label */
+  if (len > 1 && data[0] == '*' && data[1] == '.') {
+    const gchar * host_suffix = strchr (remote_host, '.');
+    if (host_suffix == NULL || host_suffix == remote_host) {
+      /* No dot found, or remote_host starts with a dot: reject */
+      return 0;
+    }
+
+    if (len - 1 == host_len - (host_suffix - remote_host) &&
+        g_ascii_strncasecmp (host_suffix, data + 1, len - 1) == 0) {
+      /* Wildcard matched */
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static int
+match_subject_alternative_names (X509 * cert, const gchar * remote_host)
+{
+  int result = -1;
+  GENERAL_NAMES * san;
+
+  san = X509_get_ext_d2i (cert, NID_subject_alt_name, NULL, NULL);
+  if (san != NULL) {
+    int idx = sk_GENERAL_NAME_num (san);
+    enum {
+      HOST_TYPE_DNS = 0,
+      HOST_TYPE_IPv4 = sizeof(struct in_addr),
+      HOST_TYPE_IPv6 = sizeof(struct in6_addr)
+    } host_type;
+    int num_sans_for_type = 0;
+    struct in6_addr addr;
+
+    if (inet_pton (AF_INET6, remote_host, &addr)) {
+      host_type = HOST_TYPE_IPv6;
+    } else if (inet_pton (AF_INET, remote_host, &addr)) {
+      host_type = HOST_TYPE_IPv4;
+    } else {
+      host_type = HOST_TYPE_DNS;
+    }
+
+    while (--idx >= 0) {
+      int type;
+      void * value;
+     
+      value = GENERAL_NAME_get0_value (sk_GENERAL_NAME_value (san, idx), &type);
+
+      if (type == GEN_DNS && host_type == HOST_TYPE_DNS) {
+        num_sans_for_type++;
+        if (match_dns_name (remote_host, value)) {
+          break;
+	}
+      } else if (type == GEN_IPADD && host_type != HOST_TYPE_DNS) {
+        int len = ASN1_STRING_length (value);
+        num_sans_for_type++;
+        if (len == (int) host_type &&
+            memcmp (ASN1_STRING_data (value), &addr, len) == 0) {
+          break;
+        }
+      }     
+    }
+
+    GENERAL_NAMES_free (san);
+
+    if (num_sans_for_type > 0) {
+      result = (idx >= 0);
+    }
+  }
+
+  /* -1 if no applicable SANs present; 0 for no match; 1 for match */
+  return result;
+}
+
+static int
+match_subject_common_name (X509 * cert, const gchar * remote_host)
+{
+  X509_NAME * subject = X509_get_subject_name (cert);
+
+  if (subject != NULL) {
+    int idx = X509_NAME_entry_count (subject);
+
+    while (--idx >= 0) {
+      X509_NAME_ENTRY * entry = X509_NAME_get_entry (subject, idx);
+      if (OBJ_obj2nid (X509_NAME_ENTRY_get_object (entry)) == NID_commonName) {
+        return match_dns_name (remote_host, X509_NAME_ENTRY_get_data (entry));
+      }
+    }
+  }
+
+  return 0;
+}
+
+static int
+verify_hostname (X509 * cert, const gchar * remote_host)
+{
+  /* See RFC2818 $3.1 */
+  int result = match_subject_alternative_names (cert, remote_host);
+
+  if (result == -1) {
+    result = match_subject_common_name (cert, remote_host);
+  }
+
+  return result;
+}
+
+static int
+ssl_verify_callback (int preverify_ok, X509_STORE_CTX *ctx)
+{
+  SSL * ssl = X509_STORE_CTX_get_ex_data (ctx, SSL_get_ex_data_X509_STORE_CTX_idx ());
+  Client * client = SSL_get_app_data (ssl);
+  X509 * current_cert = X509_STORE_CTX_get_current_cert (ctx);
+
+  if (preverify_ok == 0 || current_cert == NULL) {
+    return preverify_ok;
+  }
+
+  /* TODO: Perform OCSP check for current certificate */
+
+  if (current_cert == ctx->cert) {
+    /* The current certificate is the peer certificate */
+    if (client->remote_host != NULL) {
+      preverify_ok = verify_hostname(current_cert, client->remote_host);
+    }
+  }
+
+  return preverify_ok;
+}
+
+static gboolean
+file_exists (const gchar *path)
+{
+  if (path == NULL || path[0] == '\0') {
+    return FALSE;
+  }
+  return g_file_test (path, G_FILE_TEST_EXISTS);
+}
+
+gboolean
+client_add_incoming_ssl (Client * client, gchar * cert, gchar * key,
+    gchar * ca_file, gchar * ca_dir, gchar * ciphers, gboolean ssl3_enabled)
+{
+  long ssl_options = SSL_OP_NO_SSLv2;
+
   client->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
-  //SSL_CTX_set_options (client->ssl_ctx, SSL_OP_ALL);
-  //SSL_CTX_set_default_verify_paths (client->ssl_ctx);
+
+  if (!ssl3_enabled) {
+    ssl_options |= SSL_OP_NO_SSLv3;
+  }
+
+  SSL_CTX_set_cipher_list (client->ssl_ctx, ciphers);
+  SSL_CTX_set_options (client->ssl_ctx, ssl_options);
+  if (file_exists (ca_file)) {
+    SSL_CTX_load_verify_locations (client->ssl_ctx, ca_file, NULL);
+  }
+  if (file_exists (ca_dir)) {
+    SSL_CTX_load_verify_locations (client->ssl_ctx, NULL, ca_dir);
+  }
+  SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_PEER, ssl_verify_callback);
 
   if (strlen (cert) > 0 ) {
     BIO * cert_bio = BIO_new_mem_buf (cert, -1);
@@ -1155,9 +1333,8 @@ client_add_incoming_ssl (Client * client, gchar * cert, gchar * key)
     BIO_free (key_bio);
   }
 
-  SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_NONE, NULL);
-
   client->ssl = SSL_new (client->ssl_ctx);
+  SSL_set_app_data (client->ssl, client);
   SSL_set_fd (client->ssl, client->fd);
 
   if (SSL_accept (client->ssl) < 0) {
@@ -1170,15 +1347,31 @@ client_add_incoming_ssl (Client * client, gchar * cert, gchar * key)
 }
 
 gboolean
-client_add_outgoing_ssl (Client * client)
+client_add_outgoing_ssl (Client * client,
+    gchar * ca_file, gchar * ca_dir,
+    gchar * ciphers, gboolean ssl3_enabled)
 {
-  client->ssl_ctx = SSL_CTX_new (SSLv23_method());
-  SSL_CTX_set_options (client->ssl_ctx, SSL_OP_ALL);
-  SSL_CTX_set_default_verify_paths (client->ssl_ctx);
+  long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2;
 
-  //SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_NONE, NULL);
+  client->ssl_ctx = SSL_CTX_new (SSLv23_client_method());
+
+  if (!ssl3_enabled) {
+    ssl_options |= SSL_OP_NO_SSLv3;
+  }
+
+  SSL_CTX_set_cipher_list (client->ssl_ctx, ciphers);
+  SSL_CTX_set_options (client->ssl_ctx, ssl_options);
+  if (file_exists (ca_file)) {
+    SSL_CTX_load_verify_locations (client->ssl_ctx, ca_file, NULL);
+  }
+  if (file_exists (ca_dir)) {
+    SSL_CTX_load_verify_locations (client->ssl_ctx, NULL, ca_dir);
+  }
+  SSL_CTX_set_verify (client->ssl_ctx,
+      SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, ssl_verify_callback);
 
   client->ssl = SSL_new (client->ssl_ctx);
+  SSL_set_app_data (client->ssl, client);
   SSL_set_fd (client->ssl, client->fd);
 
   if (SSL_connect (client->ssl) < 0) {
@@ -1192,7 +1385,8 @@ client_add_outgoing_ssl (Client * client)
 
 Client *
 client_new (gint fd, Connections * connections, GObject * server,
-    gboolean use_ssl, gint stream_id, guint chunk_size)
+    gboolean use_ssl, gint stream_id, guint chunk_size,
+    const gchar * remote_host)
 {
   Client * client = g_new0 (Client, 1);
 
@@ -1219,6 +1413,10 @@ client_new (gint fd, Connections * connections, GObject * server,
   client->handshake = pex_rtmp_handshake_new ();
   client->handshake_state = HANDSHAKE_START;
 
+  if (remote_host != NULL) {
+    client->remote_host = g_strdup (remote_host);
+  }
+
   return client;
 }
 
@@ -1242,6 +1440,7 @@ client_free (Client * client)
     SSL_CTX_free (client->ssl_ctx);
   if (client->ssl)
     SSL_free (client->ssl);
+  g_free (client->remote_host);
 
   g_free (client);
 }

@@ -71,10 +71,12 @@ struct _Client
   /* crypto */
   SSL_CTX * ssl_ctx;
   SSL * ssl;
+  gchar * remote_host;
 };
 
 Client * client_new (gint fd, Connections * connection,
-    GObject * server, gboolean use_ssl, gint stream_id, guint chunk_size);
+    GObject * server, gboolean use_ssl, gint stream_id, guint chunk_size,
+    const gchar * remote_host);
 void client_free (Client * client);
 
 guint client_recv_all (Client * client, void * buf, guint len);
@@ -86,8 +88,11 @@ gboolean client_handle_message (Client * client, RTMP_Message * msg);
 gboolean client_window_size_reached (Client *client);
 
 gboolean client_add_incoming_ssl (Client * client,
-    gchar * cert, gchar * key);
-gboolean client_add_outgoing_ssl (Client * client);
+    gchar * cert, gchar * key, gchar * ca_file, gchar * ca_dir,
+    gchar * ciphers, gboolean ssl3_enabled);
+gboolean client_add_outgoing_ssl (Client * client,
+    gchar * ca_file, gchar * ca_dir,
+    gchar * ciphers, gboolean ssl3_enabled);
 
 void client_do_connect (Client * client, const gchar * tcUrl,
     const gchar * application_name, const gchar * path);

@@ -43,6 +43,10 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_SSL_PORT 443
 #define DEFAULT_CERT ""
 #define DEFAULT_KEY ""
+#define DEFAULT_SSL3_ENABLED FALSE
+#define DEFAULT_CA_CERT_FILE ""
+#define DEFAULT_CA_CERT_DIR ""
+#define DEFAULT_CIPHERS "!eNULL:!aNULL:!EXP:!DES:!RC4:!RC2:!IDEA:!ADH:ALL@STRENGTH"
 #define DEFAULT_STREAM_ID 1337
 #define DEFAULT_CHUNK_SIZE 128
 
@@ -57,6 +61,10 @@ enum
   PROP_SSL_PORT,
   PROP_CERT,
   PROP_KEY,
+  PROP_CA_CERT_FILE,
+  PROP_CA_CERT_DIR,
+  PROP_CIPHERS,
+  PROP_SSL3_ENABLED,
   PROP_STREAM_ID,
   PROP_CHUNK_SIZE,
 };
@@ -81,6 +89,10 @@ struct _PexRtmpServerPrivate
   gint ssl_port;
   gchar * cert;
   gchar * key;
+  gchar * ca_cert_file;
+  gchar * ca_cert_dir;
+  gchar * ciphers;
+  gboolean ssl3_enabled;
   gint stream_id;
   gint chunk_size;
 
@@ -100,7 +112,8 @@ struct _PexRtmpServerPrivate
 
 PexRtmpServer *
 pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
-    const gchar * cert, const gchar * key)
+    const gchar * cert, const gchar * key, const gchar * ca_cert_file,
+    const gchar * ca_cert_dir, const gchar * ciphers, gboolean ssl3_enabled)
 {
   return g_object_new (PEX_TYPE_RTMP_SERVER,
       "application-name", application_name,
@@ -108,6 +121,10 @@ pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
       "ssl-port", ssl_port,
       "cert", cert,
       "key", key,
+      "ca-cert-file", ca_cert_file,
+      "ca-cert-dir", ca_cert_dir,
+      "ciphers", ciphers,
+      "ssl3-enabled", ssl3_enabled,
       NULL);
 }
 
@@ -128,6 +145,10 @@ pex_rtmp_server_init (PexRtmpServer *srv)
   priv->ssl_port = DEFAULT_SSL_PORT;
   priv->cert = NULL;
   priv->key = NULL;
+  priv->ca_cert_file = NULL;
+  priv->ca_cert_dir = NULL;
+  priv->ciphers = NULL;
+  priv->ssl3_enabled = DEFAULT_SSL3_ENABLED;
 
   priv->thread = NULL;
   priv->last_queue_overflow = NULL;
@@ -154,6 +175,9 @@ pex_rtmp_server_finalize (GObject * obj)
   g_free (priv->application_name);
   g_free (priv->cert);
   g_free (priv->key);
+  g_free (priv->ca_cert_file);
+  g_free (priv->ca_cert_dir);
+  g_free (priv->ciphers);
   g_mutex_clear (&priv->lock);
 
   g_array_free (priv->poll_table, TRUE);
@@ -184,6 +208,18 @@ pex_rtmp_server_set_property (GObject * obj, guint prop_id,
       break;
     case PROP_KEY:
       srv->priv->key = g_value_dup_string (value);
+      break;
+    case PROP_CA_CERT_FILE:
+      srv->priv->ca_cert_file = g_value_dup_string (value);
+      break;
+    case PROP_CA_CERT_DIR:
+      srv->priv->ca_cert_dir = g_value_dup_string (value);
+      break;
+    case PROP_CIPHERS:
+      srv->priv->ciphers = g_value_dup_string (value);
+      break;
+    case PROP_SSL3_ENABLED:
+      srv->priv->ssl3_enabled = g_value_get_boolean (value);
       break;
     case PROP_STREAM_ID:
       srv->priv->stream_id = g_value_get_int (value);
@@ -217,6 +253,18 @@ pex_rtmp_server_get_property (GObject * obj, guint prop_id,
       break;
     case PROP_KEY:
       g_value_set_string (value, srv->priv->key);
+      break;
+    case PROP_CA_CERT_FILE:
+      g_value_set_string (value, srv->priv->ca_cert_file);
+      break;
+    case PROP_CA_CERT_DIR:
+      g_value_set_string (value, srv->priv->ca_cert_dir);
+      break;
+    case PROP_CIPHERS:
+      g_value_set_string (value, srv->priv->ciphers);
+      break;
+    case PROP_SSL3_ENABLED:
+      g_value_set_boolean (value, srv->priv->ssl3_enabled);
       break;
     case PROP_STREAM_ID:
       g_value_set_int (value, srv->priv->stream_id);
@@ -264,8 +312,28 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
           "The ssl key", DEFAULT_KEY,
           G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_CA_CERT_FILE,
+      g_param_spec_string ("ca-cert-file", "Trusted CA file",
+          "File containing trusted CA certificates", DEFAULT_CA_CERT_FILE,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_CA_CERT_DIR,
+      g_param_spec_string ("ca-cert-dir", "Trusted CA dir",
+          "Directory containing trusted CA certificates", DEFAULT_CA_CERT_DIR,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_CIPHERS,
+      g_param_spec_string ("ciphers", "Cipher specification",
+          "Specification of ciphers to use", DEFAULT_CIPHERS,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_SSL3_ENABLED,
+      g_param_spec_boolean ("ssl3-enabled", "SSL3 enabled",
+          "Whether SSL3 is enabled", DEFAULT_SSL3_ENABLED,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
   g_object_class_install_property (gobject_class, PROP_STREAM_ID,
-      g_param_spec_int ("stream-id", "Stread ID",
+      g_param_spec_int ("stream-id", "Stream ID",
           "The ID to use for the RTMP Media stream",
           0, G_MAXINT, DEFAULT_STREAM_ID,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
@@ -404,15 +472,29 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   gboolean use_ssl = listen_fd == srv->priv->listen_ssl_fd;
   GST_DEBUG_OBJECT (srv, "We got an %s connection", use_ssl ? "rtmps" : "rtmp");
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
-      use_ssl, srv->priv->stream_id, srv->priv->chunk_size);
+      use_ssl, srv->priv->stream_id, srv->priv->chunk_size, NULL);
 
   /* ssl connection */
   if (use_ssl) {
-    gchar * cert, * key;
-    g_object_get (srv, "cert", &cert, "key", &key, NULL);
-    client_add_incoming_ssl (client, cert, key);
+    gchar * cert, * key, * ca_file, * ca_dir, * ciphers;
+    gboolean ssl3_enabled;
+
+    g_object_get (srv,
+                  "cert", &cert,
+                  "key", &key,
+                  "ca-cert-file", &ca_file,
+                  "ca-cert-dir", &ca_dir,
+                  "ciphers", &ciphers,
+                  "ssl3-enabled", &ssl3_enabled,
+                  NULL);
+
+    client_add_incoming_ssl (client, cert, key, ca_file, ca_dir, ciphers, ssl3_enabled);
+
     g_free (cert);
     g_free (key);
+    g_free (ca_file);
+    g_free (ca_dir);
+    g_free (ciphers);
   }
 
   /* make the connection non-blocking */
@@ -427,17 +509,39 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 
 static Client *
 rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
-    const gchar * path, const gchar * protocol)
+    const gchar * path, const gchar * protocol, const gchar * remote_host)
 {
   gboolean use_ssl = (g_strcmp0 (protocol, "rtmps") == 0);
 
   GST_DEBUG_OBJECT (srv, "Initiating a %s connection", protocol);
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
-      use_ssl, srv->priv->stream_id, srv->priv->chunk_size);
+      use_ssl, srv->priv->stream_id, srv->priv->chunk_size, remote_host);
   client->path = g_strdup (path);
 
-  if (use_ssl)
-    client_add_outgoing_ssl (client);
+  if (use_ssl) {
+    gchar * ca_file, * ca_dir, * ciphers;
+    gboolean ssl3_enabled;
+
+    g_object_get (srv,
+                  "ca-cert-file", &ca_file,
+                  "ca-cert-dir", &ca_dir,
+                  "ciphers", &ciphers,
+                  "ssl3-enabled", &ssl3_enabled,
+                  NULL);
+
+    if (!client_add_outgoing_ssl (client, ca_file, ca_dir, ciphers, ssl3_enabled)) {
+      /* Client logs warnings for us, so no need to do that here */
+      g_free (ca_file);
+      g_free (ca_dir);
+      g_free (ciphers);
+      client_free (client);
+      return NULL;
+    }
+
+    g_free (ca_file);
+    g_free (ca_dir);
+    g_free (ciphers);
+  }
 
   /* handshake */
   if (!rtmp_server_outgoing_handshake (srv, client)) {
@@ -666,27 +770,27 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
   gboolean ret = FALSE;
   gchar * protocol = NULL;
   gint port;
-  gchar * ip = NULL;
+  gchar * host = NULL;
   gchar * application_name = NULL;
   gchar * dest_path = NULL;
   gchar * tcUrl = NULL;
 
   if (!pex_rtmp_server_parse_url (srv, url,
-      &protocol, &port, &ip, &application_name, &dest_path)) {
+      &protocol, &port, &host, &application_name, &dest_path)) {
     goto done;
   }
 
-  gint fd = pex_rtmp_server_tcp_connect (srv, ip, port);
+  gint fd = pex_rtmp_server_tcp_connect (srv, host, port);
   if (fd == INVALID_FD) {
     GST_WARNING_OBJECT (srv, "Not able to connect");
     goto done;
   }
 
   tcUrl = g_strdup_printf ("%s://%s:%d/%s",
-      protocol, ip, port, application_name);
+      protocol, host, port, application_name);
 
   PEX_RTMP_SERVER_LOCK (srv);
-  Client * client = rtmp_server_create_dialout_client (srv, fd, src_path, protocol);
+  Client * client = rtmp_server_create_dialout_client (srv, fd, src_path, protocol, host);
   if (client) {
     /* connect this client as a publisher on the remote server */
     client_do_connect (client, tcUrl, application_name, dest_path);
@@ -694,10 +798,14 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
   }
   PEX_RTMP_SERVER_UNLOCK (srv);
 
+  if (client == NULL) {
+    close (fd);
+  }
+
 done:
   g_free (tcUrl);
   g_free (protocol);
-  g_free (ip);
+  g_free (host);
   g_free (application_name);
   g_free (dest_path);
 
