@@ -43,7 +43,7 @@ main (int argc, char *argv[])
 
   gst_init (NULL, NULL);
 
-  PexRtmpServer * srv = pex_rtmp_server_new (app_name, port, 0, NULL, NULL);
+  PexRtmpServer * srv = pex_rtmp_server_new (app_name, port, 0, NULL, NULL, NULL, NULL, NULL, FALSE);
   if (srv == NULL)
     return 1;
 
