@@ -87,11 +87,12 @@ gboolean client_handle_message (Client * client, RTMP_Message * msg);
 gboolean client_window_size_reached (Client *client);
 
 gboolean client_add_incoming_ssl (Client * client,
-    gchar * cert, gchar * key, gchar * ca_file, gchar * ca_dir,
-    gchar * ciphers, gboolean ssl3_enabled);
+    const gchar * cert_file, const gchar * key_file,
+    const gchar * ca_file, const gchar * ca_dir,
+    const gchar * ciphers, gboolean ssl3_enabled);
 gboolean client_add_outgoing_ssl (Client * client,
-    gchar * ca_file, gchar * ca_dir,
-    gchar * ciphers, gboolean ssl3_enabled);
+    const gchar * ca_file, const gchar * ca_dir,
+    const gchar * ciphers, gboolean ssl3_enabled);
 
 gboolean client_outgoing_handshake (Client * client);
 

@@ -19,7 +19,6 @@
 #include <arpa/inet.h>
 
 #include <openssl/crypto.h>
-#include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/x509v3.h>
 
@@ -1286,8 +1285,10 @@ file_exists (const gchar *path)
 }
 
 gboolean
-client_add_incoming_ssl (Client * client, gchar * cert, gchar * key,
-    gchar * ca_file, gchar * ca_dir, gchar * ciphers, gboolean ssl3_enabled)
+client_add_incoming_ssl (Client * client,
+    const gchar * cert_file, const gchar * key_file,
+    const gchar * ca_file, const gchar * ca_dir,
+    const gchar * ciphers, gboolean ssl3_enabled)
 {
   long ssl_options = SSL_OP_NO_SSLv2;
 
@@ -1307,32 +1308,18 @@ client_add_incoming_ssl (Client * client, gchar * cert, gchar * key,
   }
   SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_PEER, ssl_verify_callback);
 
-  if (strlen (cert) > 0 ) {
-    BIO * cert_bio = BIO_new_mem_buf (cert, -1);
-    X509 * cert_x509 = PEM_read_bio_X509 (cert_bio, NULL, 0, NULL);
-    if (cert_x509) {
-      if (SSL_CTX_use_certificate (client->ssl_ctx, cert_x509) <= 0) {
-        GST_WARNING_OBJECT (client->server, "did not like the certificate: %s", cert);
-        print_ssl_errors (client);
-        return FALSE;
-      }
-      X509_free (cert_x509);
+  if (file_exists (cert_file) && file_exists (key_file)) {
+    if (SSL_CTX_use_certificate_file (client->ssl_ctx, cert_file, SSL_FILETYPE_PEM) <= 0) {
+      GST_WARNING_OBJECT (client->server, "did not like the certificate: %s", cert_file);
+      print_ssl_errors (client);
+      return FALSE;
     }
-    BIO_free (cert_bio);
-  }
 
-  if (strlen (key) > 0) {
-    BIO * key_bio = BIO_new_mem_buf (key, -1);
-    EVP_PKEY * key_evp = PEM_read_bio_PrivateKey (key_bio, NULL, 0, NULL);
-    if (key_evp) {
-      if (SSL_CTX_use_PrivateKey (client->ssl_ctx, key_evp) <= 0) {
-        GST_WARNING_OBJECT (client->server, "did not like the key: %s", key);
-        print_ssl_errors (client);
-        return FALSE;
-      }
-      EVP_PKEY_free (key_evp);
+    if (SSL_CTX_use_PrivateKey_file (client->ssl_ctx, key_file, SSL_FILETYPE_PEM) <= 0) {
+      GST_WARNING_OBJECT (client->server, "did not like the key: %s", key_file);
+      print_ssl_errors (client);
+      return FALSE;
     }
-    BIO_free (key_bio);
   }
 
   client->ssl = SSL_new (client->ssl_ctx);
@@ -1350,8 +1337,8 @@ client_add_incoming_ssl (Client * client, gchar * cert, gchar * key,
 
 gboolean
 client_add_outgoing_ssl (Client * client,
-    gchar * ca_file, gchar * ca_dir,
-    gchar * ciphers, gboolean ssl3_enabled)
+    const gchar * ca_file, const gchar * ca_dir,
+    const gchar * ciphers, gboolean ssl3_enabled)
 {
   long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2;
 

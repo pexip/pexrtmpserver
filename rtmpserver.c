@@ -41,8 +41,8 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_APPLICATION_NAME ""
 #define DEFAULT_PORT 1935
 #define DEFAULT_SSL_PORT 443
-#define DEFAULT_CERT ""
-#define DEFAULT_KEY ""
+#define DEFAULT_CERT_FILE ""
+#define DEFAULT_KEY_FILE ""
 #define DEFAULT_SSL3_ENABLED FALSE
 #define DEFAULT_CA_CERT_FILE ""
 #define DEFAULT_CA_CERT_DIR ""
@@ -59,8 +59,8 @@ enum
   PROP_APPLICATION_NAME,
   PROP_PORT,
   PROP_SSL_PORT,
-  PROP_CERT,
-  PROP_KEY,
+  PROP_CERT_FILE,
+  PROP_KEY_FILE,
   PROP_CA_CERT_FILE,
   PROP_CA_CERT_DIR,
   PROP_CIPHERS,
@@ -87,8 +87,8 @@ struct _PexRtmpServerPrivate
   gchar * application_name;
   gint port;
   gint ssl_port;
-  gchar * cert;
-  gchar * key;
+  gchar * cert_file;
+  gchar * key_file;
   gchar * ca_cert_file;
   gchar * ca_cert_dir;
   gchar * ciphers;
@@ -112,15 +112,15 @@ struct _PexRtmpServerPrivate
 
 PexRtmpServer *
 pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
-    const gchar * cert, const gchar * key, const gchar * ca_cert_file,
+    const gchar * cert_file, const gchar * key_file, const gchar * ca_cert_file,
     const gchar * ca_cert_dir, const gchar * ciphers, gboolean ssl3_enabled)
 {
   return g_object_new (PEX_TYPE_RTMP_SERVER,
       "application-name", application_name,
       "port", port,
       "ssl-port", ssl_port,
-      "cert", cert,
-      "key", key,
+      "cert-file", cert_file,
+      "key-file", key_file,
       "ca-cert-file", ca_cert_file,
       "ca-cert-dir", ca_cert_dir,
       "ciphers", ciphers,
@@ -143,8 +143,8 @@ pex_rtmp_server_init (PexRtmpServer *srv)
   priv->application_name = NULL;
   priv->port = DEFAULT_PORT;
   priv->ssl_port = DEFAULT_SSL_PORT;
-  priv->cert = NULL;
-  priv->key = NULL;
+  priv->cert_file = NULL;
+  priv->key_file = NULL;
   priv->ca_cert_file = NULL;
   priv->ca_cert_dir = NULL;
   priv->ciphers = NULL;
@@ -173,8 +173,8 @@ pex_rtmp_server_finalize (GObject * obj)
   PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
 
   g_free (priv->application_name);
-  g_free (priv->cert);
-  g_free (priv->key);
+  g_free (priv->cert_file);
+  g_free (priv->key_file);
   g_free (priv->ca_cert_file);
   g_free (priv->ca_cert_dir);
   g_free (priv->ciphers);
@@ -203,11 +203,11 @@ pex_rtmp_server_set_property (GObject * obj, guint prop_id,
     case PROP_SSL_PORT:
       srv->priv->ssl_port = g_value_get_int (value);
       break;
-    case PROP_CERT:
-      srv->priv->cert = g_value_dup_string (value);
+    case PROP_CERT_FILE:
+      srv->priv->cert_file = g_value_dup_string (value);
       break;
-    case PROP_KEY:
-      srv->priv->key = g_value_dup_string (value);
+    case PROP_KEY_FILE:
+      srv->priv->key_file = g_value_dup_string (value);
       break;
     case PROP_CA_CERT_FILE:
       srv->priv->ca_cert_file = g_value_dup_string (value);
@@ -248,11 +248,11 @@ pex_rtmp_server_get_property (GObject * obj, guint prop_id,
     case PROP_SSL_PORT:
       g_value_set_int (value, srv->priv->ssl_port);
       break;
-    case PROP_CERT:
-      g_value_set_string (value, srv->priv->cert);
+    case PROP_CERT_FILE:
+      g_value_set_string (value, srv->priv->cert_file);
       break;
-    case PROP_KEY:
-      g_value_set_string (value, srv->priv->key);
+    case PROP_KEY_FILE:
+      g_value_set_string (value, srv->priv->key_file);
       break;
     case PROP_CA_CERT_FILE:
       g_value_set_string (value, srv->priv->ca_cert_file);
@@ -302,14 +302,14 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
           "The port to listen on", 0, 65535, DEFAULT_SSL_PORT,
           G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
-  g_object_class_install_property (gobject_class, PROP_CERT,
-      g_param_spec_string ("cert", "Certificate (PEM)",
-          "The ssl certificate", DEFAULT_CERT,
+  g_object_class_install_property (gobject_class, PROP_CERT_FILE,
+      g_param_spec_string ("cert-file", "Certificate file",
+          "File containing TLS certificate", DEFAULT_CERT_FILE,
           G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
-  g_object_class_install_property (gobject_class, PROP_KEY,
-      g_param_spec_string ("key", "Key (PEM)",
-          "The ssl key", DEFAULT_KEY,
+  g_object_class_install_property (gobject_class, PROP_KEY_FILE,
+      g_param_spec_string ("key-file", "Key file",
+          "File containing TLS private key", DEFAULT_KEY_FILE,
           G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_CA_CERT_FILE,
@@ -415,22 +415,22 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 
   /* ssl connection */
   if (use_ssl) {
-    gchar * cert, * key, * ca_file, * ca_dir, * ciphers;
+    gchar * cert_file, * key_file, * ca_file, * ca_dir, * ciphers;
     gboolean ssl3_enabled;
 
     g_object_get (srv,
-                  "cert", &cert,
-                  "key", &key,
+                  "cert-file", &cert_file,
+                  "key-file", &key_file,
                   "ca-cert-file", &ca_file,
                   "ca-cert-dir", &ca_dir,
                   "ciphers", &ciphers,
                   "ssl3-enabled", &ssl3_enabled,
                   NULL);
 
-    client_add_incoming_ssl (client, cert, key, ca_file, ca_dir, ciphers, ssl3_enabled);
+    client_add_incoming_ssl (client, cert_file, key_file, ca_file, ca_dir, ciphers, ssl3_enabled);
 
-    g_free (cert);
-    g_free (key);
+    g_free (cert_file);
+    g_free (key_file);
     g_free (ca_file);
     g_free (ca_dir);
     g_free (ciphers);
