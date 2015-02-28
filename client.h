@@ -51,6 +51,8 @@ struct _Client
 
   gchar * path;
   gchar * dialout_path;
+  gchar * tcUrl;
+  gchar * app;
 
   gboolean playing;             /* Wants to receive the stream? */
   gboolean ready;               /* Wants to receive and seen a keyframe */
@@ -79,9 +81,6 @@ Client * client_new (gint fd, Connections * connection,
     const gchar * remote_host);
 void client_free (Client * client);
 
-guint client_recv_all (Client * client, void * buf, guint len);
-guint client_send_all (Client * client, const void * buf, guint len);
-
 gboolean client_try_to_send (Client * client);
 gboolean client_receive (Client * client);
 gboolean client_handle_message (Client * client, RTMP_Message * msg);
@@ -94,8 +93,7 @@ gboolean client_add_outgoing_ssl (Client * client,
     gchar * ca_file, gchar * ca_dir,
     gchar * ciphers, gboolean ssl3_enabled);
 
-void client_do_connect (Client * client, const gchar * tcUrl,
-    const gchar * application_name, const gchar * path);
+gboolean client_outgoing_handshake (Client * client);
 
 #endif /* __CLIENT_H__ */
 

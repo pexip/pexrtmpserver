@@ -288,23 +288,20 @@ client_set_chunk_size (Client * client, gint chunk_size)
   client->send_chunk_size = chunk_size;
 }
 
-void
-client_do_connect (Client * client, const gchar * tcUrl,
-    const gchar * application_name, const gchar * path)
+static void
+client_do_connect (Client * client)
 {
-  GST_DEBUG_OBJECT (client->server, "connecting to: %s with path: %s", tcUrl, path);
-
-  /* make a copy of the path to connect to */
-  client->dialout_path = g_strdup (path);
+  GST_DEBUG_OBJECT (client->server, "connecting to: %s with path: %s",
+      client->tcUrl, client->path);
 
   /* send connect */
   GstStructure * status = gst_structure_new ("object",
-      "app", G_TYPE_STRING, application_name,
-      "tcUrl", G_TYPE_STRING, tcUrl,
+      "app", G_TYPE_STRING, client->app,
+      "tcUrl", G_TYPE_STRING, client->tcUrl,
       "type", G_TYPE_STRING, "nonprivate",
       "fpad", G_TYPE_BOOLEAN, TRUE,
       "flashVer", G_TYPE_STRING, "Pexip RTMP Server",
-      "swfUrl", G_TYPE_STRING, tcUrl,
+      "swfUrl", G_TYPE_STRING, client->tcUrl,
       NULL);
 
 //      "fpad", G_TYPE_BOOLEAN, TRUE, /* we are doing proxying */
@@ -924,9 +921,9 @@ client_incoming_handshake (Client * client)
           pex_rtmp_handshake_get_length (client->handshake));
       client_try_to_send (client);
 
-      client->handshake_state = HANDSHAKE_MIDDLE;
+      client->handshake_state = HANDSHAKE_STAGE1;
     }
-  } else if (client->handshake_state == HANDSHAKE_MIDDLE) {
+  } else if (client->handshake_state == HANDSHAKE_STAGE1) {
     guint len = HANDSHAKE_LENGTH;
     if (client->buf->len >= len) {
       /* receive another handshake */
@@ -937,6 +934,61 @@ client_incoming_handshake (Client * client)
       client->handshake_state = HANDSHAKE_DONE;
     }
   }
+  return TRUE;
+}
+
+gboolean
+client_outgoing_handshake (Client * client)
+{
+  if (client->handshake_state == HANDSHAKE_START) {
+    guint8 buf[HANDSHAKE_LENGTH + 1];
+    /* first byte is Handshake Type */
+    buf[0] = HANDSHAKE_PLAINTEXT;
+    /* Next 4 is Uptime, and 4 more is FMS version */
+    /* we set everything to 0 */
+    memset (&buf[1], 0, 8);
+    /* rest of the buffer is random numbers */
+    for (gint i = 9; i < HANDSHAKE_LENGTH + 1; i++)
+        buf[i] = 1; /* 1 is random... */
+
+    client->send_queue = g_byte_array_append (client->send_queue,
+        buf, HANDSHAKE_LENGTH + 1);
+    client_try_to_send (client);
+
+    client->handshake_state = HANDSHAKE_STAGE1;
+  } else if (client->handshake_state == HANDSHAKE_STAGE1) {
+    guint len = HANDSHAKE_LENGTH + 1;
+    if (client->buf->len >= len) {
+      /* check that the first byte says PLAINTEXT */
+      if (client->buf->data[0] != HANDSHAKE_PLAINTEXT)
+        return FALSE;
+      client->buf = g_byte_array_remove_range (client->buf, 0, 1);
+
+      guint32 server_uptime;
+      guint8 fms_version[4];
+      memcpy (&server_uptime, &client->buf->data[0], 4);
+      memcpy (&fms_version,   &client->buf->data[4], 4);
+      server_uptime = ntohl (server_uptime);
+      GST_DEBUG_OBJECT (client->server,
+          "Server Uptime: %u, FMS Version: %u.%u.%u.%u", server_uptime,
+          fms_version[0], fms_version[1], fms_version[2], fms_version[3]);
+
+      client->send_queue = g_byte_array_append (client->send_queue,
+          &client->buf->data[0], HANDSHAKE_LENGTH);
+      client_try_to_send (client);
+      client->buf = g_byte_array_remove_range (client->buf, 0, HANDSHAKE_LENGTH);
+
+      client->handshake_state = HANDSHAKE_STAGE2;
+    }
+  }
+  if (client->handshake_state == HANDSHAKE_STAGE2 &&
+      client->buf->len >= HANDSHAKE_LENGTH) {
+    client->buf = g_byte_array_remove_range (client->buf, 0, HANDSHAKE_LENGTH);
+    client_do_connect (client);
+
+    client->handshake_state = HANDSHAKE_DONE;
+  }
+
   return TRUE;
 }
 
@@ -966,7 +1018,12 @@ client_receive (Client * client)
   GST_LOG_OBJECT (client->server, "Read %d bytes", got);
 
   if (client->handshake_state != HANDSHAKE_DONE) {
-    gboolean ret = client_incoming_handshake (client);
+    gboolean ret;
+    if (client->dialout_path) {
+      ret = client_outgoing_handshake (client);
+    } else {
+      ret = client_incoming_handshake (client);
+    }
     if (client->handshake_state != HANDSHAKE_DONE)
       return ret;
   }
@@ -1050,61 +1107,6 @@ client_receive (Client * client)
     }
   }
   return TRUE;
-}
-
-guint
-client_recv_all (Client * client, void * buf, guint len)
-{
-  guint pos = 0;
-  while (pos < len) {
-    ssize_t bytes;
-    if (client->use_ssl) {
-      bytes = SSL_read (client->ssl, (char *)buf + pos, len - pos);
-    } else {
-      bytes = recv (client->fd, (char *)buf + pos, len - pos, 0);
-    }
-    if (bytes < 0) {
-      if (errno == EAGAIN || errno == EINTR)
-        continue;
-      GST_WARNING_OBJECT (client->server, "unable to recv: %s", strerror (errno));
-      return bytes;
-    }
-    if (bytes == 0)
-      break;
-    pos += bytes;
-  }
-  return pos;
-}
-
-guint
-client_send_all (Client * client, const void * buf, guint len)
-{
-  guint pos = 0;
-  while (pos < len) {
-    ssize_t written;
-    if (client->use_ssl) {
-      written = SSL_write (client->ssl,
-          (const char *)buf + pos, len - pos);
-    } else {
-      #ifdef __APPLE__
-      written = send (client->fd,
-          (const char *)buf + pos, len - pos, 0);
-      #else
-      written = send (client->fd,
-          (const char *)buf + pos, len - pos, MSG_NOSIGNAL);
-      #endif
-    }
-    if (written < 0) {
-      if (errno == EAGAIN || errno == EINTR)
-        continue;
-      GST_DEBUG_OBJECT (client->server, "unable to send: %s", strerror (errno));
-      return written;
-    }
-    if (written == 0)
-      break;
-    pos += written;
-  }
-  return pos;
 }
 
 static void
@@ -1431,6 +1433,8 @@ client_free (Client * client)
   if (client->metadata)
     gst_structure_free (client->metadata);
   g_free (client->path);
+  g_free (client->tcUrl);
+  g_free (client->app);
   g_free (client->dialout_path);
 
   pex_rtmp_handshake_free (client->handshake);

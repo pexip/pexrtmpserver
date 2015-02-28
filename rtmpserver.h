@@ -50,5 +50,6 @@ gboolean pex_rtmp_server_parse_url (PexRtmpServer * self, const gchar * url,
     gchar ** path);
 gint pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
     const gchar * ip, gint port);
+gint pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port);
 
 #endif /* __RTMP_SERVER_H__ */

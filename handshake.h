@@ -7,9 +7,10 @@
 
 enum _PexRtmpHandshakeState
 {
-  HANDSHAKE_START,
-  HANDSHAKE_MIDDLE,
-  HANDSHAKE_DONE,
+  HANDSHAKE_START = 0,
+  HANDSHAKE_STAGE1 = 1,
+  HANDSHAKE_STAGE2 = 2,
+  HANDSHAKE_DONE = 3,
 };
 
 typedef struct _PexRtmpHandshake PexRtmpHandshake;
