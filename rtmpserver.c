@@ -385,67 +385,6 @@ set_nonblock (int fd, gboolean enabled)
   return fcntl (fd, F_SETFL, flags);
 }
 
-gboolean
-rtmp_server_outgoing_handshake (PexRtmpServer * srv, Client * client)
-{
-  guint8 outbuf[HANDSHAKE_LENGTH];
-  guint8 inbuf[HANDSHAKE_LENGTH];
-
-  guint32 uptime = 0; /* FIXME: fill with something? */
-  (void)srv;
-
-  /* send first byte */
-  guint8 c = HANDSHAKE_PLAINTEXT;
-  if (client_send_all (client, &c, 1) < 1)
-    return FALSE;
-
-  /* Uptime */
-  uptime = htonl(uptime);
-  memcpy(&outbuf[0], &uptime, 4);
-  /* FMS - version */
-  memset(&outbuf[4], 0, 4);
-  /* "random" numbers */
-  for (gint i = 8; i < HANDSHAKE_LENGTH; i++)
-    outbuf[i] = 1; /* 1 is random... */
-
-  /* send */
-  if (client_send_all (client, outbuf, HANDSHAKE_LENGTH) < HANDSHAKE_LENGTH)
-    return FALSE;
-
-  /* receive first byte */
-  if (client_recv_all (client, &c, 1) < 1)
-    return FALSE;
-  if (c != HANDSHAKE_PLAINTEXT) {
-    GST_WARNING_OBJECT (srv, "only plaintext handshake supported");
-    return FALSE;
-  }
-
-  /* receive the rest */
-  if (client_recv_all (client, inbuf, HANDSHAKE_LENGTH) < HANDSHAKE_LENGTH)
-    return FALSE;
-
-  guint32 server_uptime;
-  memcpy(&server_uptime, &inbuf[0], 4);
-  server_uptime = ntohl(server_uptime);
-  GST_DEBUG_OBJECT (srv, "Server Uptime: %d, FMS Version: %d.%d.%d.%d",
-      server_uptime, inbuf[4], inbuf[5], inbuf[6], inbuf[7]);
-
-  /* reflect back what we got */
-  if (client_send_all (client, inbuf, HANDSHAKE_LENGTH) < HANDSHAKE_LENGTH)
-    return FALSE;
-
-  /* receive again */
-  if (client_recv_all (client, inbuf, HANDSHAKE_LENGTH) < HANDSHAKE_LENGTH)
-    return FALSE;
-
-  /* and check that we are getting back the first thing we sent */
-  if (memcmp (inbuf, outbuf, HANDSHAKE_LENGTH) != 0) {
-    GST_WARNING_OBJECT (srv, "Invalid handshake");
-  }
-
-  return TRUE;
-}
-
 static void
 pex_rtmp_add_fd_to_poll_table (PexRtmpServer * srv, gint fd)
 {
@@ -509,7 +448,8 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 
 static Client *
 rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
-    const gchar * path, const gchar * protocol, const gchar * remote_host)
+    const gchar * path, const gchar * protocol, const gchar * remote_host,
+    const gchar * tcUrl, const gchar * app, const gchar * dialout_path)
 {
   gboolean use_ssl = (g_strcmp0 (protocol, "rtmps") == 0);
 
@@ -517,6 +457,9 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
       use_ssl, srv->priv->stream_id, srv->priv->chunk_size, remote_host);
   client->path = g_strdup (path);
+  client->dialout_path = g_strdup (dialout_path);
+  client->tcUrl = g_strdup (tcUrl);
+  client->app = g_strdup (app);
 
   if (use_ssl) {
     gchar * ca_file, * ca_dir, * ciphers;
@@ -543,15 +486,6 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
     g_free (ciphers);
   }
 
-  /* handshake */
-  if (!rtmp_server_outgoing_handshake (srv, client)) {
-    GST_WARNING_OBJECT (srv, "Outgoing Handshake Failed");
-    client_free (client);
-    return NULL;
-  }
-  /* FIXME: until we have non-blocking outgoing as well */
-  client->handshake_state = HANDSHAKE_DONE;
-
   /* make the connection non-blocking */
   set_nonblock (fd, TRUE);
 
@@ -559,6 +493,8 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
   pex_rtmp_add_fd_to_poll_table (srv, fd);
   g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
   GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, fd);
+
+  client_outgoing_handshake (client);
 
   return client;
 }
@@ -767,16 +703,16 @@ gboolean
 pex_rtmp_server_dialout (PexRtmpServer * srv,
     const gchar * src_path, const gchar * url)
 {
-  gboolean ret = FALSE;
+  gboolean ret = TRUE;
   gchar * protocol = NULL;
   gint port;
   gchar * host = NULL;
-  gchar * application_name = NULL;
-  gchar * dest_path = NULL;
+  gchar * app = NULL;
+  gchar * dialout_path = NULL;
   gchar * tcUrl = NULL;
 
   if (!pex_rtmp_server_parse_url (srv, url,
-      &protocol, &port, &host, &application_name, &dest_path)) {
+      &protocol, &port, &host, &app, &dialout_path)) {
     goto done;
   }
 
@@ -787,18 +723,15 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
   }
 
   tcUrl = g_strdup_printf ("%s://%s:%d/%s",
-      protocol, host, port, application_name);
+      protocol, host, port, app);
 
   PEX_RTMP_SERVER_LOCK (srv);
-  Client * client = rtmp_server_create_dialout_client (srv, fd, src_path, protocol, host);
-  if (client) {
-    /* connect this client as a publisher on the remote server */
-    client_do_connect (client, tcUrl, application_name, dest_path);
-    ret = TRUE;
-  }
+  Client * client = rtmp_server_create_dialout_client (srv, fd,
+      src_path, protocol, host, tcUrl, app, dialout_path);
   PEX_RTMP_SERVER_UNLOCK (srv);
 
   if (client == NULL) {
+    ret = FALSE;
     close (fd);
   }
 
@@ -806,8 +739,8 @@ done:
   g_free (tcUrl);
   g_free (protocol);
   g_free (host);
-  g_free (application_name);
-  g_free (dest_path);
+  g_free (app);
+  g_free (dialout_path);
 
   return ret;
 }
@@ -918,7 +851,7 @@ rtmp_server_func (gpointer data)
   return NULL;
 }
 
-static gint
+gint
 pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
 {
   gint fd = socket (AF_INET, SOCK_STREAM, 0);
@@ -942,7 +875,6 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
 
   return fd;
 }
-
 
 gboolean
 pex_rtmp_server_start (PexRtmpServer * srv)
