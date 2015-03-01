@@ -408,6 +408,9 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
     return;
   }
 
+  /* make the connection non-blocking */
+  set_nonblock (fd, TRUE);
+
   gboolean use_ssl = listen_fd == srv->priv->listen_ssl_fd;
   GST_DEBUG_OBJECT (srv, "We got an %s connection", use_ssl ? "rtmps" : "rtmp");
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
@@ -435,9 +438,6 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
     g_free (ca_dir);
     g_free (ciphers);
   }
-
-  /* make the connection non-blocking */
-  set_nonblock (fd, TRUE);
 
   /* create a poll entry, and link it to the client */
   pex_rtmp_add_fd_to_poll_table (srv, fd);
@@ -486,15 +486,10 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
     g_free (ciphers);
   }
 
-  /* make the connection non-blocking */
-  set_nonblock (fd, TRUE);
-
   /* create a poll entry, and link it to the client */
   pex_rtmp_add_fd_to_poll_table (srv, fd);
   g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
   GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, fd);
-
-  client_outgoing_handshake (client);
 
   return client;
 }
@@ -673,18 +668,8 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
     return INVALID_FD;
   }
 
-  if (address.ss_family == AF_INET) {
-    ((struct sockaddr_in *)&address)->sin_port = htons (port);
-    ret = connect (fd, (struct sockaddr *)&address, sizeof (struct sockaddr_in));
-  } else {
-    ((struct sockaddr_in6 *)&address)->sin6_port = htons (port);
-    ret = connect (fd, (struct sockaddr *)&address, sizeof (struct sockaddr_in6));
-  }
-
-  if (ret != 0) {
-    GST_WARNING_OBJECT (srv, "could not connect on port %d: %s", port, g_strerror (errno));
-    return INVALID_FD;
-  }
+  /* make the connection non-blocking */
+  set_nonblock (fd, TRUE);
 
   /* set timeout */
   struct timeval tv = {30, 0};
@@ -695,6 +680,19 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   /* Disable packet-accumulation delay (Nagle's algorithm) */
   gint value = 1;
   setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof (value));
+
+  if (address.ss_family == AF_INET) {
+    ((struct sockaddr_in *)&address)->sin_port = htons (port);
+    ret = connect (fd, (struct sockaddr *)&address, sizeof (struct sockaddr_in));
+  } else {
+    ((struct sockaddr_in6 *)&address)->sin6_port = htons (port);
+    ret = connect (fd, (struct sockaddr *)&address, sizeof (struct sockaddr_in6));
+  }
+
+  if (ret != 0 && errno != EINPROGRESS) {
+      GST_WARNING_OBJECT (srv, "could not connect on port %d: %s", port, g_strerror (errno));
+      return INVALID_FD;
+  }
 
   return fd;
 }
@@ -762,11 +760,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
         rtmp_server_update_send_queues (srv, client);
       }
 
-      if (client->send_queue->len > 0) {
-        entry->events = POLLIN | POLLOUT;
-      } else {
-        entry->events = POLLIN;
-      }
+      entry->events = client_get_poll_events (client);
     }
   }
 
