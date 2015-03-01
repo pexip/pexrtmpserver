@@ -31,9 +31,17 @@ typedef struct
   guint msg_len;
 } RTMP_Header_State;
 
+typedef enum
+{
+  CLIENT_TCP_HANDSHAKE_IN_PROGRESS,
+  CLIENT_TLS_HANDSHAKE_IN_PROGRESS,
+  CLIENT_CONNECTED,
+} ClientConnectionState;
+
 struct _Client
 {
   gint fd;
+  ClientConnectionState state;
   Connections * connections;
   GObject * server;
   gboolean use_ssl;
@@ -81,6 +89,7 @@ Client * client_new (gint fd, Connections * connection,
     const gchar * remote_host);
 void client_free (Client * client);
 
+gint client_get_poll_events (Client * client);
 gboolean client_try_to_send (Client * client);
 gboolean client_receive (Client * client);
 gboolean client_handle_message (Client * client, RTMP_Message * msg);
@@ -93,8 +102,6 @@ gboolean client_add_incoming_ssl (Client * client,
 gboolean client_add_outgoing_ssl (Client * client,
     const gchar * ca_file, const gchar * ca_dir,
     const gchar * ciphers, gboolean ssl3_enabled);
-
-gboolean client_outgoing_handshake (Client * client);
 
 #endif /* __CLIENT_H__ */
 

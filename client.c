@@ -14,6 +14,7 @@
 #include "rtmp.h"
 
 #include <string.h>
+#include <sys/poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -25,42 +26,6 @@
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
 
-gboolean
-client_try_to_send (Client * client)
-{
-  guint len = client->send_queue->len;
-
-  if (len > 4096)
-    len = 4096;
-
-  ssize_t written;
-
-  if (client->use_ssl) {
-    written = SSL_write (client->ssl,
-        client->send_queue->data, client->send_queue->len);
-  } else {
-    #ifdef __APPLE__
-    written = send (client->fd,
-        client->send_queue->data, client->send_queue->len, 0);
-    #else
-    written = send (client->fd,
-        client->send_queue->data, client->send_queue->len, MSG_NOSIGNAL);
-    #endif
-  }
-
-  if (written < 0) {
-    if (errno == EAGAIN || errno == EINTR)
-      return TRUE;
-    GST_WARNING_OBJECT (client->server, "unable to write to a client (%s): %s",
-        client->path, strerror (errno));
-    return FALSE;
-  }
-
-  if (written > 0) {
-    client->send_queue = g_byte_array_remove_range (client->send_queue, 0, written);
-  }
-  return TRUE;
-}
 
 static void
 client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
@@ -936,7 +901,7 @@ client_incoming_handshake (Client * client)
   return TRUE;
 }
 
-gboolean
+static gboolean
 client_outgoing_handshake (Client * client)
 {
   if (client->handshake_state == HANDSHAKE_START) {
@@ -991,11 +956,158 @@ client_outgoing_handshake (Client * client)
   return TRUE;
 }
 
+gint
+client_get_poll_events (Client * client)
+{
+  gint events;
+
+  if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS) {
+    events = POLLOUT;
+  } else if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS) {
+    events = POLLIN | POLLOUT;
+  } else if (client->send_queue->len > 0) {
+    events = POLLIN | POLLOUT;
+  } else {
+    events = POLLIN;
+  }
+
+  return events;
+}
+
+static gboolean
+client_connected (Client * client)
+{
+  client->state = CLIENT_CONNECTED;
+
+  if (client->dialout_path) {
+    client_outgoing_handshake (client);
+  }
+
+  return TRUE;
+}
+
+static void
+print_ssl_errors (Client * client)
+{
+  char tmp[4096];
+  gint error;
+  while ((error = ERR_get_error ()) != 0) {
+    memset (tmp, 0, sizeof (tmp));
+    ERR_error_string_n (error, tmp, sizeof (tmp) - 1);
+    GST_WARNING_OBJECT (client->server, "ssl-error: %s", tmp);
+  }
+}
+
+static gboolean
+client_drive_ssl (Client * client)
+{
+  int ret;
+
+  if (client->dialout_path) {
+    ret = SSL_connect (client->ssl);
+  } else {
+    ret = SSL_accept (client->ssl);
+  }
+
+  /* The meaning of ret is as follows:
+   * <0: The TLS handshake failed uncleanly
+   * 0 : The TLS handshake failed cleanly
+   * 1 : The TLS handshake was successful
+   */
+  if (ret != 1) {
+    int error = SSL_get_error (client->ssl, ret);
+    /* We're non-blocking, so tolerate the associated errors */
+    if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) {
+      GST_WARNING_OBJECT (client->server, "Unable to establish ssl-connection");
+      print_ssl_errors (client);
+      return FALSE;
+    }
+  } else {
+    return client_connected (client);
+  }
+
+  return TRUE;
+}
+
+static gboolean
+client_begin_ssl (Client * client)
+{
+  client->ssl = SSL_new (client->ssl_ctx);
+  SSL_set_app_data (client->ssl, client);
+  SSL_set_fd (client->ssl, client->fd);
+
+  client->state = CLIENT_TLS_HANDSHAKE_IN_PROGRESS;
+
+  return client_drive_ssl (client);
+}
+
+gboolean
+client_try_to_send (Client * client)
+{
+  guint len = client->send_queue->len;
+
+  if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS) {
+    int error;
+    socklen_t error_len = sizeof(error);
+
+    getsockopt (client->fd, SOL_SOCKET, SO_ERROR, (void *)&error, &error_len);
+
+    if (error != 0) {
+      GST_WARNING_OBJECT (client->server, "error in client TCP handshake (%s): %s",
+          client->path, strerror (error));
+      return FALSE;
+    }
+
+    if (client->use_ssl) {
+      return client_begin_ssl (client);
+    }
+
+    return client_connected (client);
+  } else if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS) {
+    return client_drive_ssl (client);
+  }
+
+  if (len > 4096)
+    len = 4096;
+
+  ssize_t written;
+
+  if (client->use_ssl) {
+    written = SSL_write (client->ssl,
+        client->send_queue->data, client->send_queue->len);
+  } else {
+    #ifdef __APPLE__
+    written = send (client->fd,
+        client->send_queue->data, client->send_queue->len, 0);
+    #else
+    written = send (client->fd,
+        client->send_queue->data, client->send_queue->len, MSG_NOSIGNAL);
+    #endif
+  }
+
+  if (written < 0) {
+    if (errno == EAGAIN || errno == EINTR)
+      return TRUE;
+    GST_WARNING_OBJECT (client->server, "unable to write to a client (%s): %s",
+        client->path, strerror (errno));
+    return FALSE;
+  }
+
+  if (written > 0) {
+    client->send_queue = g_byte_array_remove_range (client->send_queue, 0, written);
+  }
+  return TRUE;
+}
+
 gboolean
 client_receive (Client * client)
 {
   guint8 chunk[4096];
   gint got;
+
+  if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS) {
+    return client_drive_ssl (client);
+  }
 
   if (client->use_ssl) {
     got = SSL_read (client->ssl, &chunk[0], sizeof (chunk));
@@ -1106,18 +1218,6 @@ client_receive (Client * client)
     }
   }
   return TRUE;
-}
-
-static void
-print_ssl_errors (Client * client)
-{
-  char tmp[4096];
-  gint error;
-  while ((error = ERR_get_error ()) != 0) {
-    memset (tmp, 0, sizeof (tmp));
-    ERR_error_string_n (error, tmp, sizeof (tmp) - 1);
-    GST_WARNING_OBJECT (client->server, "ssl-error: %s", tmp);
-  }
 }
 
 static int
@@ -1322,16 +1422,6 @@ client_add_incoming_ssl (Client * client,
     }
   }
 
-  client->ssl = SSL_new (client->ssl_ctx);
-  SSL_set_app_data (client->ssl, client);
-  SSL_set_fd (client->ssl, client->fd);
-
-  if (SSL_accept (client->ssl) < 0) {
-    GST_WARNING_OBJECT (client->server, "Unable to establish ssl-connection");
-    print_ssl_errors (client);
-    return FALSE;
-  }
-
   return TRUE;
 }
 
@@ -1359,16 +1449,6 @@ client_add_outgoing_ssl (Client * client,
   SSL_CTX_set_verify (client->ssl_ctx,
       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, ssl_verify_callback);
 
-  client->ssl = SSL_new (client->ssl_ctx);
-  SSL_set_app_data (client->ssl, client);
-  SSL_set_fd (client->ssl, client->fd);
-
-  if (SSL_connect (client->ssl) < 0) {
-    GST_WARNING_OBJECT (client->server, "Unable to establish ssl-connection");
-    print_ssl_errors (client);
-    return FALSE;
-  }
-
   return TRUE;
 }
 
@@ -1380,6 +1460,7 @@ client_new (gint fd, Connections * connections, GObject * server,
   Client * client = g_new0 (Client, 1);
 
   client->fd = fd;
+  client->state = CLIENT_TCP_HANDSHAKE_IN_PROGRESS;
   client->connections = connections;
   client->server = server;
   client->use_ssl = use_ssl;
