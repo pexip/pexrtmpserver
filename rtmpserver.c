@@ -49,6 +49,7 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_CIPHERS "!eNULL:!aNULL:!EXP:!DES:!RC4:!RC2:!IDEA:!ADH:ALL@STRENGTH"
 #define DEFAULT_STREAM_ID 1337
 #define DEFAULT_CHUNK_SIZE 128
+#define DEFAULT_TCP_SYNCNT -1
 
 #define PEX_RTMP_SERVER_LOCK(srv) g_mutex_lock (&srv->priv->lock)
 #define PEX_RTMP_SERVER_UNLOCK(srv) g_mutex_unlock (&srv->priv->lock)
@@ -67,6 +68,7 @@ enum
   PROP_SSL3_ENABLED,
   PROP_STREAM_ID,
   PROP_CHUNK_SIZE,
+  PROP_TCP_SYNCNT,
 };
 
 enum
@@ -95,6 +97,7 @@ struct _PexRtmpServerPrivate
   gboolean ssl3_enabled;
   gint stream_id;
   gint chunk_size;
+  gint tcp_syncnt;
 
   gint listen_fd;
   gint listen_ssl_fd;
@@ -227,6 +230,9 @@ pex_rtmp_server_set_property (GObject * obj, guint prop_id,
     case PROP_CHUNK_SIZE:
       srv->priv->chunk_size = g_value_get_int (value);
       break;
+    case PROP_TCP_SYNCNT:
+      srv->priv->tcp_syncnt = g_value_get_int (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
   }
@@ -271,6 +277,9 @@ pex_rtmp_server_get_property (GObject * obj, guint prop_id,
       break;
     case PROP_CHUNK_SIZE:
       g_value_set_int (value, srv->priv->chunk_size);
+      break;
+    case PROP_TCP_SYNCNT:
+      g_value_set_int (value, srv->priv->tcp_syncnt);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
@@ -342,6 +351,12 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
       g_param_spec_int ("chunk-size", "Chunk Size",
           "The chunk size to advertise for RTMP packets",
           0, G_MAXINT, DEFAULT_CHUNK_SIZE,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_TCP_SYNCNT,
+      g_param_spec_int ("tcp-syncnt", "TCP SYNCNT",
+          "The maximum number of TCP SYN retransmits",
+          -1, 255, DEFAULT_TCP_SYNCNT,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   pex_rtmp_server_signals[SIGNAL_ON_PLAY] =
@@ -680,6 +695,14 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   /* Disable packet-accumulation delay (Nagle's algorithm) */
   gint value = 1;
   setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof (value));
+
+  /* Configure TCP_SYNCNT */
+  if (srv->priv->tcp_syncnt >= 0) {
+#ifdef TCP_SYNCNT
+    value = srv->priv->tcp_syncnt;
+    setsockopt (fd, IPPROTO_TCP, TCP_SYNCNT, (char *)&value, sizeof (value));
+#endif
+  }
 
   if (address.ss_family == AF_INET) {
     ((struct sockaddr_in *)&address)->sin_port = htons (port);
