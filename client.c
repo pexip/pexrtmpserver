@@ -965,7 +965,7 @@ client_get_poll_events (Client * client)
     events = POLLOUT;
   } else if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS) {
     events = POLLIN | POLLOUT;
-  } else if (client->send_queue->len > 0) {
+  } else if (client->send_queue->len > 0 || client->ssl_read_blocked_on_write) {
     events = POLLIN | POLLOUT;
   } else {
     events = POLLIN;
@@ -1044,8 +1044,6 @@ client_begin_ssl (Client * client)
 gboolean
 client_try_to_send (Client * client)
 {
-  guint len = client->send_queue->len;
-
   if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS) {
     int error;
     socklen_t error_len = sizeof(error);
@@ -1067,14 +1065,31 @@ client_try_to_send (Client * client)
     return client_drive_ssl (client);
   }
 
-  if (len > 4096)
-    len = 4096;
-
   ssize_t written;
 
   if (client->use_ssl) {
+    if (client->ssl_read_blocked_on_write) {
+      return client_receive (client);
+    } else if (client->send_queue->len == 0) {
+      return TRUE;
+    }
+    client->ssl_write_blocked_on_read = FALSE;
     written = SSL_write (client->ssl,
         client->send_queue->data, client->send_queue->len);
+    if (written <= 0) {
+      int error = SSL_get_error (client->ssl, written);
+      if (error == SSL_ERROR_WANT_READ) {
+        client->ssl_write_blocked_on_read = TRUE;
+        return TRUE;
+      } else if (error == SSL_ERROR_WANT_WRITE) {
+        return TRUE;
+      }
+
+      GST_WARNING_OBJECT (client->server, "unable to write to a client (%s)",
+          client->path);
+      print_ssl_errors (client);
+      return FALSE;
+    }
   } else {
     #ifdef __APPLE__
     written = send (client->fd,
@@ -1083,14 +1098,13 @@ client_try_to_send (Client * client)
     written = send (client->fd,
         client->send_queue->data, client->send_queue->len, MSG_NOSIGNAL);
     #endif
-  }
-
-  if (written < 0) {
-    if (errno == EAGAIN || errno == EINTR)
-      return TRUE;
-    GST_WARNING_OBJECT (client->server, "unable to write to a client (%s): %s",
-        client->path, strerror (errno));
-    return FALSE;
+    if (written < 0) {
+      if (errno == EAGAIN || errno == EINTR)
+        return TRUE;
+      GST_WARNING_OBJECT (client->server, "unable to write to a client (%s): %s",
+          client->path, strerror (errno));
+      return FALSE;
+    }
   }
 
   if (written > 0) {
@@ -1110,23 +1124,57 @@ client_receive (Client * client)
   }
 
   if (client->use_ssl) {
+    if (client->ssl_write_blocked_on_read) {
+      return client_try_to_send (client);
+    }
+    client->ssl_read_blocked_on_write = FALSE;
     got = SSL_read (client->ssl, &chunk[0], sizeof (chunk));
+    if (got <= 0) {
+      int error = SSL_get_error (client->ssl, got);
+      if (error == SSL_ERROR_WANT_READ) {
+        return TRUE;
+      } else if (error == SSL_ERROR_WANT_WRITE) {
+        client->ssl_read_blocked_on_write = TRUE;
+        return TRUE;
+      }
+      GST_DEBUG_OBJECT (client->server, "unable to read from a client");
+      return FALSE;
+    }
+    client->buf = g_byte_array_append (client->buf, chunk, got);
+    GST_LOG_OBJECT (client->server, "Read %d bytes", got);
+
+    int remaining = SSL_pending (client->ssl);
+    while (remaining > 0) {
+      int len = sizeof (chunk);
+      if (remaining < len) {
+        len = remaining;
+      }
+      got = SSL_read (client->ssl, &chunk[0], len);
+      if (got <= 0) {
+        GST_WARNING_OBJECT (client->server, "unable to read from ssl buffer");
+        return FALSE;
+      }
+
+      client->buf = g_byte_array_append (client->buf, chunk, got);
+      GST_LOG_OBJECT (client->server, "Read %d bytes", got);
+
+      remaining -= got;
+    }
   } else {
     got = recv (client->fd, &chunk[0], sizeof (chunk), 0);
+    if (got == 0) {
+      GST_DEBUG_OBJECT (client->server, "EOF from a client");
+      return FALSE;
+    } else if (got < 0) {
+      if (errno == EAGAIN || errno == EINTR)
+        return TRUE;
+      GST_DEBUG_OBJECT (client->server, "unable to read from a client: %s",
+          strerror (errno));
+      return FALSE;
+    }
+    client->buf = g_byte_array_append (client->buf, chunk, got);
+    GST_LOG_OBJECT (client->server, "Read %d bytes", got);
   }
-
-  if (got == 0) {
-    GST_DEBUG_OBJECT (client->server, "EOF from a client");
-    return FALSE;
-  } else if (got < 0) {
-    if (errno == EAGAIN || errno == EINTR)
-      return TRUE;
-    GST_DEBUG_OBJECT (client->server, "unable to read from a client: %s",
-        strerror (errno));
-    return FALSE;
-  }
-  client->buf = g_byte_array_append (client->buf, chunk, got);
-  GST_LOG_OBJECT (client->server, "Read %d bytes", got);
 
   if (client->handshake_state != HANDSHAKE_DONE) {
     gboolean ret;
@@ -1407,6 +1455,8 @@ client_add_incoming_ssl (Client * client,
     SSL_CTX_load_verify_locations (client->ssl_ctx, NULL, ca_dir);
   }
   SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_PEER, ssl_verify_callback);
+  SSL_CTX_set_mode (client->ssl_ctx,
+      SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
   if (file_exists (cert_file) && file_exists (key_file)) {
     if (SSL_CTX_use_certificate_file (client->ssl_ctx, cert_file, SSL_FILETYPE_PEM) <= 0) {
@@ -1448,6 +1498,8 @@ client_add_outgoing_ssl (Client * client,
   }
   SSL_CTX_set_verify (client->ssl_ctx,
       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, ssl_verify_callback);
+  SSL_CTX_set_mode (client->ssl_ctx,
+      SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
   return TRUE;
 }
