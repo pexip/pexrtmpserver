@@ -82,6 +82,8 @@ struct _Client
   SSL_CTX * ssl_ctx;
   SSL * ssl;
   gchar * remote_host;
+  gboolean ssl_write_blocked_on_read;
+  gboolean ssl_read_blocked_on_write;
 };
 
 Client * client_new (gint fd, Connections * connection,
