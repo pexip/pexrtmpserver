@@ -676,7 +676,6 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   memcpy (&address, result->ai_addr, result->ai_addrlen);
   freeaddrinfo (result);
 
-  address.ss_family = AF_INET;
   fd = socket (address.ss_family, SOCK_STREAM, IPPROTO_TCP);
   if (fd <= 0) {
     GST_WARNING_OBJECT (srv, "could not create soc: %s", g_strerror (errno));
