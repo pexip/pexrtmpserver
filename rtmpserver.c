@@ -908,6 +908,7 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
       &sock_optval, sizeof (sock_optval));
 
   struct sockaddr_in6 sin;
+  memset (&sin, 0, sizeof (struct sockaddr_in6));
   sin.sin6_family = AF_INET6;
   sin.sin6_port = htons (port);
   sin.sin6_addr = in6addr_any;
