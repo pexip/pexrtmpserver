@@ -566,6 +566,29 @@ rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
 }
 
 
+static gint
+count_chars_in_string (const gchar * s, char c)
+{
+  gint ret;
+  for (ret = 0; s[ret]; s[ret]==c ? ret++ : *s++);
+  return ret;
+}
+
+static gboolean
+get_port_from_string (const gchar * s, gint * port)
+{
+  if (s) {
+    if (strlen (s) > 0) {
+      *port = atoi (s);
+    } else {
+      return FALSE;
+    }
+  } else {
+    *port = 1935;
+  }
+  return TRUE;
+}
+
 gboolean
 pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
     gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
@@ -617,25 +640,35 @@ pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
 
   /* clip IP and port */
   const gchar * address = slash_clip[0];
-  address_clip = g_strsplit (address, ":", 1024);
-  const gchar * port_str = address_clip[1];
-  if (port_str) {
-    if (strlen (port_str) > 0) {
-      *port = atoi (port_str);
-    } else {
+  gint num_colons = count_chars_in_string (address, ':');
+  if (num_colons > 1) { /* ipv6 */
+    address_clip = g_strsplit (address, "]:", 1024);
+
+    if (!get_port_from_string (address_clip[1], port)) {
       GST_WARNING_OBJECT (srv, "Specify the port, buster!");
       ret = FALSE;
       goto done;
     }
-  } else {
-    *port = 1935;
+
+    if (address_clip[1] != NULL) {
+      *ip = g_strdup (&address_clip[0][1]); /* remove the the beginning '[' */
+    } else {
+      *ip = g_strdup (address);
+    }
+  } else { /* ipv4 */
+    address_clip = g_strsplit (address, ":", 1024);
+    if (!get_port_from_string (address_clip[1], port)) {
+      GST_WARNING_OBJECT (srv, "Specify the port, buster!");
+      ret = FALSE;
+      goto done;
+    }
+    *ip = g_strdup (address_clip[0]);
   }
 
   *protocol = g_strdup (protocol_tmp);
   *path = g_strdup (slash_clip[idx - 1]); /* path is last */
   *application_name = g_strndup (&the_rest[strlen (address) + 1],
       strlen (the_rest) - strlen (address) - strlen (*path) - 2);
-  *ip = g_strdup (address_clip[0]);
 
   GST_DEBUG_OBJECT (srv, "Parsed: Protocol: %s, Ip: %s, Port: %d, Application Name: %s, Path: %s",
       *protocol, *ip, *port, *application_name, *path);
@@ -838,7 +871,6 @@ rtmp_server_do_poll (PexRtmpServer * srv)
   return TRUE;
 }
 
-
 static gpointer
 rtmp_server_func (gpointer data)
 {
@@ -870,15 +902,15 @@ rtmp_server_func (gpointer data)
 gint
 pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
 {
-  gint fd = socket (AF_INET, SOCK_STREAM, 0);
+  gint fd = socket (AF_INET6, SOCK_STREAM, 0);
   int sock_optval = 1;
   setsockopt (fd, SOL_SOCKET, SO_REUSEADDR,
       &sock_optval, sizeof (sock_optval));
 
-  struct sockaddr_in sin;
-  sin.sin_family = AF_INET;
-  sin.sin_port = htons (port);
-  sin.sin_addr.s_addr = INADDR_ANY;
+  struct sockaddr_in6 sin;
+  sin.sin6_family = AF_INET6;
+  sin.sin6_port = htons (port);
+  sin.sin6_addr = in6addr_any;
   g_assert_cmpint (fd, >=, 0);
 
   if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
