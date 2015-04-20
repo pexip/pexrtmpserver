@@ -754,7 +754,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
 
 gboolean
 pex_rtmp_server_dialout (PexRtmpServer * srv,
-    const gchar * src_path, const gchar * url)
+    const gchar * src_path, const gchar * url, const gchar * address)
 {
   gboolean ret = TRUE;
   gchar * protocol = NULL;
@@ -769,7 +769,11 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
     goto done;
   }
 
-  gint fd = pex_rtmp_server_tcp_connect (srv, host, port);
+  if (address == NULL) {
+    address = host;
+  }
+
+  gint fd = pex_rtmp_server_tcp_connect (srv, address, port);
   if (fd == INVALID_FD) {
     GST_WARNING_OBJECT (srv, "Not able to connect");
     goto done;

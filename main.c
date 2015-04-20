@@ -51,7 +51,7 @@ main (int argc, char *argv[])
   printf ("ready...\n");
 
   if (dialout_path && dialout_url) {
-    pex_rtmp_server_dialout (srv, dialout_path, dialout_url);
+    pex_rtmp_server_dialout (srv, dialout_path, dialout_url, NULL);
     printf ("dialed out from path %s to %s\n", dialout_path, dialout_url);
   }
 
