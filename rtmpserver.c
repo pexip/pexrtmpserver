@@ -775,8 +775,11 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
     goto done;
   }
 
-  tcUrl = g_strdup_printf ("%s://%s:%d/%s",
-      protocol, host, port, app);
+  const gchar *tcUrlFmt = "%s://%s:%d/%s";
+  if (strchr (host, ':')) { /* ipv6 */
+    tcUrlFmt = "%s://[%s]:%d/%s";
+  }
+  tcUrl = g_strdup_printf (tcUrlFmt, protocol, host, port, app);
 
   PEX_RTMP_SERVER_LOCK (srv);
   Client * client = rtmp_server_create_dialout_client (srv, fd,
