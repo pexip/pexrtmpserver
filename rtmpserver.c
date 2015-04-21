@@ -20,7 +20,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include <linux/sockios.h>
+#if defined(HOST_LINUX)
+#  include <linux/sockios.h>
+#endif
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -82,7 +84,6 @@ enum
 };
 
 static guint pex_rtmp_server_signals[LAST_SIGNAL] = { 0 };
-
 
 struct _PexRtmpServerPrivate
 {
@@ -541,6 +542,7 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
   g_free (path);
 }
 
+#if defined(HOST_LINUX)
 static void
 rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
 {
@@ -567,6 +569,7 @@ rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
     }
   }
 }
+#endif
 
 
 static gint
@@ -840,10 +843,11 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     Client * client = g_hash_table_lookup (priv->fd_to_client,
         GINT_TO_POINTER (entry->fd));
     if (client != NULL) {
+#if defined(HOST_LINUX)
       if (!client->publisher) {
         rtmp_server_update_send_queues (srv, client);
       }
-
+#endif
       entry->events = client_get_poll_events (client);
     }
   }
@@ -949,7 +953,8 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
   g_assert_cmpint (fd, >=, 0);
 
   if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
-    GST_WARNING_OBJECT (srv, "Unable to listen: %s", strerror (errno));
+    GST_WARNING_OBJECT (srv, "Unable to listen to port %d: %s",
+        port, strerror (errno));
     return -1;
   }
 
