@@ -464,7 +464,8 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 static Client *
 rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
     const gchar * path, const gchar * protocol, const gchar * remote_host,
-    const gchar * tcUrl, const gchar * app, const gchar * dialout_path)
+    const gchar * tcUrl, const gchar * app, const gchar * dialout_path,
+    const gchar * url, const gchar * addresses)
 {
   gboolean use_ssl = (g_strcmp0 (protocol, "rtmps") == 0);
 
@@ -475,6 +476,8 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
   client->dialout_path = g_strdup (dialout_path);
   client->tcUrl = g_strdup (tcUrl);
   client->app = g_strdup (app);
+  client->url = g_strdup (url);
+  client->addresses = g_strdup (addresses);
 
   if (use_ssl) {
     gchar * ca_file, * ca_dir, * ciphers;
@@ -754,7 +757,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
 
 gboolean
 pex_rtmp_server_dialout (PexRtmpServer * srv,
-    const gchar * src_path, const gchar * url, const gchar * address)
+    const gchar * src_path, const gchar * url, const gchar * addresses)
 {
   gboolean ret = TRUE;
   gchar * protocol = NULL;
@@ -763,21 +766,36 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
   gchar * app = NULL;
   gchar * dialout_path = NULL;
   gchar * tcUrl = NULL;
+  gchar ** addressv = NULL;
+  gchar ** address = NULL;
+  gchar * new_addresses = NULL;
+  gint fd = INVALID_FD;
 
   if (!pex_rtmp_server_parse_url (srv, url,
       &protocol, &port, &host, &app, &dialout_path)) {
     goto done;
   }
 
-  if (address == NULL) {
-    address = host;
+  if (addresses == NULL) {
+    addresses = host;
   }
 
-  gint fd = pex_rtmp_server_tcp_connect (srv, address, port);
-  if (fd == INVALID_FD) {
+  addressv = g_strsplit (addresses, ",", 1024);
+  if (!addressv[0]) {
+    GST_WARNING_OBJECT (srv, "No more addresses");
+    goto done;
+  }
+
+  for (address = addressv; *address && fd == INVALID_FD; address++) {
+    fd = pex_rtmp_server_tcp_connect (srv, *address, port);
+  }
+
+  if (fd == INVALID_FD && !*address) {  
     GST_WARNING_OBJECT (srv, "Not able to connect");
     goto done;
   }
+
+  new_addresses = g_strjoinv(",", addressv+1);
 
   const gchar *tcUrlFmt = "%s://%s:%d/%s";
   if (strchr (host, ':')) { /* ipv6 */
@@ -787,7 +805,8 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
 
   PEX_RTMP_SERVER_LOCK (srv);
   Client * client = rtmp_server_create_dialout_client (srv, fd,
-      src_path, protocol, host, tcUrl, app, dialout_path);
+      src_path, protocol, host, tcUrl, app, dialout_path,
+      url, new_addresses);
   PEX_RTMP_SERVER_UNLOCK (srv);
 
   if (client == NULL) {
@@ -796,6 +815,8 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
   }
 
 done:
+  g_free (new_addresses);
+  g_strfreev (addressv);
   g_free (tcUrl);
   g_free (protocol);
   g_free (host);
@@ -855,8 +876,13 @@ rtmp_server_do_poll (PexRtmpServer * srv)
 
     /* ready to send */
     if (client && entry->revents & POLLOUT) {
-      if (!client_try_to_send (client)) {
-        GST_WARNING_OBJECT (srv, "client error, send failed");
+      gboolean connect_failed = FALSE;
+      if (!client_try_to_send (client, &connect_failed)) {
+        if (connect_failed && client->addresses) {
+          pex_rtmp_server_dialout (srv, client->path, client->url, client->addresses);
+        } else {
+          GST_WARNING_OBJECT (srv, "client error, send failed");
+        }
         rtmp_server_remove_client (srv, client);
         srv->priv->poll_table = g_array_remove_index (priv->poll_table, i);
         i--;
