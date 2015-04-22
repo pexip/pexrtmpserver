@@ -59,6 +59,8 @@ struct _Client
 
   gchar * path;
   gchar * dialout_path;
+  gchar * url;
+  gchar * addresses;
   gchar * tcUrl;
   gchar * app;
 
@@ -92,7 +94,7 @@ Client * client_new (gint fd, Connections * connection,
 void client_free (Client * client);
 
 gint client_get_poll_events (Client * client);
-gboolean client_try_to_send (Client * client);
+gboolean client_try_to_send (Client * client, gboolean *connect_failed);
 gboolean client_receive (Client * client);
 gboolean client_handle_message (Client * client, RTMP_Message * msg);
 gboolean client_window_size_reached (Client *client);

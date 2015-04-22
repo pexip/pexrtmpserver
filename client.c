@@ -102,7 +102,7 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
     client->send_queue = g_byte_array_append (client->send_queue,
         &buf->data[pos], chunk);
 
-    client_try_to_send (client);
+    client_try_to_send (client, NULL);
 
     client->written_seq += chunk;
     pos += chunk;
@@ -883,7 +883,7 @@ client_incoming_handshake (Client * client)
       client->send_queue = g_byte_array_append (client->send_queue,
           pex_rtmp_handshake_get_buffer (client->handshake),
           pex_rtmp_handshake_get_length (client->handshake));
-      client_try_to_send (client);
+      client_try_to_send (client, NULL);
 
       client->handshake_state = HANDSHAKE_STAGE1;
     }
@@ -917,7 +917,7 @@ client_outgoing_handshake (Client * client)
 
     client->send_queue = g_byte_array_append (client->send_queue,
         buf, HANDSHAKE_LENGTH + 1);
-    client_try_to_send (client);
+    client_try_to_send (client, NULL);
 
     client->handshake_state = HANDSHAKE_STAGE1;
   } else if (client->handshake_state == HANDSHAKE_STAGE1) {
@@ -939,7 +939,7 @@ client_outgoing_handshake (Client * client)
 
       client->send_queue = g_byte_array_append (client->send_queue,
           &client->buf->data[0], HANDSHAKE_LENGTH);
-      client_try_to_send (client);
+      client_try_to_send (client, NULL);
       client->buf = g_byte_array_remove_range (client->buf, 0, HANDSHAKE_LENGTH);
 
       client->handshake_state = HANDSHAKE_STAGE2;
@@ -1042,8 +1042,12 @@ client_begin_ssl (Client * client)
 }
 
 gboolean
-client_try_to_send (Client * client)
+client_try_to_send (Client * client, gboolean *connect_failed)
 {
+  if (connect_failed) {
+    *connect_failed = FALSE;
+  }
+
   if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS) {
     int error;
     socklen_t error_len = sizeof(error);
@@ -1053,6 +1057,9 @@ client_try_to_send (Client * client)
     if (error != 0) {
       GST_WARNING_OBJECT (client->server, "error in client TCP handshake (%s): %s",
           client->path, strerror (error));
+      if (connect_failed) {
+        *connect_failed = TRUE;
+      }
       return FALSE;
     }
 
@@ -1125,7 +1132,7 @@ client_receive (Client * client)
 
   if (client->use_ssl) {
     if (client->ssl_write_blocked_on_read) {
-      return client_try_to_send (client);
+      return client_try_to_send (client, NULL);
     }
     client->ssl_read_blocked_on_write = FALSE;
     got = SSL_read (client->ssl, &chunk[0], sizeof (chunk));
@@ -1556,6 +1563,8 @@ client_free (Client * client)
   g_free (client->tcUrl);
   g_free (client->app);
   g_free (client->dialout_path);
+  g_free (client->url);
+  g_free (client->addresses);
 
   pex_rtmp_handshake_free (client->handshake);
 
