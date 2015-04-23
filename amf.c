@@ -329,7 +329,7 @@ double
 amf_dec_load_number (AmfDec * dec)
 {
   if (amf_dec_get_byte (dec) != AMF0_NUMBER) {
-    g_warning ("Expected a string");
+    g_warning ("Expected a number");
   }
   if (dec->pos + 8 > dec->buf->len) {
     g_warning ("%s: Not enough data", __FUNCTION__);
@@ -388,31 +388,41 @@ amf_dec_load_object (AmfDec * dec)
 
   guint8 type = amf_dec_get_byte (dec);
   if (dec->version == AMF0_VERSION) {
-    if (type != AMF0_OBJECT && type != AMF0_ECMA_ARRAY)
-      g_warning ("Expected an AMF0 object or ECMA array");
+    if (type != AMF0_OBJECT && type != AMF0_ECMA_ARRAY) {
+      g_debug ("Expected an AMF0 object or ECMA array");
+      goto done;
+    }
 
     if (type == AMF0_ECMA_ARRAY) {
-      if (dec->pos + 4 > dec->buf->len)
-        g_warning ("%s: Not enough data", __FUNCTION__);
+      if (dec->pos + 4 > dec->buf->len) {
+        g_debug ("Not enough data");
+        goto done;
+      }
       dec->pos += 4;
     }
   } else if (dec->version == AMF3_VERSION) {
-    if (type != AMF3_OBJECT)
-      g_warning ("Expected an object AMF3 object");
+    if (type != AMF3_OBJECT) {
+      g_debug ("Expected an object AMF3 object");
+      goto done;
+    }
 
     guint8 object_count = amf_dec_get_byte (dec);
     (void)object_count; //FIXME: could use this!
     guint8 start_byte = amf_dec_get_byte (dec);
-    if (start_byte != AMF3_NULL)
-      g_warning ("expected AMF3 object-start");
+    if (start_byte != AMF3_NULL) {
+      g_debug ("expected AMF3 object-start");
+      goto done;
+    }
   }
 
   amf_dec_load_structure (dec, object);
 
   if (dec->version == AMF0_VERSION) {
     if (amf_dec_get_byte (dec) != AMF0_OBJECT_END)
-      g_warning ("expected object end");
+      g_debug ("expected object end");
   }
+
+done:
   return object;
 }
 
