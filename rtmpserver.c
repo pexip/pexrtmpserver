@@ -773,6 +773,7 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
 
   if (!pex_rtmp_server_parse_url (srv, url,
       &protocol, &port, &host, &app, &dialout_path)) {
+    ret = FALSE;
     goto done;
   }
 
