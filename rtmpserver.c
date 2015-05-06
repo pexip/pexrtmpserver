@@ -576,7 +576,7 @@ static gint
 count_chars_in_string (const gchar * s, char c)
 {
   gint ret;
-  for (ret = 0; s[ret]; s[ret]==c ? ret++ : *s++);
+  for (ret = 0; s[ret]; s[ret]==c ? ret++ : *(s++));
   return ret;
 }
 

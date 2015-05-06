@@ -42,37 +42,48 @@ amf_enc_add_short (AmfEnc * enc, guint16 s)
   amf_enc_add (enc, (guint8 *)&s, 2);
 }
 
+void write_bytes (guint8 byte) {
+  int i=0;
+  for (i=0; i<8; i++) {
+    printf ("%d", ((byte & (1 << (7 - i))) != 0));
+  }
+  printf (" ");
+}
+
 void
 amf_enc_add_int (AmfEnc * enc, guint32 value)
 {
   if (enc->version == AMF3_VERSION) {
     guint8 bytes[4];
-    int i = 0;
-
+    gint num_bytes = 0;
     /* we can only encode 29 bits */
     value &= 0x3FFFFFFF;
-    for (i = 0; i < 4; i++) {
-      if (i == 3) {
+    for (gint i = 0; i < 4; i++) {
+      num_bytes++;
+      if (i == 0 && value > 0x200000) {
         /* pick out the last 8 bits */
         bytes[i] = value & 0xff;
+        /* shift value right by 8 */
+        value = value >> 8;
       } else {
         /* pick out the 7 first bits */
         bytes[i] = value & 0x7f;
+        /* shift value right by 7 */
+        value = value >> 7;
       }
 
-      if (i > 0) {
-        /* add a marker-bit for saying "there is more" */
-        bytes[i] |= 0x80;
-      }
-
-      /* shift value right by 7 */
-      value = value >> 7;
       /* stop if we have added it all */
       if (value == 0)
         break;
     }
-    for (; i > -1; i--) {
-      amf_enc_add (enc, &bytes[i], 1);
+
+    for (gint i = 0; i < num_bytes; i++) {
+      guint8 byte = bytes[num_bytes - i - 1];
+      if (i < num_bytes - 1) {
+        /* add a marker-bit for saying "there is more" */
+         byte |= 0x80;
+      }
+      amf_enc_add (enc, &byte, 1);
     }
   } else {
     amf_enc_add (enc, (guint8 *)&value, 4);
@@ -226,12 +237,28 @@ amf_enc_write_value (AmfEnc * enc, const GValue * value)
   }
 }
 
+static guint8
+amf_dec_peek (const AmfDec * dec)
+{
+  if (dec->pos >= dec->buf->len) {
+    g_warning ("%s: Not enough data", __FUNCTION__);
+  }
+  return dec->buf->data[dec->pos];
+}
+
 AmfDec *
 amf_dec_new (GByteArray * buf, guint pos)
 {
   AmfDec * dec = g_new0 (AmfDec, 1);
   dec->buf = buf;
   dec->pos = pos;
+  if (amf_dec_peek (dec) == AMF0_SWITCH_AMF3) {
+    debug ("entering AMF3 mode\n");
+    dec->pos++;
+    dec->version = AMF3_VERSION;
+  } else {
+    dec->version = AMF0_VERSION;
+  }
   return dec;
 }
 
@@ -242,22 +269,8 @@ amf_dec_free (AmfDec * dec)
 }
 
 static guint8
-amf_dec_peek (const AmfDec * dec)
-{
-  if (dec->pos >= dec->buf->len) {
-    g_warning ("%s: Not enough data", __FUNCTION__);
-  }
-  return dec->buf->data[dec->pos];
-}
-
-static guint8
 amf_dec_get_byte (AmfDec * dec)
 {
-  if (dec->version == AMF0_VERSION && amf_dec_peek (dec) == AMF0_SWITCH_AMF3) {
-    debug ("entering AMF3 mode\n");
-    dec->pos++;
-    dec->version = AMF3_VERSION;
-  }
   if (dec->pos >= dec->buf->len) {
     g_warning ("%s: Not enough data", __FUNCTION__);
   }
