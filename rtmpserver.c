@@ -762,7 +762,7 @@ gboolean
 pex_rtmp_server_dialout (PexRtmpServer * srv,
     const gchar * src_path, const gchar * url, const gchar * addresses)
 {
-  gboolean ret = FALSE;
+  gboolean ret = TRUE;
   gchar * protocol = NULL;
   gint port;
   gchar * host = NULL;
@@ -776,6 +776,7 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
 
   if (!pex_rtmp_server_parse_url (srv, url,
       &protocol, &port, &host, &app, &dialout_path)) {
+    ret = FALSE;
     goto done;
   }
 
@@ -813,12 +814,9 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
   PEX_RTMP_SERVER_UNLOCK (srv);
 
   if (client == NULL) {
-    GST_WARNING_OBJECT (srv, "Unable to create client");
+    ret = FALSE;
     close (fd);
-    goto done;
   }
-
-  ret = TRUE;
 
 done:
   g_free (new_addresses);
@@ -887,7 +885,6 @@ rtmp_server_do_poll (PexRtmpServer * srv)
       if (!client_try_to_send (client, &connect_failed)) {
         if (connect_failed && client->addresses) {
           pex_rtmp_server_dialout (srv, client->path, client->url, client->addresses);
-          g_assert_not_reached ();
         } else {
           GST_WARNING_OBJECT (srv, "client error, send failed");
         }
@@ -944,8 +941,6 @@ gint
 pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
 {
   gint fd = socket (AF_INET6, SOCK_STREAM, 0);
-  g_assert_cmpint (fd, >=, 0);
-
   int sock_optval = 1;
   setsockopt (fd, SOL_SOCKET, SO_REUSEADDR,
       &sock_optval, sizeof (sock_optval));
@@ -955,6 +950,7 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
   sin.sin6_family = AF_INET6;
   sin.sin6_port = htons (port);
   sin.sin6_addr = in6addr_any;
+  g_assert_cmpint (fd, >=, 0);
 
   if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
     GST_WARNING_OBJECT (srv, "Unable to listen to port %d: %s",
@@ -1001,16 +997,12 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
   priv->running = FALSE;
   PEX_RTMP_SERVER_UNLOCK (srv);
 
-  if (priv->thread)
-    g_thread_join (priv->thread);
-
+  g_thread_join (priv->thread);
   if (priv->last_queue_overflow != NULL) {
     g_timer_destroy (priv->last_queue_overflow);
   }
-  if (priv->listen_fd > 0)
-    close (priv->listen_fd);
-  if (priv->listen_ssl_fd > 0)
-    close (priv->listen_ssl_fd);
+  close (priv->listen_fd);
+  close (priv->listen_ssl_fd);
 }
 
 void pex_rtmp_server_free (PexRtmpServer * srv)
