@@ -875,15 +875,20 @@ client_incoming_handshake (Client * client)
     guint len = HANDSHAKE_LENGTH + 1;
     if (client->buf->len >= len) {
       /* receive the handshake from the client */
-      if (!pex_rtmp_handshake_process (client->handshake, client->buf->data, len))
+      if (!pex_rtmp_handshake_process (client->handshake, client->buf->data, len)) {
+        GST_WARNING_OBJECT (client->server, "Unable to process handshake");
         return FALSE;
+      }
       client->buf = g_byte_array_remove_range (client->buf, 0, len);
 
       /* send a reply */
       client->send_queue = g_byte_array_append (client->send_queue,
           pex_rtmp_handshake_get_buffer (client->handshake),
           pex_rtmp_handshake_get_length (client->handshake));
-      client_try_to_send (client, NULL);
+      if (!client_try_to_send (client, NULL)) {
+        GST_WARNING_OBJECT (client->server, "Unable to send handshake reply");
+        return FALSE;
+      }
 
       client->handshake_state = HANDSHAKE_STAGE1;
     }
@@ -891,8 +896,10 @@ client_incoming_handshake (Client * client)
     guint len = HANDSHAKE_LENGTH;
     if (client->buf->len >= len) {
       /* receive another handshake */
-      if (!pex_rtmp_handshake_verify_reply (client->handshake, client->buf->data))
+      if (!pex_rtmp_handshake_verify_reply (client->handshake, client->buf->data)) {
+        GST_WARNING_OBJECT (client->server, "Could not verify handshake reply");
         return FALSE;
+      }
       client->buf = g_byte_array_remove_range (client->buf, 0, len);
 
       client->handshake_state = HANDSHAKE_DONE;
@@ -917,15 +924,20 @@ client_outgoing_handshake (Client * client)
 
     client->send_queue = g_byte_array_append (client->send_queue,
         buf, HANDSHAKE_LENGTH + 1);
-    client_try_to_send (client, NULL);
+    if (!client_try_to_send (client, NULL)) {
+      GST_WARNING_OBJECT (client->server, "Unable to send outgoing handshake (1)");
+      return FALSE;
+    }
 
     client->handshake_state = HANDSHAKE_STAGE1;
   } else if (client->handshake_state == HANDSHAKE_STAGE1) {
     guint len = HANDSHAKE_LENGTH + 1;
     if (client->buf->len >= len) {
       /* check that the first byte says PLAINTEXT */
-      if (client->buf->data[0] != HANDSHAKE_PLAINTEXT)
+      if (client->buf->data[0] != HANDSHAKE_PLAINTEXT) {
+        GST_WARNING_OBJECT (client->server, "Handshake is not plaintext");
         return FALSE;
+      }
       client->buf = g_byte_array_remove_range (client->buf, 0, 1);
 
       guint32 server_uptime;
@@ -939,9 +951,11 @@ client_outgoing_handshake (Client * client)
 
       client->send_queue = g_byte_array_append (client->send_queue,
           &client->buf->data[0], HANDSHAKE_LENGTH);
-      client_try_to_send (client, NULL);
+      if (!client_try_to_send (client, NULL)) {
+        GST_WARNING_OBJECT (client->server, "Unable to send outgoing handshake (2)");
+        return FALSE;
+      }
       client->buf = g_byte_array_remove_range (client->buf, 0, HANDSHAKE_LENGTH);
-
       client->handshake_state = HANDSHAKE_STAGE2;
     }
   }
@@ -977,13 +991,14 @@ client_get_poll_events (Client * client)
 static gboolean
 client_connected (Client * client)
 {
+  gboolean ret = TRUE;
   client->state = CLIENT_CONNECTED;
 
   if (client->dialout_path) {
-    client_outgoing_handshake (client);
+    ret = client_outgoing_handshake (client);
   }
 
-  return TRUE;
+  return ret;
 }
 
 static void
