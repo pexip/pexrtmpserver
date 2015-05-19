@@ -53,9 +53,6 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_CHUNK_SIZE 128
 #define DEFAULT_TCP_SYNCNT -1
 
-#define PEX_RTMP_SERVER_LOCK(srv) g_mutex_lock (&srv->priv->lock)
-#define PEX_RTMP_SERVER_UNLOCK(srv) g_mutex_unlock (&srv->priv->lock)
-
 enum
 {
   PROP_0,
@@ -104,14 +101,13 @@ struct _PexRtmpServerPrivate
   gint listen_ssl_fd;
 
   GArray * poll_table;
-  GArray * active_poll_table;
   GHashTable * fd_to_client;
   gboolean running;
   GThread * thread;
   GTimer * last_queue_overflow;
 
   Connections * connections;
-  GMutex lock;
+  GstAtomicQueue * dialout_clients;
 };
 
 
@@ -158,12 +154,10 @@ pex_rtmp_server_init (PexRtmpServer *srv)
   priv->thread = NULL;
   priv->last_queue_overflow = NULL;
 
-  priv->poll_table = g_array_new (FALSE, FALSE, sizeof (struct pollfd));
-  priv->active_poll_table = g_array_new (FALSE, FALSE, sizeof (struct pollfd));
+  priv->poll_table = g_array_new (TRUE, TRUE, sizeof (struct pollfd));
   priv->fd_to_client = g_hash_table_new (NULL, NULL);
   priv->connections = connections_new ();
-
-  g_mutex_init (&srv->priv->lock);
+  priv->dialout_clients = gst_atomic_queue_new (0);
 }
 
 static void
@@ -184,12 +178,11 @@ pex_rtmp_server_finalize (GObject * obj)
   g_free (priv->ca_cert_file);
   g_free (priv->ca_cert_dir);
   g_free (priv->ciphers);
-  g_mutex_clear (&priv->lock);
 
   g_array_free (priv->poll_table, TRUE);
-  g_array_free (priv->active_poll_table, TRUE);
   g_hash_table_destroy (priv->fd_to_client);
   connections_free (priv->connections);
+  gst_atomic_queue_unref (priv->dialout_clients);
 
   G_OBJECT_CLASS (pex_rtmp_server_parent_class)->finalize (obj);
 }
@@ -407,32 +400,13 @@ set_nonblock (int fd, gboolean enabled)
 static void
 pex_rtmp_server_add_fd_to_poll_table (PexRtmpServer * srv, gint fd)
 {
-  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
-
   struct pollfd entry;
   entry.events = POLLIN;
   entry.revents = 0;
   entry.fd = fd;
-  priv->poll_table = g_array_append_val (priv->poll_table, entry);
+  srv->priv->poll_table = g_array_append_val (srv->priv->poll_table, entry);
+
   GST_DEBUG_OBJECT (srv, "Added fd %d to poll-table", fd);
-}
-
-static void
-pex_rtmp_server_remove_fd_from_poll_table (PexRtmpServer * srv, gint fd)
-{
-  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
-
-  for (size_t i = 0; i < priv->poll_table->len; i++) {
-    struct pollfd * entry = (struct pollfd *)&g_array_index (
-        priv->poll_table, struct pollfd, i);
-    if (fd == entry->fd) {
-      priv->poll_table = g_array_remove_index (priv->poll_table, i);
-      GST_DEBUG_OBJECT (srv, "Removed fd %d from poll-table", fd);
-      return;
-    }
-  }
-  GST_WARNING_OBJECT (srv, "Attempting to remove unknown fd from poll-table!!!");
-  g_assert_not_reached ();
 }
 
 static void
@@ -527,22 +501,14 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
     g_free (ciphers);
   }
 
-  /* create a poll entry, and link it to the client */
-  pex_rtmp_server_add_fd_to_poll_table (srv, fd);
-  g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
-  GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, fd);
-
   return client;
 }
 
-/* called with PEX_RTMP_SERVER_LOCK held */
 static void
 rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
 {
   GST_DEBUG_OBJECT (srv, "removing client %p with fd %d", client, client->fd);
   g_hash_table_remove (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd));
-  pex_rtmp_server_remove_fd_from_poll_table (srv, client->fd);
-
   close (client->fd);
 
   if (client->path)
@@ -553,7 +519,6 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
   client_free (client);
 
   if (srv->priv->running) {
-    PEX_RTMP_SERVER_UNLOCK (srv);
     if (publisher) {
       g_signal_emit (srv,
           pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE], 0, path);
@@ -561,7 +526,6 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
       g_signal_emit (srv,
           pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE], 0, path);
     }
-    PEX_RTMP_SERVER_LOCK (srv);
   }
   g_free (path);
 }
@@ -830,11 +794,9 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
   }
   tcUrl = g_strdup_printf (tcUrlFmt, protocol, host, port, app);
 
-  PEX_RTMP_SERVER_LOCK (srv);
   Client * client = rtmp_server_create_dialout_client (srv, fd,
       src_path, protocol, host, tcUrl, app, dialout_path,
       url, new_addresses);
-  PEX_RTMP_SERVER_UNLOCK (srv);
 
   if (client == NULL) {
     GST_WARNING_OBJECT (srv, "Unable to create client");
@@ -842,6 +804,8 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
     goto done;
   }
 
+  /* add the client to the queue, waiting to be added */
+  gst_atomic_queue_push (srv->priv->dialout_clients, client);
   ret = TRUE;
 
 done:
@@ -856,11 +820,26 @@ done:
   return ret;
 }
 
-/* called with PEX_RTMP_SERVER_LOCK held */
+void
+rtmp_server_add_pending_dialout_clients (PexRtmpServer * srv)
+{
+  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+
+  while (gst_atomic_queue_length (priv->dialout_clients) > 0) {
+    Client * client = gst_atomic_queue_pop (priv->dialout_clients);
+    /* create a poll entry, and link it to the client */
+    pex_rtmp_server_add_fd_to_poll_table (srv, client->fd);
+    g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd), client);
+    GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, client->fd);
+  }
+}
+
 static gboolean
 rtmp_server_do_poll (PexRtmpServer * srv)
 {
   PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+
+  rtmp_server_add_pending_dialout_clients (srv);
 
   for (size_t i = 0; i < priv->poll_table->len; ++i) {
     struct pollfd * entry = (struct pollfd *)&g_array_index (
@@ -878,17 +857,10 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     }
   }
 
-  /* transfer the poll-table to the active one so we can safely unlock */
-  g_array_set_size (priv->active_poll_table, priv->poll_table->len);
-  memcpy (priv->active_poll_table->data, priv->poll_table->data,
-      priv->poll_table->len * sizeof (struct pollfd));
-
   /* waiting for traffic on all connections */
-  PEX_RTMP_SERVER_UNLOCK (srv);
   const gint timeout = 200; /* 200 ms second */
-  gint result = poll ((struct pollfd *)priv->active_poll_table->data,
-      priv->active_poll_table->len, timeout);
-  PEX_RTMP_SERVER_LOCK (srv);
+  gint result = poll ((struct pollfd *)&priv->poll_table->data[0],
+      priv->poll_table->len, timeout);
 
   if (priv->running == FALSE)
     return FALSE;
@@ -900,12 +872,12 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     return FALSE;
   }
 
-  for (size_t i = 0; i < priv->active_poll_table->len; ++i) {
+  for (size_t i = 0; i < priv->poll_table->len; ++i) {
     if (priv->running == FALSE)
       return FALSE;
 
     struct pollfd * entry = (struct pollfd *)&g_array_index (
-        priv->active_poll_table, struct pollfd, i);
+        priv->poll_table, struct pollfd, i);
     Client * client = g_hash_table_lookup (priv->fd_to_client,
         GINT_TO_POINTER (entry->fd));
     //GST_DEBUG_OBJECT (srv, "fd %d has client %p", entry->fd, client);
@@ -920,6 +892,8 @@ rtmp_server_do_poll (PexRtmpServer * srv)
           GST_WARNING_OBJECT (srv, "client error, send failed");
         }
         rtmp_server_remove_client (srv, client);
+        srv->priv->poll_table = g_array_remove_index (priv->poll_table, i);
+        i--;
         continue;
       }
     }
@@ -930,6 +904,8 @@ rtmp_server_do_poll (PexRtmpServer * srv)
       } else if (!client_receive (client)) {
         GST_WARNING_OBJECT (srv, "client error: client_recv_from_client failed");
         rtmp_server_remove_client (srv, client);
+        priv->poll_table = g_array_remove_index (priv->poll_table, i);
+        i--;
       }
     }
   }
@@ -940,10 +916,11 @@ static gpointer
 rtmp_server_func (gpointer data)
 {
   PexRtmpServer * srv = PEX_RTMP_SERVER_CAST (data);
+  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+
   gboolean ret = TRUE;
   signal (SIGPIPE, SIG_IGN);
 
-  PEX_RTMP_SERVER_LOCK (srv);
   while (srv->priv->running && ret) {
     ret = rtmp_server_do_poll (srv);
   }
@@ -951,17 +928,19 @@ rtmp_server_func (gpointer data)
   /* remove outstanding clients */
   for (size_t i = 0; i < srv->priv->poll_table->len; ++i) {
     struct pollfd * entry = (struct pollfd *)&g_array_index (
-        srv->priv->poll_table, struct pollfd, i);
-    Client * client = g_hash_table_lookup (srv->priv->fd_to_client,
+        priv->poll_table, struct pollfd, i);
+    Client * client = g_hash_table_lookup (priv->fd_to_client,
         GINT_TO_POINTER (entry->fd));
-    if (client) {
+    if (client)
       rtmp_server_remove_client (srv, client);
-    } else {
-      srv->priv->poll_table = g_array_remove_index (srv->priv->poll_table, i);
-    }
+    priv->poll_table = g_array_remove_index (priv->poll_table, i);
     i--;
   }
-  PEX_RTMP_SERVER_UNLOCK (srv);
+
+  while (gst_atomic_queue_length (priv->dialout_clients) > 0) {
+    Client * client = gst_atomic_queue_pop (priv->dialout_clients);
+    rtmp_server_remove_client (srv, client);
+  }
 
   return NULL;
 }
@@ -1023,10 +1002,7 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
   PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
 
   GST_DEBUG_OBJECT (srv, "Stopping...");
-  PEX_RTMP_SERVER_LOCK (srv);
   priv->running = FALSE;
-  PEX_RTMP_SERVER_UNLOCK (srv);
-
   if (priv->thread)
     g_thread_join (priv->thread);
 
