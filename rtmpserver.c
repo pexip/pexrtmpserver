@@ -104,6 +104,7 @@ struct _PexRtmpServerPrivate
   gint listen_ssl_fd;
 
   GArray * poll_table;
+  GArray * active_poll_table;
   GHashTable * fd_to_client;
   gboolean running;
   GThread * thread;
@@ -157,7 +158,8 @@ pex_rtmp_server_init (PexRtmpServer *srv)
   priv->thread = NULL;
   priv->last_queue_overflow = NULL;
 
-  priv->poll_table = g_array_new (TRUE, TRUE, sizeof (struct pollfd));
+  priv->poll_table = g_array_new (FALSE, FALSE, sizeof (struct pollfd));
+  priv->active_poll_table = g_array_new (FALSE, FALSE, sizeof (struct pollfd));
   priv->fd_to_client = g_hash_table_new (NULL, NULL);
   priv->connections = connections_new ();
 
@@ -185,6 +187,7 @@ pex_rtmp_server_finalize (GObject * obj)
   g_mutex_clear (&priv->lock);
 
   g_array_free (priv->poll_table, TRUE);
+  g_array_free (priv->active_poll_table, TRUE);
   g_hash_table_destroy (priv->fd_to_client);
   connections_free (priv->connections);
 
@@ -402,15 +405,34 @@ set_nonblock (int fd, gboolean enabled)
 }
 
 static void
-pex_rtmp_add_fd_to_poll_table (PexRtmpServer * srv, gint fd)
+pex_rtmp_server_add_fd_to_poll_table (PexRtmpServer * srv, gint fd)
 {
+  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+
   struct pollfd entry;
   entry.events = POLLIN;
   entry.revents = 0;
   entry.fd = fd;
-  srv->priv->poll_table = g_array_append_val (srv->priv->poll_table, entry);
-
+  priv->poll_table = g_array_append_val (priv->poll_table, entry);
   GST_DEBUG_OBJECT (srv, "Added fd %d to poll-table", fd);
+}
+
+static void
+pex_rtmp_server_remove_fd_from_poll_table (PexRtmpServer * srv, gint fd)
+{
+  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+
+  for (size_t i = 0; i < priv->poll_table->len; i++) {
+    struct pollfd * entry = (struct pollfd *)&g_array_index (
+        priv->poll_table, struct pollfd, i);
+    if (fd == entry->fd) {
+      priv->poll_table = g_array_remove_index (priv->poll_table, i);
+      GST_DEBUG_OBJECT (srv, "Removed fd %d from poll-table", fd);
+      return;
+    }
+  }
+  GST_WARNING_OBJECT (srv, "Attempting to remove unknown fd from poll-table!!!");
+  g_assert_not_reached ();
 }
 
 static void
@@ -456,7 +478,7 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   }
 
   /* create a poll entry, and link it to the client */
-  pex_rtmp_add_fd_to_poll_table (srv, fd);
+  pex_rtmp_server_add_fd_to_poll_table (srv, fd);
   g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
 
   GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, fd);
@@ -506,7 +528,7 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
   }
 
   /* create a poll entry, and link it to the client */
-  pex_rtmp_add_fd_to_poll_table (srv, fd);
+  pex_rtmp_server_add_fd_to_poll_table (srv, fd);
   g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
   GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, fd);
 
@@ -519,6 +541,8 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
 {
   GST_DEBUG_OBJECT (srv, "removing client %p with fd %d", client, client->fd);
   g_hash_table_remove (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd));
+  pex_rtmp_server_remove_fd_from_poll_table (srv, client->fd);
+
   close (client->fd);
 
   if (client->path)
@@ -854,11 +878,16 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     }
   }
 
+  /* transfer the poll-table to the active one so we can safely unlock */
+  g_array_set_size (priv->active_poll_table, priv->poll_table->len);
+  memcpy (priv->active_poll_table->data, priv->poll_table->data,
+      priv->poll_table->len * sizeof (struct pollfd));
+
   /* waiting for traffic on all connections */
   PEX_RTMP_SERVER_UNLOCK (srv);
   const gint timeout = 200; /* 200 ms second */
-  gint result = poll ((struct pollfd *)&priv->poll_table->data[0],
-      priv->poll_table->len, timeout);
+  gint result = poll ((struct pollfd *)priv->active_poll_table->data,
+      priv->active_poll_table->len, timeout);
   PEX_RTMP_SERVER_LOCK (srv);
 
   if (priv->running == FALSE)
@@ -871,12 +900,12 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     return FALSE;
   }
 
-  for (size_t i = 0; i < priv->poll_table->len; ++i) {
+  for (size_t i = 0; i < priv->active_poll_table->len; ++i) {
     if (priv->running == FALSE)
       return FALSE;
 
     struct pollfd * entry = (struct pollfd *)&g_array_index (
-        priv->poll_table, struct pollfd, i);
+        priv->active_poll_table, struct pollfd, i);
     Client * client = g_hash_table_lookup (priv->fd_to_client,
         GINT_TO_POINTER (entry->fd));
     //GST_DEBUG_OBJECT (srv, "fd %d has client %p", entry->fd, client);
@@ -891,8 +920,6 @@ rtmp_server_do_poll (PexRtmpServer * srv)
           GST_WARNING_OBJECT (srv, "client error, send failed");
         }
         rtmp_server_remove_client (srv, client);
-        srv->priv->poll_table = g_array_remove_index (priv->poll_table, i);
-        i--;
         continue;
       }
     }
@@ -903,8 +930,6 @@ rtmp_server_do_poll (PexRtmpServer * srv)
       } else if (!client_receive (client)) {
         GST_WARNING_OBJECT (srv, "client error: client_recv_from_client failed");
         rtmp_server_remove_client (srv, client);
-        priv->poll_table = g_array_remove_index (priv->poll_table, i);
-        i--;
       }
     }
   }
@@ -929,9 +954,11 @@ rtmp_server_func (gpointer data)
         srv->priv->poll_table, struct pollfd, i);
     Client * client = g_hash_table_lookup (srv->priv->fd_to_client,
         GINT_TO_POINTER (entry->fd));
-    if (client)
+    if (client) {
       rtmp_server_remove_client (srv, client);
-    srv->priv->poll_table = g_array_remove_index (srv->priv->poll_table, i);
+    } else {
+      srv->priv->poll_table = g_array_remove_index (srv->priv->poll_table, i);
+    }
     i--;
   }
   PEX_RTMP_SERVER_UNLOCK (srv);
@@ -981,8 +1008,8 @@ pex_rtmp_server_start (PexRtmpServer * srv)
     return FALSE;
 
   /* add fds to poll table */
-  pex_rtmp_add_fd_to_poll_table (srv, priv->listen_fd);
-  pex_rtmp_add_fd_to_poll_table (srv, priv->listen_ssl_fd);
+  pex_rtmp_server_add_fd_to_poll_table (srv, priv->listen_fd);
+  pex_rtmp_server_add_fd_to_poll_table (srv, priv->listen_ssl_fd);
 
   priv->running = TRUE;
   priv->thread = g_thread_new ("RTMPServer", rtmp_server_func, srv);
