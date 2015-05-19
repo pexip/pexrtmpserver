@@ -522,7 +522,7 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
     GST_DEBUG_OBJECT (client->server, "%p Not playing due to signal returning 0", client);
     return FALSE;
   }
-  GST_DEBUG_OBJECT (client->server, "play %s", path);
+  GST_DEBUG_OBJECT (client->server, "client %p got play for path: %s", client, path);
 
   client_start_playback (client);
 
