@@ -133,7 +133,7 @@ pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
       NULL);
 }
 
-void __attribute__ ((unused))
+void
 pex_rtmp_server_connect_signal (PexRtmpServer * srv,
     gchar * signal_name, gboolean (*callback)(gchar * path))
 {
