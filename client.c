@@ -1368,7 +1368,7 @@ match_subject_alternative_names (X509 * cert, const gchar * remote_host)
         num_sans_for_type++;
         if (match_dns_name (remote_host, value)) {
           break;
-	}
+        }
       } else if (type == GEN_IPADD && host_type != HOST_TYPE_DNS) {
         int len = ASN1_STRING_length (value);
         num_sans_for_type++;
@@ -1454,13 +1454,71 @@ file_exists (const gchar *path)
   return g_file_test (path, G_FILE_TEST_EXISTS);
 }
 
+static DH *
+make_dh_params (const gchar *cert_file)
+{
+  DH * dh = NULL;
+  BIO * bio = BIO_new_file (cert_file, "r");
+
+  if (bio != NULL) {
+    X509 * cert = PEM_read_bio_X509 (bio, NULL, NULL, NULL);
+    BIO_free (bio);
+
+    if (cert != NULL) {
+      EVP_PKEY * pubkey = X509_get_pubkey (cert);
+      if (pubkey != NULL) {
+        static const struct {
+          int size;
+          BIGNUM * (*prime) (BIGNUM *);
+        } gentable[] = {
+          { 2048, get_rfc3526_prime_2048 },
+          { 3072, get_rfc3526_prime_3072 },
+          { 4096, get_rfc3526_prime_4096 },
+          { 6144, get_rfc3526_prime_6144 },
+          { 8192, get_rfc3526_prime_8192 }
+        };
+        size_t idx;
+        int keylen = 2048;
+        int type = EVP_PKEY_type (pubkey->type);
+        if (type == EVP_PKEY_RSA || type == EVP_PKEY_DSA) {
+          keylen = EVP_PKEY_bits (pubkey);
+        }
+        EVP_PKEY_free (pubkey);
+
+        for (idx = 0; idx < sizeof (gentable) / sizeof (gentable[0]); idx++) {
+          if (keylen <= gentable[idx].size) {
+            break;
+          }
+        }
+        if (idx == sizeof (gentable) / sizeof (gentable[0])) {
+          idx--;
+        }
+
+        dh = DH_new();
+        if (dh != NULL) {
+          dh->p = gentable[idx].prime (NULL);
+          BN_dec2bn (&dh->g, "2");
+          if (dh->p == NULL || dh->g == NULL) {
+            DH_free (dh);
+            dh = NULL;
+          }
+        }
+      }
+      X509_free (cert);
+    }
+  }
+
+  return dh;
+}
+
 gboolean
 client_add_incoming_ssl (Client * client,
     const gchar * cert_file, const gchar * key_file,
     const gchar * ca_file, const gchar * ca_dir,
     const gchar * ciphers, gboolean ssl3_enabled)
 {
-  long ssl_options = SSL_OP_NO_SSLv2;
+  BIO * bio;
+  long ssl_options = SSL_OP_NO_SSLv2 | SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE;
 
   client->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
 
@@ -1491,6 +1549,46 @@ client_add_incoming_ssl (Client * client,
       GST_WARNING_OBJECT (client->server, "did not like the key: %s", key_file);
       print_ssl_errors (client);
       return FALSE;
+    }
+
+    /* Configure DH parameters */
+    bio = BIO_new_file (cert_file, "r");
+    if (bio != NULL) {
+      DH * dh = PEM_read_bio_DHparams (bio, NULL, NULL, NULL);  
+      BIO_free (bio);
+
+      if (dh == NULL) {
+        dh = make_dh_params (cert_file);
+      }
+
+      if (dh != NULL) {
+        SSL_CTX_set_tmp_dh (client->ssl_ctx, dh);
+        DH_free (dh);
+      }
+    }
+
+    /* Configure ECDH parameters */
+    bio = BIO_new_file (cert_file, "r");
+    if (bio != NULL) {
+      EC_KEY * key;
+      int nid = NID_X9_62_prime256v1;
+      EC_GROUP * group = PEM_read_bio_ECPKParameters (bio, NULL, NULL, NULL);
+      BIO_free (bio);
+
+      if (group != NULL) {
+        nid = EC_GROUP_get_curve_name (group);
+        if (nid == NID_undef) {
+          nid = NID_X9_62_prime256v1;
+        }
+
+        EC_GROUP_free (group);
+      }
+
+      key = EC_KEY_new_by_curve_name (nid);
+      if (key != NULL) {
+        SSL_CTX_set_tmp_ecdh (client->ssl_ctx, key);
+        EC_KEY_free (key);
+      }
     }
   }
 
