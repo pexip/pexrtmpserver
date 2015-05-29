@@ -1590,6 +1590,8 @@ client_add_incoming_ssl (Client * client,
         EC_KEY_free (key);
       }
     }
+
+    ERR_clear_error();
   }
 
   return TRUE;
