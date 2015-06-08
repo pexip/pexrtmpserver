@@ -424,7 +424,8 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   set_nonblock (fd, TRUE);
 
   gboolean use_ssl = listen_fd == srv->priv->listen_ssl_fd;
-  GST_DEBUG_OBJECT (srv, "We got an %s connection", use_ssl ? "rtmps" : "rtmp");
+  GST_INFO_OBJECT (srv, "Accepted client %s connection using port %d", use_ssl ? "rtmps" : "rtmp", 
+                    ntohs(sin.sin_port));
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
       use_ssl, srv->priv->stream_id, srv->priv->chunk_size, NULL);
 
