@@ -28,12 +28,22 @@ GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 
 
 static void
+client_write_extended_timestamp (Client * client, guint32 timestamp)
+{
+  guint32 ext_timestamp = GUINT32_FROM_BE (timestamp);
+  client->send_queue = g_byte_array_append (client->send_queue,
+      (guint8 *)&ext_timestamp, 4);
+  client->written_seq += 4;
+}
+
+static void
 client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
     GByteArray * buf, guint32 abs_timestamp, guint8 chunk_stream_id)
 {
   gint fmt = 0;
   guint32 timestamp = abs_timestamp;
-  guint msg_len = buf->len;
+  const guint msg_len = buf->len;
+  gint use_ext_timestamp = timestamp >= EXT_TIMESTAMP_LIMIT;
 
 #if 0 /* FIXME: disable pending investigation on why YouTube fails */
   /* type 1 check */
@@ -67,7 +77,7 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
   chunk_stream_id &= 0x3f;
   header.flags = chunk_stream_id | (fmt << 6);
   header.msg_type_id = msg_type_id;
-  if (timestamp >= EXT_TIMESTAMP_LIMIT) {
+  if (use_ext_timestamp) {
     set_be24 (header.timestamp, EXT_TIMESTAMP_LIMIT);
   } else {
     set_be24 (header.timestamp, timestamp);
@@ -81,22 +91,22 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
       (guint8 *)&header, header_len);
   client->written_seq += header_len;
 
-  if (timestamp >= EXT_TIMESTAMP_LIMIT) {
-    guint32 ext_timestamp = GUINT32_FROM_BE (timestamp);
-    client->send_queue = g_byte_array_append (client->send_queue,
-        (guint8 *)&ext_timestamp, 4);
-    client->written_seq += 4;
-  }
+  if (use_ext_timestamp)
+    client_write_extended_timestamp (client, timestamp);
 
   guint pos = 0;
-  while (pos < buf->len) {
+  while (pos < msg_len) {
     if (pos) {
       guint8 flags = chunk_stream_id | (3 << 6);
       client->send_queue = g_byte_array_append (client->send_queue, &flags, 1);
       client->written_seq += 1;
+
+      /* we rewrite the extended timestamp for multiple chunks in a message, like Flash does */
+      if (use_ext_timestamp)
+        client_write_extended_timestamp (client, timestamp);
     }
 
-    guint chunk = buf->len - pos;
+    guint chunk = msg_len - pos;
     if (chunk > client->send_chunk_size)
       chunk = client->send_chunk_size;
     client->send_queue = g_byte_array_append (client->send_queue,
@@ -106,6 +116,9 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
 
     client->written_seq += chunk;
     pos += chunk;
+
+    GST_LOG_OBJECT (client->server, "Sent chunk of size %u (%u / %u)",
+        chunk, pos, msg_len);
   }
 
 }
@@ -671,8 +684,8 @@ client_send_ack (Client *client)
 gboolean
 client_handle_message (Client * client, RTMP_Message * msg)
 {
-  GST_DEBUG_OBJECT (client->server, "RTMP message %02x, len %u, timestamp %u",
-      msg->type, msg->len,msg->timestamp);
+  GST_DEBUG_OBJECT (client->server, "RTMP message %02x, len %u, abs-timestamp %u",
+      msg->type, msg->len, msg->abs_timestamp);
   gboolean ret = TRUE;
 
   /* send window-size ACK if we have reached it */
@@ -1223,7 +1236,7 @@ client_receive (Client * client)
     RTMP_Header * header = (RTMP_Header *)&client->buf->data[0];
     RTMP_Message * msg = client_get_rtmp_message (client, chunk_stream_id);
 
-    /* only get fmt from beginning of a new message */
+    /* only get the message fmt from beginning of a new message */
     if (msg->buf->len == 0) {
       msg->fmt = fmt;
     }
@@ -1238,7 +1251,7 @@ client_receive (Client * client)
     }
 
     if (msg->len == 0) {
-      GST_WARNING_OBJECT (client->server, "message without a header");
+      GST_WARNING_OBJECT (client->server, "message with 0 length");
       return FALSE;
     }
 
@@ -1248,38 +1261,53 @@ client_receive (Client * client)
 
     /* timestamp */
     if (header_len >= 4) {
-      guint32 ts = load_be24 (header->timestamp);
-      if (ts == EXT_TIMESTAMP_LIMIT) {
+      msg->timestamp = load_be24 (header->timestamp);
+      /* extended timestamps are always absolute */
+      if (msg->timestamp == EXT_TIMESTAMP_LIMIT) {
         GST_DEBUG_OBJECT (client->server, "Using extended timestamp");
-        ts = load_be32 (&client->buf->data[header_len]);
+        msg->abs_timestamp = load_be32 (&client->buf->data[header_len]);
         header_len += 4;
+      } else {
+        /* for type 0 we receive the absolute timestamp,
+           for type 1, 2, and 3 we get a delta */
+        if (fmt == 0)
+          msg->abs_timestamp = msg->timestamp;
+        else
+          msg->abs_timestamp += msg->timestamp;
       }
-      msg->timestamp = ts;
-
-      /* for type 0 we receive the absolute timestamp,
-         for type 1, 2, and 3 we get a delta */
-      if (fmt == 0)
-        msg->abs_timestamp = ts;
-      else
-        msg->abs_timestamp += ts;
     }
 
-    /* for a type 3 msg, increment with previous delta */
-    if (msg->fmt == 3) {
+    /* For a type 3 msg, increment with previous delta.
+       Note that this don't apply to "continuation" type 3,
+       that is used to split a single message into chunk-sizes
+     */
+    if (msg->buf->len == 0 && fmt == 3) {
       msg->abs_timestamp += msg->timestamp;
     }
 
-    guint chunk = msg->len - msg->buf->len;
-    if (chunk > client->recv_chunk_size)
-      chunk = client->recv_chunk_size;
+    GST_DEBUG_OBJECT (client->server,
+        "Received timestamp: %u and abs-timestamp: %u in ",
+        msg->timestamp, msg->abs_timestamp);
 
-    if (client->buf->len < header_len + chunk) {
+    /* with extended timestamp, Flash embeds that timestamp after the fmt=3
+       when dividing into chunks */
+    if (msg->timestamp == EXT_TIMESTAMP_LIMIT && fmt == 3 && msg->buf->len > 0)
+      header_len += 4;
+
+    guint chunk_size = msg->len - msg->buf->len;
+    if (chunk_size > client->recv_chunk_size)
+      chunk_size = client->recv_chunk_size;
+
+    if (client->buf->len < header_len + chunk_size) {
       /* need more data */
       break;
     }
 
-    msg->buf = g_byte_array_append (msg->buf, &client->buf->data[header_len], chunk);
-    client->buf = g_byte_array_remove_range (client->buf, 0, header_len + chunk);
+    GST_DEBUG_OBJECT (client->server,
+        "Appending a chunk of %u bytes of data to message, "
+        "skipping %u bytes of header (type: %u)", chunk_size, header_len, fmt);
+    msg->buf = g_byte_array_append (msg->buf, &client->buf->data[header_len], chunk_size);
+    client->buf = g_byte_array_remove_range (client->buf, 0, header_len + chunk_size);
 
     if (msg->buf->len == msg->len) {
       if (!client_handle_message (client, msg))
