@@ -11,6 +11,9 @@ pexh264enc intra-period=20 bitrate=2000000 level=41 timing-info=1 ! \
 video/x-h264, stream-format=byte-stream, alignment=nal ! h264parse ! mux.video \
 flvmux name=mux ! rtmpsink location=rtmp://localhost/pexip/youtube -v \
 audiotestsrc ! audio/x-raw-int,rate=48000,channels=1 ! pexaacenc !  mux.audio
+
+./rtmpsrv -p 1935 -a pexip -d youtube -u rtmp://a.rtmp.youtube.com/live2/havard.jb8x-02ft-qbcw-9z95
+
 */
 
 /* defaults */

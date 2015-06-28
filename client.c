@@ -684,7 +684,7 @@ client_send_ack (Client *client)
 gboolean
 client_handle_message (Client * client, RTMP_Message * msg)
 {
-  GST_DEBUG_OBJECT (client->server, "RTMP message %02x, len %u, abs-timestamp %u",
+  GST_LOG_OBJECT (client->server, "RTMP message %02x, len %u, abs-timestamp %u",
       msg->type, msg->len, msg->abs_timestamp);
   gboolean ret = TRUE;
 
@@ -1285,7 +1285,7 @@ client_receive (Client * client)
       msg->abs_timestamp += msg->timestamp;
     }
 
-    GST_DEBUG_OBJECT (client->server,
+    GST_LOG_OBJECT (client->server,
         "Received timestamp: %u and abs-timestamp: %u in ",
         msg->timestamp, msg->abs_timestamp);
 
@@ -1303,7 +1303,7 @@ client_receive (Client * client)
       break;
     }
 
-    GST_DEBUG_OBJECT (client->server,
+    GST_LOG_OBJECT (client->server,
         "Appending a chunk of %u bytes of data to message, "
         "skipping %u bytes of header (type: %u)", chunk_size, header_len, fmt);
     msg->buf = g_byte_array_append (msg->buf, &client->buf->data[header_len], chunk_size);
