@@ -463,7 +463,7 @@ static Client *
 rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
     const gchar * path, const gchar * protocol, const gchar * remote_host,
     const gchar * tcUrl, const gchar * app, const gchar * dialout_path,
-    const gchar * url, const gchar * addresses)
+    const gchar * url, const gchar * addresses, const gboolean is_publisher)
 {
   gboolean use_ssl = (g_strcmp0 (protocol, "rtmps") == 0);
 
@@ -475,6 +475,7 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
   client->tcUrl = g_strdup (tcUrl);
   client->app = g_strdup (app);
   client->url = g_strdup (url);
+  client->publisher = is_publisher;
   client->addresses = g_strdup (addresses);
 
   if (use_ssl) {
@@ -582,6 +583,26 @@ get_port_from_string (const gchar * s, gint * port)
     *port = 1935;
   }
   return TRUE;
+}
+
+void
+pex_rtmp_server_get_application_for_path (PexRtmpServer * srv, gchar * path, gboolean is_publisher, gchar ** application) {
+  Client * connection = NULL;
+  GST_WARNING_OBJECT (srv, "Finding application for %s - publish: %d", path, is_publisher);
+  GList * clients = g_hash_table_get_values (srv->priv->fd_to_client);
+  for (GList * walk = clients; walk; walk = g_list_next (walk)) {
+    Client * client = (Client *)walk->data;
+    if (g_strcmp0 (client->path, path) == 0 && client->publisher == is_publisher) {
+      connection = client;
+      break;
+    }
+  }
+  g_list_free (clients);
+  if (connection != NULL) {
+    *application = connection->app;
+  } else {
+    *application = NULL;
+  }
 }
 
 gboolean
@@ -751,6 +772,20 @@ gboolean
 pex_rtmp_server_dialout (PexRtmpServer * srv,
     const gchar * src_path, const gchar * url, const gchar * addresses)
 {
+  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, FALSE);
+}
+
+gboolean
+pex_rtmp_server_dialin (PexRtmpServer * srv,
+    const gchar * src_path, const gchar * url, const gchar * addresses)
+{
+  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, TRUE);
+}
+
+gboolean
+pex_rtmp_server_external_connect (PexRtmpServer * srv,
+    const gchar * src_path, const gchar * url, const gchar * addresses, const gboolean is_publisher)
+{
   gboolean ret = FALSE;
   gchar * protocol = NULL;
   gint port;
@@ -782,7 +817,7 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
     fd = pex_rtmp_server_tcp_connect (srv, *address, port);
   }
 
-  if (fd == INVALID_FD && !*address) {  
+  if (fd == INVALID_FD && !*address) {
     GST_WARNING_OBJECT (srv, "Not able to connect");
     goto done;
   }
@@ -797,7 +832,7 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
 
   Client * client = rtmp_server_create_dialout_client (srv, fd,
       src_path, protocol, host, tcUrl, app, dialout_path,
-      url, new_addresses);
+      url, new_addresses, is_publisher);
 
   if (client == NULL) {
     GST_WARNING_OBJECT (srv, "Unable to create client");
@@ -888,7 +923,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
       gboolean connect_failed = FALSE;
       if (!client_try_to_send (client, &connect_failed)) {
         if (connect_failed && client->addresses) {
-          pex_rtmp_server_dialout (srv, client->path, client->url, client->addresses);
+          pex_rtmp_server_external_connect (srv, client->path, client->url, client->addresses, client->publisher);
         } else {
           GST_WARNING_OBJECT (srv, "client error, send failed");
         }

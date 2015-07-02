@@ -144,15 +144,8 @@ client_send_reply (Client * client, double txid, const GValue * reply,
 /* Result messages come from a server to the client,
    but in the dial-out case we are both! */
 static void
-client_handle_result (Client * client, gint txid, AmfDec * dec)
+client_handle_subscribe_result (Client *client, gint txid, AmfDec * dec)
 {
-  /* we won't handle this unless we are dialing out to a path */
-  if (client->dialout_path == NULL)
-    return;
-
-  (void)dec;
-  GST_DEBUG_OBJECT (client->server, "Handling result for txid %d", txid);
-
   if (txid == 1) {
     GST_DEBUG_OBJECT (client->server, "Sending releaseStream + FCPublish + createStream");
     AmfEnc * invoke;
@@ -204,6 +197,57 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
   }
 }
 
+static void
+client_handle_publish_result (Client *client, gint txid, AmfDec * dec)
+{
+  if (txid == 1) {
+    GST_DEBUG_OBJECT (client->server, "Sending createStream");
+    AmfEnc * invoke;
+    invoke = amf_enc_new ();
+    amf_enc_write_string (invoke, "createStream");
+    amf_enc_write_double (invoke, 2.0);
+    amf_enc_write_null (invoke);
+    client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
+        invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
+    amf_enc_free (invoke);
+  } else if (txid == 2) {
+    GValue * reply = amf_dec_load (dec);
+    GValue * status = amf_dec_load (dec);
+    client->msg_stream_id = (guint)g_value_get_double(status);
+    GST_DEBUG_OBJECT (client->server, "Got message stream id %d", client->msg_stream_id);
+    g_value_unset (reply);
+    g_value_unset (status);
+    g_free (reply);
+    g_free (status);
+
+    GST_DEBUG_OBJECT (client->server, "Sending play to %s", client->dialout_path);
+    AmfEnc * invoke = amf_enc_new ();
+    amf_enc_write_string (invoke, "play");
+    amf_enc_write_double (invoke, 0.0);
+    amf_enc_write_null (invoke);
+    amf_enc_write_string (invoke, client->dialout_path);
+    client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
+        invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
+    amf_enc_free (invoke);
+  }
+}
+
+static void
+client_handle_result (Client * client, gint txid, AmfDec * dec)
+{
+  /* we won't handle this unless we are dialing out to a path */
+  if (client->dialout_path == NULL)
+    return;
+
+  (void)dec;
+  GST_DEBUG_OBJECT (client->server, "Handling result for txid %d", txid);
+  if (!client->publisher) {
+    client_handle_subscribe_result (client, txid, dec);
+  } else {
+    client_handle_publish_result (client, txid, dec);
+  }
+}
+
 static gboolean
 client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_id)
 {
@@ -217,6 +261,12 @@ client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_
 
   const gchar * code = gst_structure_get_string (object, "code");
   GST_DEBUG_OBJECT (client->server, "onStatus - code: %s", code);
+  if (code && g_strcmp0 (code, "NetStream.Play.Start") == 0) {
+    /* make the client a subscriber on the local server */
+    connections_add_publisher (client->connections, client, client->path);
+    gboolean reject_play = FALSE;
+    g_signal_emit_by_name (client->server, "on-publish", client->path, &reject_play);
+  }
   if (code && g_strcmp0 (code, "NetStream.Publish.Start") == 0) {
     /* make the client a subscriber on the local server */
     connections_add_subscriber (client->connections, client, client->path);
@@ -243,10 +293,10 @@ client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_
         invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
     amf_enc_free (invoke);
     gst_structure_free (meta);
+    gboolean reject_play = FALSE;
+    g_signal_emit_by_name (client->server, "on-play", client->path, &reject_play);
   }
 
-  gboolean reject_play = FALSE;
-  g_signal_emit_by_name (client->server, "on-play", client->path, &reject_play);
 
   gst_structure_free (object);
   return TRUE;
@@ -311,6 +361,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   //  g_GST_WARNING_OBJECT (client->server, "Unsupported application: %s", app);
   //}
 
+  client->app = g_strdup (gst_structure_get_string (params, "app"));
   gchar * params_str = gst_structure_to_string (params);
   GST_DEBUG_OBJECT (client->server, "connect: %s", params_str);
   g_free (params_str);
