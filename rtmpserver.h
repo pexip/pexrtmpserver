@@ -43,6 +43,8 @@ void pex_rtmp_server_stop (PexRtmpServer * self);
 void pex_rtmp_server_free (PexRtmpServer * self);
 void pex_rtmp_server_connect_signal(PexRtmpServer * self, gchar * signal_name, gboolean (*callback)(gchar * path));
 gboolean pex_rtmp_server_dialout (PexRtmpServer * self, const gchar * path, const gchar * url, const gchar * addresses);
+gboolean pex_rtmp_server_dialin (PexRtmpServer * self, const gchar * path, const gchar * url, const gchar * addresses);
+gboolean pex_rtmp_server_external_connect (PexRtmpServer * self, const gchar * path, const gchar * url, const gchar * addresses, const gboolean is_publisher);
 
 gboolean pex_rtmp_server_parse_url (PexRtmpServer * self, const gchar * url,
     gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
