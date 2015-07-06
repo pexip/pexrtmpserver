@@ -1546,7 +1546,7 @@ client_add_incoming_ssl (Client * client,
     const gchar * ciphers, gboolean ssl3_enabled)
 {
   BIO * bio;
-  long ssl_options = SSL_OP_NO_SSLv2 | SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE;
+  long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE;
 
   client->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
 
