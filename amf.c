@@ -5,8 +5,6 @@
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
-#define debug(fmt...) \
-  GST_INFO(fmt)
 
 AmfEnc *
 amf_enc_new ()
@@ -232,18 +230,31 @@ amf_enc_write_value (AmfEnc * enc, const GValue * value)
       if (G_VALUE_TYPE (value) == GST_TYPE_STRUCTURE)
         amf_enc_write_object (enc, gst_value_get_structure (value));
       else
-        g_warning ("unknown type %u", (guint)G_VALUE_TYPE (value));
+        GST_WARNING ("unknown type %u", (guint)G_VALUE_TYPE (value));
       break;
   }
 }
 
-static guint8
-amf_dec_peek (const AmfDec * dec)
+static gboolean
+amf_dec_peek_byte (AmfDec * dec, guint8 * val)
 {
   if (dec->pos >= dec->buf->len) {
-    g_warning ("%s: Not enough data", __FUNCTION__);
+    GST_WARNING ("Not enough data");
+    return FALSE;
   }
-  return dec->buf->data[dec->pos];
+  *val = dec->buf->data[dec->pos];
+  return TRUE;
+}
+
+static gboolean
+amf_dec_get_byte (AmfDec * dec, guint8 * val)
+{
+  if (dec->pos >= dec->buf->len) {
+    GST_WARNING ("Not enough data");
+    return FALSE;
+  }
+  *val = dec->buf->data[dec->pos++];
+  return TRUE;
 }
 
 AmfDec *
@@ -252,8 +263,15 @@ amf_dec_new (GByteArray * buf, guint pos)
   AmfDec * dec = g_new0 (AmfDec, 1);
   dec->buf = buf;
   dec->pos = pos;
-  if (amf_dec_peek (dec) == AMF0_SWITCH_AMF3) {
-    debug ("entering AMF3 mode\n");
+
+  guint8 type;
+  if (!amf_dec_peek_byte (dec, &type)) {
+    dec->version = AMF_INVALID;
+    return dec;
+  }
+
+  if (type == AMF0_SWITCH_AMF3) {
+    GST_DEBUG ("entering AMF3 mode");
     dec->pos++;
     dec->version = AMF3_VERSION;
   } else {
@@ -268,49 +286,49 @@ amf_dec_free (AmfDec * dec)
   g_free (dec);
 }
 
-static guint8
-amf_dec_get_byte (AmfDec * dec)
+static gboolean
+amf_dec_load_amf3_integer (AmfDec * dec, guint * val)
 {
-  if (dec->pos >= dec->buf->len) {
-    g_warning ("%s: Not enough data", __FUNCTION__);
-  }
-  return dec->buf->data[dec->pos++];
-}
+  if (val == NULL)
+    return FALSE;
 
-static unsigned int
-amd_dec_load_amf3_integer (AmfDec * dec)
-{
-  unsigned int value = 0;
+  *val = 0;
   for (int i = 0; i < 4; ++i) {
-    guint8 b = amf_dec_get_byte (dec);
+    guint8 b;
+    if (!amf_dec_get_byte (dec, &b))
+      return FALSE;
     if (i == 3) {
       /* use all bits from 4th byte */
-      value = (value << 8) | b;
+      *val = (*val << 8) | b;
       break;
     }
-    value = (value << 7) | (b & 0x7f);
+    *val = (*val << 7) | (b & 0x7f);
     if ((b & 0x80) == 0)
       break;
   }
-  return value;
+  return TRUE;
 }
 
 static gchar *
 _load_string (AmfDec * dec)
 {
-  size_t str_len = 0;
+  guint str_len = 0;
 
   if (dec->version == AMF3_VERSION) {
-    str_len = amd_dec_load_amf3_integer (dec) / 2;
+    if (!amf_dec_load_amf3_integer (dec, &str_len))
+      return NULL;
+    str_len /= 2;
   } else {
     if (dec->pos + 2 > dec->buf->len) {
-      g_warning ("%s: Not enough data", __FUNCTION__);
+      GST_WARNING ("Not enough data");
+      return NULL;
     }
     str_len = load_be16 (&dec->buf->data[dec->pos]);
     dec->pos += 2;
   }
   if (dec->pos + str_len > dec->buf->len) {
-    g_warning ("%s: Not enough data", __FUNCTION__);
+    GST_WARNING ("Not enough data");
+    return NULL;
   }
   gchar * s = g_strndup ((const gchar *)&dec->buf->data[dec->pos], str_len);
   dec->pos += str_len;
@@ -320,14 +338,18 @@ _load_string (AmfDec * dec)
 gchar *
 amf_dec_load_string (AmfDec * dec)
 {
-  guint8 type = amf_dec_get_byte (dec);
+  guint8 type;
+  if (!amf_dec_get_byte (dec, &type))
+    return NULL;
 
   if (dec->version == AMF3_VERSION) {
     if (type != AMF3_STRING) {
-      g_warning ("Expected a string");
+      GST_WARNING ("Expected a string");
+      return NULL;
     }
   } else if (type != AMF0_STRING) {
-    g_warning ("Expected a string");
+    GST_WARNING ("Expected a string");
+    return NULL;
   }
   return _load_string (dec);
 }
@@ -338,43 +360,72 @@ amf_dec_load_key (AmfDec * dec)
   return _load_string (dec);
 }
 
-double
-amf_dec_load_number (AmfDec * dec)
+gboolean
+amf_dec_load_number (AmfDec * dec, gdouble * val)
 {
-  if (amf_dec_get_byte (dec) != AMF0_NUMBER) {
-    g_warning ("Expected a number");
+  if (val == NULL)
+    return FALSE;
+
+  guint8 type;
+  if (!amf_dec_get_byte (dec, &type))
+    return FALSE;
+
+  if (type != AMF0_NUMBER) {
+    GST_WARNING ("Expected a number");
+    return FALSE;
   }
   if (dec->pos + 8 > dec->buf->len) {
-    g_warning ("%s: Not enough data", __FUNCTION__);
+    GST_WARNING ("Not enough data");
+    return FALSE;
   }
-  uint64_t val = ((uint64_t) load_be32 (&dec->buf->data[dec->pos]) << 32) |
+  uint64_t n = ((uint64_t) load_be32 (&dec->buf->data[dec->pos]) << 32) |
       load_be32 (&dec->buf->data[dec->pos + 4]);
-  double n = 0;
+  *val = 0;
 #if defined(__i386__) || defined(__x86_64__)
   /* Flash uses same floating point format as x86 */
-  memcpy (&n, &val, 8);
+  memcpy (val, &n, 8);
 #endif
   dec->pos += 8;
-  return n;
+  return TRUE;
 }
 
-int
-amf_dec_load_integer (AmfDec * dec)
+gboolean
+amf_dec_load_integer (AmfDec * dec, gint * val)
 {
+  if (val == NULL)
+    return FALSE;
+
   if (dec->version == AMF3_VERSION) {
-    return amd_dec_load_amf3_integer (dec);
+    return amf_dec_load_amf3_integer (dec, (guint *)val);
   } else {
-    return amf_dec_load_number (dec);
+    gdouble val_d;
+    gboolean ret = amf_dec_load_number (dec, &val_d);
+    *val = (gint)val_d;
+    return ret;
   }
 }
 
 gboolean
-amf_dec_load_boolean (AmfDec * dec)
+amf_dec_load_boolean (AmfDec * dec, gboolean * val)
 {
-  if (amf_dec_get_byte (dec) != AMF0_BOOLEAN) {
-    g_warning ("Expected a boolean");
+  if (val == NULL)
+    return FALSE;
+
+  guint8 type;
+  if (!amf_dec_get_byte (dec, &type))
+    return FALSE;
+
+  if (type != AMF0_BOOLEAN) {
+    GST_WARNING ("Expected a boolean");
+    return FALSE;
   }
-  return amf_dec_get_byte (dec) != 0;
+  guint8 byte;
+  if (!amf_dec_get_byte (dec, &byte))
+    return FALSE;
+
+  *val = byte != 0;
+
+  return TRUE;
 }
 
 static void
@@ -382,7 +433,7 @@ amf_dec_load_structure (AmfDec * dec, GstStructure * s)
 {
   while (1) {
     gchar * key = amf_dec_load_key (dec);
-    if (strlen (key) == 0) {
+    if (key == NULL || strlen (key) == 0) {
       g_free (key);
       break;
     }
@@ -399,31 +450,39 @@ amf_dec_load_object (AmfDec * dec)
 {
   GstStructure * object = gst_structure_empty_new ("object");
 
-  guint8 type = amf_dec_get_byte (dec);
+  guint8 type;
+  if (!amf_dec_get_byte (dec, &type))
+    goto done;
+
   if (dec->version == AMF0_VERSION) {
     if (type != AMF0_OBJECT && type != AMF0_ECMA_ARRAY) {
-      g_debug ("Expected an AMF0 object or ECMA array");
+      GST_WARNING ("Expected an AMF0 object or ECMA array");
       goto done;
     }
 
     if (type == AMF0_ECMA_ARRAY) {
       if (dec->pos + 4 > dec->buf->len) {
-        g_debug ("Not enough data");
+        GST_WARNING ("Not enough data");
         goto done;
       }
       dec->pos += 4;
     }
   } else if (dec->version == AMF3_VERSION) {
     if (type != AMF3_OBJECT) {
-      g_debug ("Expected an object AMF3 object");
+      GST_WARNING ("Expected an object AMF3 object");
       goto done;
     }
 
-    guint8 object_count = amf_dec_get_byte (dec);
+    guint8 object_count;
+    if (!amf_dec_get_byte (dec, &object_count))
+      goto done;
     (void)object_count; //FIXME: could use this!
-    guint8 start_byte = amf_dec_get_byte (dec);
+
+    guint8 start_byte;
+    if (!amf_dec_get_byte (dec, &start_byte))
+      goto done;
     if (start_byte != AMF3_NULL) {
-      g_debug ("expected AMF3 object-start");
+      GST_WARNING ("expected AMF3 object-start");
       goto done;
     }
   }
@@ -431,8 +490,14 @@ amf_dec_load_object (AmfDec * dec)
   amf_dec_load_structure (dec, object);
 
   if (dec->version == AMF0_VERSION) {
-    if (amf_dec_get_byte (dec) != AMF0_OBJECT_END)
-      g_debug ("expected object end");
+    guint8 end_byte;
+    if (!amf_dec_get_byte (dec, &end_byte))
+      goto done;
+
+    if (end_byte != AMF0_OBJECT_END) {
+      GST_WARNING ("expected object end");
+      goto done;
+    }
   }
 
 done:
@@ -443,7 +508,10 @@ GValue *
 amf_dec_load (AmfDec * dec)
 {
   GValue * value = g_new0 (GValue, 1);
-  guint8 type = amf_dec_peek (dec);
+  guint8 type;
+  if (!amf_dec_peek_byte (dec, &type))
+    goto done;
+
   if (dec->version == AMF3_VERSION) {
     switch (type) {
       case AMF3_STRING:
@@ -456,15 +524,21 @@ amf_dec_load (AmfDec * dec)
       }
       case AMF3_NUMBER:
       {
-        g_value_init (value, G_TYPE_DOUBLE);
-        g_value_set_double (value, amf_dec_load_number (dec));
+        gdouble val;
+        if (amf_dec_load_number (dec, &val)) {
+          g_value_init (value, G_TYPE_DOUBLE);
+          g_value_set_double (value, val);
+        }
         break;
       }
       case AMF3_INTEGER:
       {
         dec->pos++;
-        g_value_init (value, G_TYPE_INT);
-        g_value_set_int (value, amf_dec_load_integer (dec));
+        gint val;
+        if (amf_dec_load_integer (dec, &val)) {
+          g_value_init (value, G_TYPE_INT);
+          g_value_set_int (value, val);
+        }
         break;
       }
       case AMF3_FALSE:
@@ -499,7 +573,7 @@ amf_dec_load (AmfDec * dec)
         break;
       }
       default:
-        g_warning ("Unsupported AMF3 type: %02x", type);
+        GST_WARNING ("Unsupported AMF3 type: %02x", type);
     }
   } else {
     switch (type) {
@@ -513,14 +587,20 @@ amf_dec_load (AmfDec * dec)
       }
       case AMF0_NUMBER:
       {
-        g_value_init (value, G_TYPE_DOUBLE);
-        g_value_set_double (value, amf_dec_load_number (dec));
+        gdouble val;
+        if (amf_dec_load_number (dec, &val)) {
+          g_value_init (value, G_TYPE_DOUBLE);
+          g_value_set_double (value, val);
+        }
         break;
       }
       case AMF0_BOOLEAN:
       {
-        g_value_init (value, G_TYPE_BOOLEAN);
-        g_value_set_boolean (value, amf_dec_load_boolean (dec));
+        gboolean val;
+        if (amf_dec_load_boolean (dec, &val)) {
+          g_value_init (value, G_TYPE_BOOLEAN);
+          g_value_set_boolean (value, val);
+        }
         break;
       }
       case AMF0_OBJECT:
@@ -541,8 +621,15 @@ amf_dec_load (AmfDec * dec)
         break;
       }
       default:
-        g_warning ("Unsupported AMF0 type: %02x", type);
+        GST_WARNING ("Unsupported AMF0 type: %02x", type);
     }
+  }
+done:
+  /* to prevent passing out invalid GValues, we set it to NULL if
+     something went wrong */
+  if (!G_IS_VALUE (value)) {
+    g_value_init (value, G_TYPE_POINTER);
+    g_value_set_pointer (value, NULL);
   }
 
   return value;
