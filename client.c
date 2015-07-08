@@ -566,8 +566,8 @@ client_handle_pause (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec));           /* NULL */
 
-  gboolean paused = amf_dec_load_boolean (dec);
-  if (paused) {
+  gboolean paused;
+  if (amf_dec_load_boolean (dec, &paused) && paused) {
     GST_DEBUG_OBJECT (client->server, "pausing");
 
     GstStructure * status = gst_structure_new ("object",
@@ -631,7 +631,9 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
 {
   gboolean ret = TRUE;
   gchar * method = amf_dec_load_string (dec);
-  double txid = amf_dec_load_number (dec);
+  gdouble txid;
+  if (!amf_dec_load_number (dec, &txid))
+    return FALSE;
 
   GST_DEBUG_OBJECT (client->server, "%p: invoked %s with txid %lf for Stream Id: %d ",
       client, method, txid, msg->msg_stream_id);

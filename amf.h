@@ -61,6 +61,7 @@ enum
   AMF3_BYTE_ARRAY,
 };
 
+#define AMF_INVALID -1
 #define AMF0_VERSION 0
 #define AMF3_VERSION 3
 
@@ -102,11 +103,12 @@ AmfDec * amf_dec_new (GByteArray * buf, guint pos);
 void amf_dec_free (AmfDec * dec);
 
 gchar * amf_dec_load_string (AmfDec * dec);
-double amf_dec_load_number (AmfDec * dec);
-int amf_dec_load_integer (AmfDec * dec);
-gboolean amf_dec_load_boolean (AmfDec * dec);
 gchar * amf_dec_load_key (AmfDec * dec);
 GstStructure * amf_dec_load_object (AmfDec * dec);
 GValue * amf_dec_load (AmfDec * dec);
+
+gboolean amf_dec_load_number (AmfDec * dec, gdouble * ret);
+gboolean amf_dec_load_integer (AmfDec * dec, gint * ret);
+gboolean amf_dec_load_boolean (AmfDec * dec, gboolean * ret);
 
 #endif
