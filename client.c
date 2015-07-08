@@ -1179,6 +1179,7 @@ client_receive (Client * client)
     }
     client->buf = g_byte_array_append (client->buf, chunk, got);
     GST_LOG_OBJECT (client->server, "Read %d bytes", got);
+    GST_MEMDUMP_OBJECT (client->server, "Message contents", chunk, got);
 
     int remaining = SSL_pending (client->ssl);
     while (remaining > 0) {
@@ -1194,6 +1195,7 @@ client_receive (Client * client)
 
       client->buf = g_byte_array_append (client->buf, chunk, got);
       GST_LOG_OBJECT (client->server, "Read %d bytes", got);
+      GST_MEMDUMP_OBJECT (client->server, "Message contents", chunk, got);
 
       remaining -= got;
     }
@@ -1211,6 +1213,7 @@ client_receive (Client * client)
     }
     client->buf = g_byte_array_append (client->buf, chunk, got);
     GST_LOG_OBJECT (client->server, "Read %d bytes", got);
+    GST_MEMDUMP_OBJECT (client->server, "Message contents", chunk, got);
   }
 
   if (client->handshake_state != HANDSHAKE_DONE) {
@@ -1564,7 +1567,7 @@ client_add_incoming_ssl (Client * client,
   if (file_exists (ca_dir)) {
     SSL_CTX_load_verify_locations (client->ssl_ctx, NULL, ca_dir);
   }
-  SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_PEER, ssl_verify_callback);
+  SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_NONE, ssl_verify_callback);
   SSL_CTX_set_mode (client->ssl_ctx,
       SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
