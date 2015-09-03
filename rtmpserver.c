@@ -53,6 +53,8 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_CHUNK_SIZE 128
 #define DEFAULT_TCP_SYNCNT -1
 
+#define RELEASED_FD -1
+
 enum
 {
   PROP_0,
@@ -511,7 +513,8 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
 {
   GST_DEBUG_OBJECT (srv, "removing client %p with fd %d", client, client->fd);
   g_hash_table_remove (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd));
-  close (client->fd);
+  if (client->fd != RELEASED_FD)
+    close (client->fd);
 
   if (client->path)
     connections_remove_client (srv->priv->connections, client, client->path);
@@ -529,6 +532,22 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
           pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE], 0, path);
     }
   }
+
+  if (publisher) {
+    GSList * subscribers = connections_get_subscribers (
+        srv->priv->connections, path);
+    for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
+      Client * subscriber = (Client *)walk->data;
+      GST_DEBUG_OBJECT (srv,
+          "removing streaming subscriber %p as publisher removed with fd %d",
+          subscriber, subscriber->fd);
+      if (subscriber->dialout_path) {
+        close (subscriber->fd);
+        subscriber->fd = RELEASED_FD;
+      }
+    }
+  }
+
   g_free (path);
 }
 
