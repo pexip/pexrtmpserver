@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8)
 project (pexrtmpserver)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
-set(CMAKE_C_FLAGS "-std=c99 -Wall -Werror")
+set(CMAKE_C_FLAGS "-std=c99 -Wall")
 
 # GStreamer
 find_package(GStreamer 0.10)
