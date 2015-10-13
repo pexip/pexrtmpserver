@@ -4,7 +4,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
 set(CMAKE_C_FLAGS "-std=c99 -Wall -Werror")
 
 # GStreamer
-find_package(GSTREAMER 0.10)
+find_package(GStreamer 0.10)
 pkg_check_modules (GLIB2   glib-2.0)
 
 add_library (pexrtmpserver SHARED amf.c client.c connections.c handshake.c rtmp.h rtmpserver.c utils.c)
