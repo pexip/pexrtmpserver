@@ -1,6 +1,8 @@
 language: c
 
-sudo: false
+sudo: required
+
+before_install: sudo apt-get install -y cmake libssl-dev libglib2.0-0 libgstreamer0.10-0 libgstreamer0.10-dev
 
 env:
   global:
@@ -11,13 +13,6 @@ env:
 script: cmake . && make
 
 addons:
-  apt:
-    packages:
-    - cmake
-    - libgstreamer0.10-0
-    - libgstreamer0.10-dev
-    - libglib2.0-0
-    - libssl-dev
   coverity_scan:
     project:
       name: "pexip/pexrtmpserver"
