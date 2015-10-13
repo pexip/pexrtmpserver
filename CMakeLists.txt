@@ -6,13 +6,15 @@ set(CMAKE_C_FLAGS "-std=gnu99 -Wall")
 # GStreamer
 find_package(GStreamer 0.10)
 pkg_check_modules (GLIB2   glib-2.0)
+pkg_check_modules (OPENSSL   openssl)
 
 add_library (pexrtmpserver SHARED amf.c client.c connections.c handshake.c rtmp.h rtmpserver.c utils.c)
 
 include_directories(${GSTREAMER_INCLUDE_DIRS}
-                    ${GLIB2_INCLUDE_DIRS})
+                    ${GLIB2_INCLUDE_DIRS}
+                    ${OPENSSL_INCLUDE_DIRS})
 
-target_link_libraries( pexrtmpserver ${GSTREAMER_LIBRARIES} ${GLIB2_LIBRARIES})
+target_link_libraries( pexrtmpserver ${GSTREAMER_LIBRARIES} ${GLIB2_LIBRARIES} ${OPENSSL_LIBRARIES})
 
 add_executable ( rtmpserver main.c )
 target_link_libraries( rtmpserver pexrtmpserver )
