@@ -8,6 +8,8 @@ env:
    #   via the "travis encrypt" command using the project repo's public key
    - secure: "GxBj/ymnQBqvgyNUoi8UbTWEfL7HmwVNK1AdWqBWqpXH7zhVZWiJVww6TzKTdOrS+JwS2WRITvTehvLgxaqjltnV+5FTriSQqdx6e1CuTQzNQ8us7R6Uz0LA8P05BAexzgznafKoQyXx86+KZ4ba41cQ1YJaYzb5rNDtkNtHfTU="
 
+script: cmake . && make
+
 addons:
   apt:
     packages:
@@ -21,5 +23,5 @@ addons:
       description: "Build submitted via Travis CI"
     notification_email: david@pexip.com
     build_command_prepend: "cmake .; make clean"
-    build_command:   "make -j 4"
+    build_command:   "make"
     branch_pattern: coverity_scan
