@@ -6,7 +6,9 @@ env:
    #   via the "travis encrypt" command using the project repo's public key
    - secure: "GxBj/ymnQBqvgyNUoi8UbTWEfL7HmwVNK1AdWqBWqpXH7zhVZWiJVww6TzKTdOrS+JwS2WRITvTehvLgxaqjltnV+5FTriSQqdx6e1CuTQzNQ8us7R6Uz0LA8P05BAexzgznafKoQyXx86+KZ4ba41cQ1YJaYzb5rNDtkNtHfTU="
 
-install: apt-get install -y libgstreamer0.10-0 libglib2.0-0 libssl-dev
+before_install:
+- sudo apt-get update -qq
+- sudo apt-get install -qq libgstreamer0.10-0 libglib2.0-0 libssl-dev
 
 addons:
   coverity_scan:
