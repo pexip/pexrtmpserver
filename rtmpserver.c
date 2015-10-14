@@ -745,7 +745,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   freeaddrinfo (result);
 
   fd = socket (address.ss_family, SOCK_STREAM, IPPROTO_TCP);
-  if (fd <= 0) {
+  if (fd < 0) {
     GST_WARNING_OBJECT (srv, "could not create soc: %s", g_strerror (errno));
     return INVALID_FD;
   }
@@ -1019,6 +1019,7 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
   if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
     GST_WARNING_OBJECT (srv, "Unable to listen to port %d: %s",
         port, strerror (errno));
+    close (fd);
     return -1;
   }
 
