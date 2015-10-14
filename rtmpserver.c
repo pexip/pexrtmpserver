@@ -781,6 +781,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
 
   if (ret != 0 && errno != EINPROGRESS) {
       GST_WARNING_OBJECT (srv, "could not connect on port %d: %s", port, g_strerror (errno));
+      close (fd);
       return INVALID_FD;
   }
 
