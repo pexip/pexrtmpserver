@@ -790,6 +790,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
 
   if (ret != 0 && errno != EINPROGRESS) {
       GST_WARNING_OBJECT (srv, "could not connect on port %d: %s", port, g_strerror (errno));
+      close (fd);
       return INVALID_FD;
   }
 
@@ -1026,6 +1027,7 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
   if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
     GST_WARNING_OBJECT (srv, "Unable to listen to port %d: %s",
         port, strerror (errno));
+    close (fd);
     return -1;
   }
 
