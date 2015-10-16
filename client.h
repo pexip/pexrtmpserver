@@ -41,6 +41,8 @@ typedef enum
 struct _Client
 {
   gint fd;
+  gboolean released;
+  gboolean added_to_fd_table;
   ClientConnectionState state;
   Connections * connections;
   GObject * server;

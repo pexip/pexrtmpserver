@@ -53,8 +53,6 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_CHUNK_SIZE 128
 #define DEFAULT_TCP_SYNCNT -1
 
-#define RELEASED_FD -1
-
 enum
 {
   PROP_0,
@@ -412,6 +410,16 @@ pex_rtmp_server_add_fd_to_poll_table (PexRtmpServer * srv, gint fd)
 }
 
 static void
+rtmp_server_add_client_to_poll_table (PexRtmpServer * srv, Client * client)
+{
+  /* create a poll entry, and link it to the client */
+  gint fd = client->fd;
+  pex_rtmp_server_add_fd_to_poll_table (srv, fd);
+  g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
+  client->added_to_fd_table = TRUE;
+}
+
+static void
 rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 {
   struct sockaddr_in sin;
@@ -454,9 +462,7 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
     g_free (ciphers);
   }
 
-  /* create a poll entry, and link it to the client */
-  pex_rtmp_server_add_fd_to_poll_table (srv, fd);
-  g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
+  rtmp_server_add_client_to_poll_table (srv, client);
 
   GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, fd);
 }
@@ -512,9 +518,12 @@ static void
 rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
 {
   GST_DEBUG_OBJECT (srv, "removing client %p with fd %d", client, client->fd);
-  g_hash_table_remove (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd));
-  if (client->fd != RELEASED_FD)
+  if (client->added_to_fd_table)
+    g_assert (g_hash_table_remove (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd)));
+  if (!client->released) {
     close (client->fd);
+    client->released = TRUE;
+  }
 
   if (client->path)
     connections_remove_client (srv->priv->connections, client, client->path);
@@ -543,7 +552,7 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
           subscriber, subscriber->fd);
       if (subscriber->dialout_path) {
         close (subscriber->fd);
-        subscriber->fd = RELEASED_FD;
+        subscriber->released = TRUE;
       }
     }
   }
@@ -745,7 +754,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   freeaddrinfo (result);
 
   fd = socket (address.ss_family, SOCK_STREAM, IPPROTO_TCP);
-  if (fd < 0) {
+  if (fd <= 0) {
     GST_WARNING_OBJECT (srv, "could not create soc: %s", g_strerror (errno));
     return INVALID_FD;
   }
@@ -781,7 +790,6 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
 
   if (ret != 0 && errno != EINPROGRESS) {
       GST_WARNING_OBJECT (srv, "could not connect on port %d: %s", port, g_strerror (errno));
-      close (fd);
       return INVALID_FD;
   }
 
@@ -883,9 +891,7 @@ rtmp_server_add_pending_dialout_clients (PexRtmpServer * srv)
 
   while (gst_atomic_queue_length (priv->dialout_clients) > 0) {
     Client * client = gst_atomic_queue_pop (priv->dialout_clients);
-    /* create a poll entry, and link it to the client */
-    pex_rtmp_server_add_fd_to_poll_table (srv, client->fd);
-    g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd), client);
+    rtmp_server_add_client_to_poll_table (srv, client);
     GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, client->fd);
   }
 }
@@ -1020,7 +1026,6 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
   if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
     GST_WARNING_OBJECT (srv, "Unable to listen to port %d: %s",
         port, strerror (errno));
-    close (fd);
     return -1;
   }
 
