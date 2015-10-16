@@ -754,7 +754,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   freeaddrinfo (result);
 
   fd = socket (address.ss_family, SOCK_STREAM, IPPROTO_TCP);
-  if (fd <= 0) {
+  if (fd < 0) {
     GST_WARNING_OBJECT (srv, "could not create soc: %s", g_strerror (errno));
     return INVALID_FD;
   }
