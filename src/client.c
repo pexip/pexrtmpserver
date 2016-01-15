@@ -877,16 +877,31 @@ client_handle_message (Client * client, RTMP_Message * msg)
       }
       guint8 flags = msg->buf->data[0];
       GSList * subscribers =
-          connections_get_subscribers (client->connections, client->path);
+        connections_get_subscribers (client->connections, client->path);
+      gboolean stored_packet = FALSE;
+      if (!client->video_codec_data) {
+        stored_packet = TRUE;
+        GByteArray * codec_data = g_byte_array_new ();
+        g_byte_array_append (codec_data, msg->buf->data, msg->buf->len);
+        client->video_codec_data = codec_data;
+      }
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
         Client * subscriber = (Client *)walk->data;
 
+        if (!subscriber->ready) {
+          client_rtmp_send (subscriber, MSG_VIDEO, subscriber->msg_stream_id,
+                            client->video_codec_data, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
+        }
         if (flags >> 4 == FLV_KEY_FRAME && !subscriber->ready) {
           subscriber->ready = TRUE;
+          if (!stored_packet) {
+            client_rtmp_send (subscriber, MSG_VIDEO, subscriber->msg_stream_id,
+                              msg->buf, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
+          }
         }
         if (subscriber->ready) {
           client_rtmp_send (subscriber, MSG_VIDEO, subscriber->msg_stream_id,
-              msg->buf, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
+                            msg->buf, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
         }
       }
       break;
@@ -1764,8 +1779,14 @@ client_free (Client * client)
   g_free (client->dialout_path);
   g_free (client->url);
   g_free (client->addresses);
+  if (client->video_codec_data)
+    g_byte_array_free (client->video_codec_data, TRUE);
 
   pex_rtmp_handshake_free (client->handshake);
+
+  if (client->last_queue_overflow != NULL) {
+    g_timer_destroy (client->last_queue_overflow);
+  }
 
   /* ssl */
   if (client->ssl_ctx)

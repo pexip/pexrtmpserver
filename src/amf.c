@@ -2,6 +2,7 @@
 #include "utils.h"
 #include <string.h>
 #include <arpa/inet.h>
+#include <stdio.h>
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
@@ -448,7 +449,7 @@ amf_dec_load_structure (AmfDec * dec, GstStructure * s)
 GstStructure *
 amf_dec_load_object (AmfDec * dec)
 {
-  GstStructure * object = gst_structure_empty_new ("object");
+  GstStructure * object = gst_structure_new_empty ("object");
 
   guint8 type;
   if (!amf_dec_get_byte (dec, &type))

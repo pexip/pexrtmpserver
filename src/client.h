@@ -41,6 +41,8 @@ typedef enum
 struct _Client
 {
   gint fd;
+  gboolean released;
+  gboolean added_to_fd_table;
   ClientConnectionState state;
   Connections * connections;
   GObject * server;
@@ -75,7 +77,9 @@ struct _Client
   guint32 bytes_received_since_ack;
   guint32 total_bytes_received;
 
-  gint write_queue_size;
+  /* Write queue overflow bookkeeping */
+  gint last_write_queue_size;
+  GTimer * last_queue_overflow;
 
   PexRtmpHandshake * handshake;
   PexRtmpHandshakeState handshake_state;
@@ -86,6 +90,7 @@ struct _Client
   gchar * remote_host;
   gboolean ssl_write_blocked_on_read;
   gboolean ssl_read_blocked_on_write;
+  GByteArray * video_codec_data;
 };
 
 Client * client_new (gint fd, Connections * connection,

@@ -7,6 +7,10 @@
  * Program code is licensed with GNU LGPL 2.1. See COPYING.LGPL file.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "rtmpserver.h"
 
 #include <gst/gst.h>
@@ -52,8 +56,6 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_STREAM_ID 1337
 #define DEFAULT_CHUNK_SIZE 128
 #define DEFAULT_TCP_SYNCNT -1
-
-#define RELEASED_FD -1
 
 enum
 {
@@ -106,7 +108,6 @@ struct _PexRtmpServerPrivate
   GHashTable * fd_to_client;
   gboolean running;
   GThread * thread;
-  GTimer * last_queue_overflow;
 
   Connections * connections;
   GstAtomicQueue * dialout_clients;
@@ -154,7 +155,6 @@ pex_rtmp_server_init (PexRtmpServer *srv)
   priv->ssl3_enabled = DEFAULT_SSL3_ENABLED;
 
   priv->thread = NULL;
-  priv->last_queue_overflow = NULL;
 
   priv->poll_table = g_array_new (TRUE, TRUE, sizeof (struct pollfd));
   priv->fd_to_client = g_hash_table_new (NULL, NULL);
@@ -172,7 +172,7 @@ static void
 pex_rtmp_server_finalize (GObject * obj)
 {
   PexRtmpServer * srv = PEX_RTMP_SERVER_CAST (obj);
-  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+  PexRtmpServerPrivate * priv = srv->priv;
 
   g_free (priv->application_name);
   g_free (priv->cert_file);
@@ -412,6 +412,16 @@ pex_rtmp_server_add_fd_to_poll_table (PexRtmpServer * srv, gint fd)
 }
 
 static void
+rtmp_server_add_client_to_poll_table (PexRtmpServer * srv, Client * client)
+{
+  /* create a poll entry, and link it to the client */
+  gint fd = client->fd;
+  pex_rtmp_server_add_fd_to_poll_table (srv, fd);
+  g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
+  client->added_to_fd_table = TRUE;
+}
+
+static void
 rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 {
   struct sockaddr_in sin;
@@ -454,9 +464,7 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
     g_free (ciphers);
   }
 
-  /* create a poll entry, and link it to the client */
-  pex_rtmp_server_add_fd_to_poll_table (srv, fd);
-  g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (fd), client);
+  rtmp_server_add_client_to_poll_table (srv, client);
 
   GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, fd);
 }
@@ -512,9 +520,12 @@ static void
 rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
 {
   GST_DEBUG_OBJECT (srv, "removing client %p with fd %d", client, client->fd);
-  g_hash_table_remove (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd));
-  if (client->fd != RELEASED_FD)
+  if (client->added_to_fd_table)
+    g_assert (g_hash_table_remove (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd)));
+  if (!client->released) {
     close (client->fd);
+    client->released = TRUE;
+  }
 
   if (client->path)
     connections_remove_client (srv->priv->connections, client, client->path);
@@ -543,7 +554,7 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
           subscriber, subscriber->fd);
       if (subscriber->dialout_path) {
         close (subscriber->fd);
-        subscriber->fd = RELEASED_FD;
+        subscriber->released = TRUE;
       }
     }
   }
@@ -561,20 +572,30 @@ rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
   if (error)
     val = 0;
 
-  gboolean decreasing = (val - client->write_queue_size < 0);
-  client->write_queue_size = val;
-  if (!decreasing && client->write_queue_size > 75000) {
-    if (srv->priv->last_queue_overflow == NULL) {
-      srv->priv->last_queue_overflow = g_timer_new ();
+  gboolean decreasing = (val - client->last_write_queue_size < 0);
+  client->last_write_queue_size = val;
+
+  /* Consider sending signal if queue is growing and 
+   * has at least 75k of data outstanding */
+  if (!decreasing && client->last_write_queue_size > 75000) {
+    gdouble elapsed;
+
+    if (client->last_queue_overflow == NULL) {
+      client->last_queue_overflow = g_timer_new ();
+      /* Forcibly send the signal the first time the queue overflows */
+      elapsed = 5.0;
+    } else {
+      /* Otherwise, rate-limit signals to every 2 seconds to avoid spam */
+      elapsed = g_timer_elapsed (client->last_queue_overflow, NULL);
     }
-    guint elapsed = g_timer_elapsed (srv->priv->last_queue_overflow, NULL);
-    if (elapsed >= 2) {
+
+    if (elapsed >= 2.0) {
       GST_DEBUG_OBJECT (srv,
           "(%s) Emitting signal on-queue-overflow due to %d bytes in queue",
-          client->path,val);
+          client->path, val);
       g_signal_emit (srv, pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW],
           0, client->path);
-      g_timer_start (srv->priv->last_queue_overflow);
+      g_timer_start (client->last_queue_overflow);
     }
   }
 }
@@ -745,7 +766,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   freeaddrinfo (result);
 
   fd = socket (address.ss_family, SOCK_STREAM, IPPROTO_TCP);
-  if (fd <= 0) {
+  if (fd < 0) {
     GST_WARNING_OBJECT (srv, "could not create soc: %s", g_strerror (errno));
     return INVALID_FD;
   }
@@ -781,6 +802,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
 
   if (ret != 0 && errno != EINPROGRESS) {
       GST_WARNING_OBJECT (srv, "could not connect on port %d: %s", port, g_strerror (errno));
+      close (fd);
       return INVALID_FD;
   }
 
@@ -878,13 +900,11 @@ done:
 void
 rtmp_server_add_pending_dialout_clients (PexRtmpServer * srv)
 {
-  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+  PexRtmpServerPrivate * priv = srv->priv;
 
   while (gst_atomic_queue_length (priv->dialout_clients) > 0) {
     Client * client = gst_atomic_queue_pop (priv->dialout_clients);
-    /* create a poll entry, and link it to the client */
-    pex_rtmp_server_add_fd_to_poll_table (srv, client->fd);
-    g_hash_table_insert (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd), client);
+    rtmp_server_add_client_to_poll_table (srv, client);
     GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, client->fd);
   }
 }
@@ -892,7 +912,7 @@ rtmp_server_add_pending_dialout_clients (PexRtmpServer * srv)
 static gboolean
 rtmp_server_do_poll (PexRtmpServer * srv)
 {
-  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+  PexRtmpServerPrivate * priv = srv->priv;
 
   rtmp_server_add_pending_dialout_clients (srv);
 
@@ -938,6 +958,14 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     //GST_DEBUG_OBJECT (srv, "fd %d has client %p", entry->fd, client);
 
     /* ready to send */
+    if (client && entry->revents & POLLNVAL) {
+        GST_WARNING_OBJECT (srv, "poll() called on closed fd - removing client");
+        rtmp_server_remove_client (srv, client);
+        srv->priv->poll_table = g_array_remove_index (priv->poll_table, i);
+        i--;
+        continue;
+    }
+
     if (client && entry->revents & POLLOUT) {
       gboolean connect_failed = FALSE;
       if (!client_try_to_send (client, &connect_failed)) {
@@ -971,7 +999,7 @@ static gpointer
 rtmp_server_func (gpointer data)
 {
   PexRtmpServer * srv = PEX_RTMP_SERVER_CAST (data);
-  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+  PexRtmpServerPrivate * priv = srv->priv;
 
   gboolean ret = TRUE;
   signal (SIGPIPE, SIG_IGN);
@@ -1019,6 +1047,7 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
   if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
     GST_WARNING_OBJECT (srv, "Unable to listen to port %d: %s",
         port, strerror (errno));
+    close (fd);
     return -1;
   }
 
@@ -1031,7 +1060,7 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
 gboolean
 pex_rtmp_server_start (PexRtmpServer * srv)
 {
-  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+  PexRtmpServerPrivate * priv = srv->priv;
 
   /* listen for normal and ssl connections */
   priv->listen_fd = pex_rtmp_server_add_listen_fd (srv, priv->port);
@@ -1054,16 +1083,13 @@ pex_rtmp_server_start (PexRtmpServer * srv)
 void
 pex_rtmp_server_stop (PexRtmpServer * srv)
 {
-  PexRtmpServerPrivate * priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
+  PexRtmpServerPrivate * priv = srv->priv;
 
   GST_DEBUG_OBJECT (srv, "Stopping...");
   priv->running = FALSE;
   if (priv->thread)
     g_thread_join (priv->thread);
 
-  if (priv->last_queue_overflow != NULL) {
-    g_timer_destroy (priv->last_queue_overflow);
-  }
   if (priv->listen_fd > 0)
     close (priv->listen_fd);
   if (priv->listen_ssl_fd > 0)

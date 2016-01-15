@@ -1,0 +1,11 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: PexRtmpServer Library
+Description: RTMP server
+Requires:
+Version: @VERSION@
+Libs: -L${libdir} -lpexrtmpserver
+Cflags: -I${includedir}/rtmpserver
