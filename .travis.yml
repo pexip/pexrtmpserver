@@ -26,6 +26,5 @@ addons:
       name: "pexip/pexrtmpserver"
       description: "Build submitted via Travis CI"
     notification_email: david@pexip.com
-    build_command_prepend: "make clean; ./autogen.sh; ./configure"
-    build_command:   "make"
+    build_command:   "./build.sh"
     branch_pattern: master
