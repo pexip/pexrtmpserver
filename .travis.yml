@@ -24,3 +24,9 @@ addons:
     build_command_prepend: "./autogen.sh; ./configure"
     build_command:   "make"
     branch_pattern: master
+  apt:
+    packages:
+    - libssl-dev
+    - libglib2.0-0
+    - libgstreamer1.0-0
+    - libgstreamer1.0-dev
