@@ -1,0 +1,24 @@
+language: c
+
+compiler:
+    - gcc
+
+before_install: apt-get install -y libssl-dev libglib3.0-0 libgstreamer1.0-0 libgstreamer1.0-dev
+
+env:
+  global:
+   # The next declaration is the encrypted COVERITY_SCAN_TOKEN, created
+   #   via the "travis encrypt" command using the project repo's public key
+   - secure: "GxBj/ymnQBqvgyNUoi8UbTWEfL7HmwVNK1AdWqBWqpXH7zhVZWiJVww6TzKTdOrS+JwS2WRITvTehvLgxaqjltnV+5FTriSQqdx6e1CuTQzNQ8us7R6Uz0LA8P05BAexzgznafKoQyXx86+KZ4ba41cQ1YJaYzb5rNDtkNtHfTU="
+
+script: ./autogen.sh; ./configure && make
+
+addons:
+  coverity_scan:
+    project:
+      name: "pexip/pexrtmpserver"
+      description: "Build submitted via Travis CI"
+    notification_email: david@pexip.com
+    build_command_prepend: "./autogen.sh; ./configure"
+    build_command:   "make"
+    branch_pattern: master
