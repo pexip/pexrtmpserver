@@ -132,13 +132,6 @@ pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
       NULL);
 }
 
-void
-pex_rtmp_server_connect_signal (PexRtmpServer * srv,
-    gchar * signal_name, gboolean (*callback)(gchar * path))
-{
-  g_signal_connect(srv, signal_name, G_CALLBACK (callback), NULL);
-}
-
 static void
 pex_rtmp_server_init (PexRtmpServer *srv)
 {
@@ -625,8 +618,8 @@ get_port_from_string (const gchar * s, gint * port)
   return TRUE;
 }
 
-void
-pex_rtmp_server_get_application_for_path (PexRtmpServer * srv, gchar * path, gboolean is_publisher, gchar ** application) {
+gchar*
+pex_rtmp_server_get_application_for_path (PexRtmpServer * srv, gchar * path, gboolean is_publisher) {
   Client * connection = NULL;
   GST_WARNING_OBJECT (srv, "Finding application for %s - publish: %d", path, is_publisher);
   GList * clients = g_hash_table_get_values (srv->priv->fd_to_client);
@@ -639,9 +632,9 @@ pex_rtmp_server_get_application_for_path (PexRtmpServer * srv, gchar * path, gbo
   }
   g_list_free (clients);
   if (connection != NULL) {
-    *application = connection->app;
+    return g_strdup (connection->app);
   } else {
-    *application = NULL;
+    return NULL;
   }
 }
 
