@@ -1696,6 +1696,20 @@ client_add_incoming_ssl (Client * client,
   return TRUE;
 }
 
+static void
+outgoing_ssl_info_callback (const SSL *ssl, int where, int ret)
+{
+  Client * client = SSL_get_app_data (ssl);
+
+  if (where & SSL_CB_HANDSHAKE_START) {
+    if (client->remote_host != NULL) {
+      if (SSL_set_tlsext_host_name ((SSL *)ssl, client->remote_host) == 0) {
+         print_ssl_errors (client);
+      } 
+    }
+  }
+}
+
 gboolean
 client_add_outgoing_ssl (Client * client,
     const gchar * ca_file, const gchar * ca_dir,
@@ -1717,6 +1731,8 @@ client_add_outgoing_ssl (Client * client,
   if (file_exists (ca_dir)) {
     SSL_CTX_load_verify_locations (client->ssl_ctx, NULL, ca_dir);
   }
+  SSL_CTX_set_info_callback (client->ssl_ctx,
+      outgoing_ssl_info_callback);
   SSL_CTX_set_verify (client->ssl_ctx,
       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, ssl_verify_callback);
   SSL_CTX_set_mode (client->ssl_ctx,
