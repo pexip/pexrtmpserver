@@ -47,6 +47,7 @@ struct _Client
   Connections * connections;
   GObject * server;
   gboolean use_ssl;
+  gboolean ignore_localhost;
   guint msg_stream_id;
 
   RTMP_Header_State prev_header;
@@ -94,7 +95,7 @@ struct _Client
 };
 
 Client * client_new (gint fd, Connections * connection,
-    GObject * server, gboolean use_ssl, gint stream_id, guint chunk_size,
+    GObject * server, gboolean use_ssl, gboolean ignore_localhost, gint stream_id, guint chunk_size,
     const gchar * remote_host);
 void client_free (Client * client);
 

@@ -50,6 +50,7 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_CERT_FILE ""
 #define DEFAULT_KEY_FILE ""
 #define DEFAULT_SSL3_ENABLED FALSE
+#define DEFAULT_IGNORE_LOCALHOST FALSE
 #define DEFAULT_CA_CERT_FILE ""
 #define DEFAULT_CA_CERT_DIR ""
 #define DEFAULT_CIPHERS "!eNULL:!aNULL:!EXP:!DES:!RC4:!RC2:!IDEA:!ADH:ALL@STRENGTH"
@@ -69,6 +70,7 @@ enum
   PROP_CA_CERT_DIR,
   PROP_CIPHERS,
   PROP_SSL3_ENABLED,
+  PROP_IGNORE_LOCALHOST,
   PROP_STREAM_ID,
   PROP_CHUNK_SIZE,
   PROP_TCP_SYNCNT,
@@ -97,6 +99,7 @@ struct _PexRtmpServerPrivate
   gchar * ca_cert_dir;
   gchar * ciphers;
   gboolean ssl3_enabled;
+  gboolean ignore_localhost;
   gint stream_id;
   gint chunk_size;
   gint tcp_syncnt;
@@ -117,7 +120,8 @@ struct _PexRtmpServerPrivate
 PexRtmpServer *
 pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
     const gchar * cert_file, const gchar * key_file, const gchar * ca_cert_file,
-    const gchar * ca_cert_dir, const gchar * ciphers, gboolean ssl3_enabled)
+    const gchar * ca_cert_dir, const gchar * ciphers, gboolean ssl3_enabled,
+    gboolean ignore_localhost)
 {
   return g_object_new (PEX_TYPE_RTMP_SERVER,
       "application-name", application_name,
@@ -129,6 +133,7 @@ pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
       "ca-cert-dir", ca_cert_dir,
       "ciphers", ciphers,
       "ssl3-enabled", ssl3_enabled,
+      "ignore-localhost", ignore_localhost,
       NULL);
 }
 
@@ -146,6 +151,7 @@ pex_rtmp_server_init (PexRtmpServer *srv)
   priv->ca_cert_dir = NULL;
   priv->ciphers = NULL;
   priv->ssl3_enabled = DEFAULT_SSL3_ENABLED;
+  priv->ignore_localhost = DEFAULT_IGNORE_LOCALHOST;
 
   priv->thread = NULL;
 
@@ -216,6 +222,9 @@ pex_rtmp_server_set_property (GObject * obj, guint prop_id,
     case PROP_SSL3_ENABLED:
       srv->priv->ssl3_enabled = g_value_get_boolean (value);
       break;
+    case PROP_IGNORE_LOCALHOST:
+      srv->priv->ignore_localhost = g_value_get_boolean (value);
+      break;
     case PROP_STREAM_ID:
       srv->priv->stream_id = g_value_get_int (value);
       break;
@@ -263,6 +272,9 @@ pex_rtmp_server_get_property (GObject * obj, guint prop_id,
       break;
     case PROP_SSL3_ENABLED:
       g_value_set_boolean (value, srv->priv->ssl3_enabled);
+      break;
+    case PROP_IGNORE_LOCALHOST:
+      g_value_set_boolean (value, srv->priv->ignore_localhost);
       break;
     case PROP_STREAM_ID:
       g_value_set_int (value, srv->priv->stream_id);
@@ -332,6 +344,11 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
       g_param_spec_boolean ("ssl3-enabled", "SSL3 enabled",
           "Whether SSL3 is enabled", DEFAULT_SSL3_ENABLED,
           G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_IGNORE_LOCALHOST,
+      g_param_spec_boolean ("ignore-localhost", "Localhost ignored from signal emitting",
+          "Localhost ignored from signal emitting", DEFAULT_IGNORE_LOCALHOST,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_STREAM_ID,
       g_param_spec_int ("stream-id", "Stream ID",
@@ -429,10 +446,10 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   set_nonblock (fd, TRUE);
 
   gboolean use_ssl = listen_fd == srv->priv->listen_ssl_fd;
-  GST_INFO_OBJECT (srv, "Accepted client %s connection using port %d", use_ssl ? "rtmps" : "rtmp", 
-                    ntohs(sin.sin_port));
+  GST_INFO_OBJECT (srv, "Accepted client %s connection using port %d", use_ssl ? "rtmps" : "rtmp",
+                   ntohs(sin.sin_port));
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
-      use_ssl, srv->priv->stream_id, srv->priv->chunk_size, NULL);
+      use_ssl, srv->priv->ignore_localhost, srv->priv->stream_id, srv->priv->chunk_size, NULL);
 
   /* ssl connection */
   if (use_ssl) {
@@ -471,8 +488,10 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
   gboolean use_ssl = (g_strcmp0 (protocol, "rtmps") == 0);
 
   GST_DEBUG_OBJECT (srv, "Initiating a %s connection", protocol);
+  gboolean ignore_localhost;
+  g_object_get (srv, "ignore-localhost", &ignore_localhost, NULL);
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
-      use_ssl, srv->priv->stream_id, srv->priv->chunk_size, remote_host);
+    use_ssl, ignore_localhost, srv->priv->stream_id, srv->priv->chunk_size, remote_host);
   client->path = g_strdup (path);
   client->dialout_path = g_strdup (dialout_path);
   client->tcUrl = g_strdup (tcUrl);

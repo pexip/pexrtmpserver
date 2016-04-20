@@ -451,6 +451,31 @@ client_handle_createstream (Client * client, double txid)
 }
 
 static gboolean
+client_should_emit_signal (Client * client) {
+  struct sockaddr_storage addr;
+  struct sockaddr_in6 * sin6;
+  struct sockaddr_in * sin;
+  socklen_t len = sizeof addr;
+  gchar ipstr[INET6_ADDRSTRLEN];
+  gboolean should_emit = TRUE;
+
+  if (client->ignore_localhost) {
+    if (getpeername(client->fd, (struct sockaddr*)&addr, &len) == 0) {
+      if (addr.ss_family == AF_INET) {
+        sin = (struct sockaddr_in *)&addr;
+        inet_ntop(AF_INET, &sin->sin_addr, ipstr, sizeof(ipstr));
+      } else {
+        sin6 = (struct sockaddr_in6 *)&addr;
+        inet_ntop(AF_INET6, &sin6->sin6_addr, ipstr, sizeof ipstr);
+      }
+    }
+    should_emit = g_strcmp0 (ipstr, "::ffff:127.0.0.1") != 0 && g_strcmp0 (ipstr, "127.0.0.1") != 0;
+  }
+
+  return should_emit;
+}
+
+static gboolean
 client_handle_publish (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec)); /* NULL */
@@ -462,7 +487,10 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   client->path = path;
 
   gboolean reject_publish = FALSE;
-  g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
+  if (client_should_emit_signal (client)) {
+    GST_DEBUG_OBJECT (client->server, "emit on-publish: %s", path);
+    g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
+  }
   if (reject_publish) {
     GST_DEBUG_OBJECT (client->server, "Not publishing due to signal rejecting publish");
     return FALSE;
@@ -581,7 +609,12 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   g_free (client->path);
   client->path = path;
   gboolean reject_play = FALSE;
-  g_signal_emit_by_name(client->server, "on-play", path, &reject_play);
+  gboolean ignored = FALSE;
+
+  if (client_should_emit_signal (client)) {
+    GST_DEBUG_OBJECT (client->server, "emit on-play: %s", path);
+    g_signal_emit_by_name(client->server, "on-play", path, &reject_play);
+  }
   if (reject_play) {
     GST_DEBUG_OBJECT (client->server, "%p Not playing due to signal returning 0", client);
     return FALSE;
@@ -1743,7 +1776,7 @@ client_add_outgoing_ssl (Client * client,
 
 Client *
 client_new (gint fd, Connections * connections, GObject * server,
-    gboolean use_ssl, gint stream_id, guint chunk_size,
+    gboolean use_ssl, gboolean ignore_localhost, gint stream_id, guint chunk_size,
     const gchar * remote_host)
 {
   Client * client = g_new0 (Client, 1);
@@ -1753,6 +1786,7 @@ client_new (gint fd, Connections * connections, GObject * server,
   client->connections = connections;
   client->server = server;
   client->use_ssl = use_ssl;
+  client->ignore_localhost = ignore_localhost;
   client->msg_stream_id = stream_id;
   client->chunk_size = chunk_size;
   client->recv_chunk_size = DEFAULT_CHUNK_SIZE;

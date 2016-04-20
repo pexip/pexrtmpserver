@@ -766,7 +766,7 @@ rtmp_harness_new_full (const gchar * application_name, gint port, gint ssl_port,
 
   h->server = pex_rtmp_server_new (application_name, h->port, h->ssl_port,
       certfile, keyfile, cafile, "/etc/ssl/certs",
-      "!eNULL:!aNULL:!EXP:!DES:!RC4:!RC2:!IDEA:!ADH:ALL@STRENGTH", FALSE);
+      "!eNULL:!aNULL:!EXP:!DES:!RC4:!RC2:!IDEA:!ADH:ALL@STRENGTH", FALSE, FALSE);
   pex_rtmp_server_start (h->server);
 
   g_free (cafile);
