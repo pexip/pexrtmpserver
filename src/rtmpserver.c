@@ -587,7 +587,7 @@ rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
   gboolean decreasing = (val - client->last_write_queue_size < 0);
   client->last_write_queue_size = val;
 
-  /* Consider sending signal if queue is growing and 
+  /* Consider sending signal if queue is growing and
    * has at least 75k of data outstanding */
   if (!decreasing && client->last_write_queue_size > 75000) {
     gdouble elapsed;
@@ -971,7 +971,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
 
     /* ready to send */
     if (client && entry->revents & POLLNVAL) {
-        GST_WARNING_OBJECT (srv, "poll() called on closed fd - removing client");
+        GST_WARNING_OBJECT (srv, "poll() called on closed fd - removing client (path=%s, publisher=%d)", client->path, client->publisher);
         rtmp_server_remove_client (srv, client);
         srv->priv->poll_table = g_array_remove_index (priv->poll_table, i);
         i--;
@@ -984,7 +984,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
         if (connect_failed && client->addresses) {
           pex_rtmp_server_external_connect (srv, client->path, client->url, client->addresses, client->publisher);
         } else {
-          GST_WARNING_OBJECT (srv, "client error, send failed");
+          GST_WARNING_OBJECT (srv, "client error, send failed (path=%s, publisher=%d)", client->path, client->publisher);
         }
         rtmp_server_remove_client (srv, client);
         srv->priv->poll_table = g_array_remove_index (priv->poll_table, i);
@@ -997,7 +997,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
       if (client == NULL) {
         rtmp_server_create_client (srv, entry->fd);
       } else if (!client_receive (client)) {
-        GST_WARNING_OBJECT (srv, "client error: client_recv_from_client failed");
+        GST_WARNING_OBJECT (srv, "client error: client_recv_from_client failed (path=%s, publisher=%d)", client->path, client->publisher);
         rtmp_server_remove_client (srv, client);
         priv->poll_table = g_array_remove_index (priv->poll_table, i);
         i--;
