@@ -36,7 +36,7 @@ PexRtmpServer * pex_rtmp_server_new (const gchar * application_name,
     gint port, gint ssl_port,
     const gchar * cert_file, const gchar * key_file,
     const gchar * ca_cert_file, const gchar * ca_cert_dir,
-    const gchar * ciphers, gboolean ssl3_enabled,
+    const gchar * ciphers, gboolean tls1_enabled,
     gboolean ignore_localhost);
 
 gboolean pex_rtmp_server_start (PexRtmpServer * self);

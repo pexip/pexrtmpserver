@@ -49,7 +49,7 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_SSL_PORT 443
 #define DEFAULT_CERT_FILE ""
 #define DEFAULT_KEY_FILE ""
-#define DEFAULT_SSL3_ENABLED FALSE
+#define DEFAULT_TLS1_ENABLED FALSE
 #define DEFAULT_IGNORE_LOCALHOST FALSE
 #define DEFAULT_CA_CERT_FILE ""
 #define DEFAULT_CA_CERT_DIR ""
@@ -69,7 +69,7 @@ enum
   PROP_CA_CERT_FILE,
   PROP_CA_CERT_DIR,
   PROP_CIPHERS,
-  PROP_SSL3_ENABLED,
+  PROP_TLS1_ENABLED,
   PROP_IGNORE_LOCALHOST,
   PROP_STREAM_ID,
   PROP_CHUNK_SIZE,
@@ -98,7 +98,7 @@ struct _PexRtmpServerPrivate
   gchar * ca_cert_file;
   gchar * ca_cert_dir;
   gchar * ciphers;
-  gboolean ssl3_enabled;
+  gboolean tls1_enabled;
   gboolean ignore_localhost;
   gint stream_id;
   gint chunk_size;
@@ -120,7 +120,7 @@ struct _PexRtmpServerPrivate
 PexRtmpServer *
 pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
     const gchar * cert_file, const gchar * key_file, const gchar * ca_cert_file,
-    const gchar * ca_cert_dir, const gchar * ciphers, gboolean ssl3_enabled,
+    const gchar * ca_cert_dir, const gchar * ciphers, gboolean tls1_enabled,
     gboolean ignore_localhost)
 {
   return g_object_new (PEX_TYPE_RTMP_SERVER,
@@ -132,7 +132,7 @@ pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
       "ca-cert-file", ca_cert_file,
       "ca-cert-dir", ca_cert_dir,
       "ciphers", ciphers,
-      "ssl3-enabled", ssl3_enabled,
+      "tls1-enabled", tls1_enabled,
       "ignore-localhost", ignore_localhost,
       NULL);
 }
@@ -150,7 +150,7 @@ pex_rtmp_server_init (PexRtmpServer *srv)
   priv->ca_cert_file = NULL;
   priv->ca_cert_dir = NULL;
   priv->ciphers = NULL;
-  priv->ssl3_enabled = DEFAULT_SSL3_ENABLED;
+  priv->tls1_enabled = DEFAULT_TLS1_ENABLED;
   priv->ignore_localhost = DEFAULT_IGNORE_LOCALHOST;
 
   priv->thread = NULL;
@@ -219,8 +219,8 @@ pex_rtmp_server_set_property (GObject * obj, guint prop_id,
     case PROP_CIPHERS:
       srv->priv->ciphers = g_value_dup_string (value);
       break;
-    case PROP_SSL3_ENABLED:
-      srv->priv->ssl3_enabled = g_value_get_boolean (value);
+    case PROP_TLS1_ENABLED:
+      srv->priv->tls1_enabled = g_value_get_boolean (value);
       break;
     case PROP_IGNORE_LOCALHOST:
       srv->priv->ignore_localhost = g_value_get_boolean (value);
@@ -270,8 +270,8 @@ pex_rtmp_server_get_property (GObject * obj, guint prop_id,
     case PROP_CIPHERS:
       g_value_set_string (value, srv->priv->ciphers);
       break;
-    case PROP_SSL3_ENABLED:
-      g_value_set_boolean (value, srv->priv->ssl3_enabled);
+    case PROP_TLS1_ENABLED:
+      g_value_set_boolean (value, srv->priv->tls1_enabled);
       break;
     case PROP_IGNORE_LOCALHOST:
       g_value_set_boolean (value, srv->priv->ignore_localhost);
@@ -340,9 +340,9 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
           "Specification of ciphers to use", DEFAULT_CIPHERS,
           G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
-  g_object_class_install_property (gobject_class, PROP_SSL3_ENABLED,
-      g_param_spec_boolean ("ssl3-enabled", "SSL3 enabled",
-          "Whether SSL3 is enabled", DEFAULT_SSL3_ENABLED,
+  g_object_class_install_property (gobject_class, PROP_TLS1_ENABLED,
+      g_param_spec_boolean ("tls1-enabled", "TLS1 enabled",
+          "Whether TLS1 is enabled", DEFAULT_TLS1_ENABLED,
           G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_IGNORE_LOCALHOST,
@@ -454,7 +454,7 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   /* ssl connection */
   if (use_ssl) {
     gchar * cert_file, * key_file, * ca_file, * ca_dir, * ciphers;
-    gboolean ssl3_enabled;
+    gboolean tls1_enabled;
 
     g_object_get (srv,
                   "cert-file", &cert_file,
@@ -462,10 +462,10 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
                   "ca-cert-file", &ca_file,
                   "ca-cert-dir", &ca_dir,
                   "ciphers", &ciphers,
-                  "ssl3-enabled", &ssl3_enabled,
+                  "tls1-enabled", &tls1_enabled,
                   NULL);
 
-    client_add_incoming_ssl (client, cert_file, key_file, ca_file, ca_dir, ciphers, ssl3_enabled);
+    client_add_incoming_ssl (client, cert_file, key_file, ca_file, ca_dir, ciphers, tls1_enabled);
 
     g_free (cert_file);
     g_free (key_file);
@@ -502,16 +502,16 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
 
   if (use_ssl) {
     gchar * ca_file, * ca_dir, * ciphers;
-    gboolean ssl3_enabled;
+    gboolean tls1_enabled;
 
     g_object_get (srv,
                   "ca-cert-file", &ca_file,
                   "ca-cert-dir", &ca_dir,
                   "ciphers", &ciphers,
-                  "ssl3-enabled", &ssl3_enabled,
+                  "tls1-enabled", &tls1_enabled,
                   NULL);
 
-    if (!client_add_outgoing_ssl (client, ca_file, ca_dir, ciphers, ssl3_enabled)) {
+    if (!client_add_outgoing_ssl (client, ca_file, ca_dir, ciphers, tls1_enabled)) {
       /* Client logs warnings for us, so no need to do that here */
       g_free (ca_file);
       g_free (ca_dir);

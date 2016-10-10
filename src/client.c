@@ -1647,15 +1647,15 @@ gboolean
 client_add_incoming_ssl (Client * client,
     const gchar * cert_file, const gchar * key_file,
     const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean ssl3_enabled)
+    const gchar * ciphers, gboolean tls1_enabled)
 {
   BIO * bio;
-  long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE;
+  long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE;
 
   client->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
 
-  if (!ssl3_enabled) {
-    ssl_options |= SSL_OP_NO_SSLv3;
+  if (!tls1_enabled) {
+    ssl_options |= SSL_OP_NO_TLSv1;
   }
 
   SSL_CTX_set_cipher_list (client->ssl_ctx, ciphers);
@@ -1746,14 +1746,14 @@ outgoing_ssl_info_callback (const SSL *ssl, int where, int ret)
 gboolean
 client_add_outgoing_ssl (Client * client,
     const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean ssl3_enabled)
+    const gchar * ciphers, gboolean tls1_enabled)
 {
-  long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2;
+  long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3;
 
   client->ssl_ctx = SSL_CTX_new (SSLv23_client_method());
 
-  if (!ssl3_enabled) {
-    ssl_options |= SSL_OP_NO_SSLv3;
+  if (!tls1_enabled) {
+    ssl_options |= SSL_OP_NO_TLSv1;
   }
 
   SSL_CTX_set_cipher_list (client->ssl_ctx, ciphers);

@@ -108,10 +108,10 @@ gboolean client_window_size_reached (Client *client);
 gboolean client_add_incoming_ssl (Client * client,
     const gchar * cert_file, const gchar * key_file,
     const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean ssl3_enabled);
+    const gchar * ciphers, gboolean tls1_enabled);
 gboolean client_add_outgoing_ssl (Client * client,
     const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean ssl3_enabled);
+    const gchar * ciphers, gboolean tls1_enabled);
 
 #endif /* __CLIENT_H__ */
 
