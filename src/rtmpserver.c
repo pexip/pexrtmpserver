@@ -446,10 +446,10 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   set_nonblock (fd, TRUE);
 
   gboolean use_ssl = listen_fd == srv->priv->listen_ssl_fd;
-  GST_INFO_OBJECT (srv, "Accepted client %s connection using port %d", use_ssl ? "rtmps" : "rtmp",
-                   ntohs(sin.sin_port));
   Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
       use_ssl, srv->priv->ignore_localhost, srv->priv->stream_id, srv->priv->chunk_size, NULL);
+  GST_INFO_OBJECT (srv, "Accepted client %s connection using port %d (client %p)",
+      use_ssl ? "rtmps" : "rtmp", ntohs(sin.sin_port), client);
 
   /* ssl connection */
   if (use_ssl) {
@@ -997,7 +997,9 @@ rtmp_server_do_poll (PexRtmpServer * srv)
       if (client == NULL) {
         rtmp_server_create_client (srv, entry->fd);
       } else if (!client_receive (client)) {
-        GST_WARNING_OBJECT (srv, "client error: client_recv_from_client failed (path=%s, publisher=%d)", client->path, client->publisher);
+        GST_WARNING_OBJECT (srv,
+            "client error: client_recv_from_client failed (client=%p path=%s, publisher=%d)",
+            client, client->path, client->publisher);
         rtmp_server_remove_client (srv, client);
         priv->poll_table = g_array_remove_index (priv->poll_table, i);
         i--;
