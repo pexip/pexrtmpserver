@@ -1147,7 +1147,7 @@ client_drive_ssl (Client * client)
     int error = SSL_get_error (client->ssl, ret);
     /* We're non-blocking, so tolerate the associated errors */
     if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) {
-      GST_WARNING_OBJECT (client->server, "Unable to establish ssl-connection");
+      GST_WARNING_OBJECT (client->server, "Unable to establish ssl-connection (error=%d, ret=%d, errno=%d)", error, ret, errno);
       print_ssl_errors (client);
       return FALSE;
     }
@@ -1273,7 +1273,8 @@ client_receive (Client * client)
         client->ssl_read_blocked_on_write = TRUE;
         return TRUE;
       }
-      GST_DEBUG_OBJECT (client->server, "unable to read from a client");
+      GST_WARNING_OBJECT (client->server, "unable to read from a client");
+      print_ssl_errors (client);
       return FALSE;
     }
     client->buf = g_byte_array_append (client->buf, chunk, got);
