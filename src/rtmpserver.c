@@ -805,7 +805,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   }
 
   if (src_port) {
-    GST_WARNING_OBJECT (srv, "Connecting to %s:%d from %d", ip, port, src_port);
+    GST_DEBUG_OBJECT (srv, "Connecting to %s:%d from %d", ip, port, src_port);
     if (address.ss_family == AF_INET) {
       struct sockaddr_in sin;
       memset (&sin, 0, sizeof (struct sockaddr_in));
