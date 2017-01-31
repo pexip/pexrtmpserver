@@ -679,7 +679,7 @@ rtmp_harness_dialout (RTMPHarness * h_from, gint id_from,
   gchar * publisher_url = rtmp_harness_get_publisher_url (h_to,
     s_to->path, protocol, port, host);
 
-  gboolean result = pex_rtmp_server_dialout (h_from->server, p_from->path, publisher_url, ip);
+  gboolean result = pex_rtmp_server_dialout (h_from->server, p_from->path, publisher_url, ip, 0);
 
   g_free (publisher_url);
 
@@ -703,7 +703,7 @@ rtmp_harness_dialin (RTMPHarness * h_from, gint id_from,
   gchar * publisher_url = rtmp_harness_get_publisher_url (h_to,
     p_to->path, protocol, port, host);
 
-  gboolean result = pex_rtmp_server_dialin (h_from->server, s_from->path, publisher_url, ip);
+  gboolean result = pex_rtmp_server_dialin (h_from->server, s_from->path, publisher_url, ip, 0);
 
   g_free (publisher_url);
 
@@ -733,7 +733,7 @@ gint
 rtmp_harness_add_bad_client (RTMPHarness * h)
 {
   gint fd = pex_rtmp_server_tcp_connect (h->server,
-      "localhost", h->port);
+      "localhost", h->port, 0);
 
   /* send the first byte of the handshake, then ...nothing... */
   guint8 byte = 0x03;

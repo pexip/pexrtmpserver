@@ -43,15 +43,15 @@ gboolean pex_rtmp_server_start (PexRtmpServer * self);
 void pex_rtmp_server_stop (PexRtmpServer * self);
 void pex_rtmp_server_free (PexRtmpServer * self);
 gchar * pex_rtmp_server_get_application_for_path (PexRtmpServer * srv, gchar * path, gboolean is_publisher);
-gboolean pex_rtmp_server_dialout (PexRtmpServer * self, const gchar * path, const gchar * url, const gchar * addresses);
-gboolean pex_rtmp_server_dialin (PexRtmpServer * self, const gchar * path, const gchar * url, const gchar * addresses);
-gboolean pex_rtmp_server_external_connect (PexRtmpServer * self, const gchar * path, const gchar * url, const gchar * addresses, const gboolean is_publisher);
+gboolean pex_rtmp_server_dialout (PexRtmpServer * self, const gchar * path, const gchar * url, const gchar * addresses, gint src_port);
+gboolean pex_rtmp_server_dialin (PexRtmpServer * self, const gchar * path, const gchar * url, const gchar * addresses, gint src_port);
+gboolean pex_rtmp_server_external_connect (PexRtmpServer * self, const gchar * path, const gchar * url, const gchar * addresses, const gboolean is_publisher, gint src_port);
 
 gboolean pex_rtmp_server_parse_url (PexRtmpServer * self, const gchar * url,
     gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
     gchar ** path);
 gint pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
-    const gchar * ip, gint port);
+    const gchar * ip, gint port, gint src_port);
 gint pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port);
 
 #endif /* __RTMP_SERVER_H__ */

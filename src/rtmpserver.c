@@ -753,7 +753,7 @@ done:
 #define INVALID_FD -1
 gint
 pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
-    const gchar * ip, gint port)
+    const gchar * ip, gint port, gint src_port)
 {
   int ret;
   int fd;
@@ -804,6 +804,37 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
 #endif
   }
 
+  if (src_port) {
+    GST_WARNING_OBJECT (srv, "Connecting to %s:%d from %d", ip, port, src_port);
+    if (address.ss_family == AF_INET) {
+      struct sockaddr_in sin;
+      memset (&sin, 0, sizeof (struct sockaddr_in));
+      sin.sin_family = AF_INET;
+      sin.sin_port = htons (src_port);
+      sin.sin_addr.s_addr = INADDR_ANY;
+
+      if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
+        GST_WARNING_OBJECT (srv, "Unable to bind to port %d: %s",
+            src_port, strerror (errno));
+        close (fd);
+        return -1;
+      }
+    } else {
+      struct sockaddr_in6 sin;
+      memset (&sin, 0, sizeof (struct sockaddr_in6));
+      sin.sin6_family = AF_INET6;
+      sin.sin6_port = htons (src_port);
+      sin.sin6_addr = in6addr_any;
+
+      if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
+        GST_WARNING_OBJECT (srv, "Unable to bind to port %d: %s",
+            src_port, strerror (errno));
+        close (fd);
+        return -1;
+      }
+    }
+  }
+
   if (address.ss_family == AF_INET) {
     ((struct sockaddr_in *)&address)->sin_port = htons (port);
     ret = connect (fd, (struct sockaddr *)&address, sizeof (struct sockaddr_in));
@@ -823,21 +854,21 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
 
 gboolean
 pex_rtmp_server_dialout (PexRtmpServer * srv,
-    const gchar * src_path, const gchar * url, const gchar * addresses)
+    const gchar * src_path, const gchar * url, const gchar * addresses, gint src_port)
 {
-  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, FALSE);
+  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, FALSE, src_port);
 }
 
 gboolean
 pex_rtmp_server_dialin (PexRtmpServer * srv,
-    const gchar * src_path, const gchar * url, const gchar * addresses)
+    const gchar * src_path, const gchar * url, const gchar * addresses, gint src_port)
 {
-  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, TRUE);
+  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, TRUE, src_port);
 }
 
 gboolean
 pex_rtmp_server_external_connect (PexRtmpServer * srv,
-    const gchar * src_path, const gchar * url, const gchar * addresses, const gboolean is_publisher)
+    const gchar * src_path, const gchar * url, const gchar * addresses, const gboolean is_publisher, gint src_port)
 {
   gboolean ret = FALSE;
   gchar * protocol = NULL;
@@ -867,7 +898,7 @@ pex_rtmp_server_external_connect (PexRtmpServer * srv,
   }
 
   for (address = addressv; *address && fd == INVALID_FD; address++) {
-    fd = pex_rtmp_server_tcp_connect (srv, *address, port);
+    fd = pex_rtmp_server_tcp_connect (srv, *address, port, src_port);
   }
 
   if (fd == INVALID_FD && !*address) {
@@ -982,7 +1013,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
       gboolean connect_failed = FALSE;
       if (!client_try_to_send (client, &connect_failed)) {
         if (connect_failed && client->addresses) {
-          pex_rtmp_server_external_connect (srv, client->path, client->url, client->addresses, client->publisher);
+          pex_rtmp_server_external_connect (srv, client->path, client->url, client->addresses, client->publisher, 0);
         } else {
           GST_WARNING_OBJECT (srv, "client error, send failed (path=%s, publisher=%d)", client->path, client->publisher);
         }

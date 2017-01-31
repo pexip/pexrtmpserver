@@ -1853,7 +1853,8 @@ GST_START_TEST(rtmp_nonblocking_outgoing_handshake)
 
   pex_rtmp_server_dialout (
       h->server, "streamname0", "rtmp://localhost:2000/app/streamname1",
-      "127.0.0.1");
+      "127.0.0.1",
+      0);
 
   rtmp_harness_teardown (h);
   close (fd);
