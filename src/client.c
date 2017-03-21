@@ -239,7 +239,6 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
   if (client->dialout_path == NULL)
     return;
 
-  (void)dec;
   GST_DEBUG_OBJECT (client->server, "Handling result for txid %d", txid);
   if (!client->publisher) {
     client_handle_subscribe_result (client, txid, dec);
@@ -249,9 +248,8 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
 }
 
 static gboolean
-client_handle_onstatus (Client * client, double txid, AmfDec * dec, gint stream_id)
+client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
 {
-  (void)txid;
   /* we won't handle this unless we are dialing out to a path */
   if (client->dialout_path == NULL)
     return TRUE;
@@ -358,7 +356,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
 
   /* FIXME: support multiple applications */
   //if (strcmp (app, application_name) != 0) {
-  //  g_GST_WARNING_OBJECT (client->server, "Unsupported application: %s", app);
+  //  GST_WARNING_OBJECT (client->server, "Unsupported application: %s", app);
   //}
 
   client->app = g_strdup (gst_structure_get_string (params, "app"));
@@ -411,13 +409,15 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   g_value_unset (&status);
 }
 
-static void
+static gboolean
 client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec));           /* NULL */
 
   gchar * path = amf_dec_load_string (dec);
   GST_DEBUG_OBJECT (client->server, "fcpublish %s", path);
+  if (path == NULL)
+    return FALSE;
 
   GstStructure * status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
@@ -438,6 +438,8 @@ client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
 
   GValue null_value = G_VALUE_INIT;
   client_send_reply (client, txid, &null_value, &null_value);
+
+  return TRUE;
 }
 
 static void
@@ -481,6 +483,8 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   g_free (amf_dec_load (dec)); /* NULL */
   gchar * path = amf_dec_load_string (dec);
   GST_DEBUG_OBJECT (client->server, "publish %s", path);
+  if (path == NULL)
+    return FALSE;
 
   client->publisher = TRUE;
   g_free (client->path);
@@ -604,8 +608,10 @@ static gboolean
 client_handle_play (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec));           /* NULL */
-
   gchar * path = amf_dec_load_string (dec);
+  if (path == NULL)
+    return FALSE;
+
   g_free (client->path);
   client->path = path;
   gboolean reject_play = FALSE;
@@ -629,7 +635,7 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   return TRUE;
 }
 
-static void
+static gboolean
 client_handle_play2 (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec));           /* NULL */
@@ -639,10 +645,15 @@ client_handle_play2 (Client * client, double txid, AmfDec * dec)
   GST_DEBUG_OBJECT (client->server, "play2 %s", path);
   gst_structure_free (params);
 
+  if (path == NULL)
+    return FALSE;
+
   client_start_playback (client);
 
   GValue null_value = G_VALUE_INIT;
   client_send_reply (client, txid, &null_value, &null_value);
+
+  return TRUE;
 }
 
 static void
@@ -685,7 +696,7 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
   }
 
   gchar * type = amf_dec_load_string (dec);
-  if (strcmp (type, "onMetaData") != 0) {
+  if (type && strcmp (type, "onMetaData") != 0) {
     GST_WARNING_OBJECT (client->server, "can only set metadata");
   }
   g_free (type);
@@ -716,6 +727,10 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   gboolean ret = TRUE;
   gchar * method = amf_dec_load_string (dec);
   gdouble txid;
+
+  if (method == NULL)
+    return FALSE;
+
   if (!amf_dec_load_number (dec, &txid))
     return FALSE;
 
@@ -723,12 +738,12 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
       client, method, txid, msg->msg_stream_id);
 
   if (strcmp (method, "onStatus") == 0) {
-    ret = client_handle_onstatus (client, txid, dec, msg->msg_stream_id);
+    ret = client_handle_onstatus (client, dec, msg->msg_stream_id);
   } else if (msg->msg_stream_id == MSG_STREAM_ID_CONTROL) {
     if (strcmp (method, "connect") == 0) {
       client_handle_connect (client, txid, dec);
     } else if (strcmp (method, "FCPublish") == 0) {
-      client_handle_fcpublish (client, txid, dec);
+      ret = client_handle_fcpublish (client, txid, dec);
     } else if (strcmp (method, "createStream") == 0) {
       client_handle_createstream (client, txid);
     } else if (strcmp (method, "_result") == 0) {
@@ -740,7 +755,7 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
     } else if (strcmp (method, "play") == 0) {
       ret = client_handle_play (client, txid, dec);
     } else if (strcmp (method, "play2") == 0) {
-      client_handle_play2 (client, txid, dec);
+      ret = client_handle_play2 (client, txid, dec);
     } else if (strcmp (method, "pause") == 0) {
       client_handle_pause (client, txid, dec);
     }
@@ -759,7 +774,7 @@ client_window_size_reached (Client *client)
 static void
 client_send_ack (Client *client)
 {
-  AmfEnc * enc= amf_enc_new ();
+  AmfEnc * enc = amf_enc_new ();
   amf_enc_add_int (enc, htonl (client->total_bytes_received));
   client->bytes_received_since_ack = 0;
   client_rtmp_send(client, MSG_ACK, MSG_STREAM_ID_CONTROL,
@@ -858,7 +873,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       gchar * type = amf_dec_load_string (dec);
       GST_DEBUG_OBJECT (client->server, "notify %s", type);
       if (msg->msg_stream_id == client->msg_stream_id) {
-        if (strcmp (type, "@setDataFrame") == 0) {
+        if (type && strcmp (type, "@setDataFrame") == 0) {
           client_handle_setdataframe (client, dec);
         }
       }
@@ -873,7 +888,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
       gchar * type = amf_dec_load_string (dec);
       GST_DEBUG_OBJECT (client->server, "data %s", type);
       if (msg->msg_stream_id == client->msg_stream_id) {
-        if (strcmp (type, "@setDataFrame") == 0) {
+        if (type && strcmp (type, "@setDataFrame") == 0) {
           client_handle_setdataframe (client, dec);
         }
       }
