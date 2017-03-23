@@ -95,17 +95,19 @@ connections_add_subscriber (Connections * connections,
   connection_add_subscriber (connection, client);
 }
 
-void
+gboolean
 connections_add_publisher (Connections * connections,
     gpointer client, const gchar * path)
 {
   Connection * connection = connections_get_connection (connections, path);
   if (connection->publisher != NULL) {
-    g_warning ("Can't add more then one publisher for a stream");
-    return;
+    GST_WARNING ("Can't add more then one publisher for a stream");
+    return FALSE;
   }
   debug ("adding publisher %p to path %s", client, path);
   connection->publisher = client;
+
+  return TRUE;
 }
 
 GSList *

@@ -261,7 +261,8 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
   GST_DEBUG_OBJECT (client->server, "onStatus - code: %s", code);
   if (code && g_strcmp0 (code, "NetStream.Play.Start") == 0) {
     /* make the client a subscriber on the local server */
-    connections_add_publisher (client->connections, client, client->path);
+    if (!connections_add_publisher (client->connections, client, client->path))
+      return FALSE;
     gboolean reject_play = FALSE;
     g_signal_emit_by_name (client->server, "on-publish", client->path, &reject_play);
   }

@@ -10,7 +10,7 @@ void connections_free (Connections * connections);
 
 void connections_add_subscriber (Connections * connections,
     gpointer client, const gchar * path);
-void connections_add_publisher (Connections * connections,
+gboolean connections_add_publisher (Connections * connections,
     gpointer client, const gchar * path);
 
 GSList * connections_get_subscribers (Connections * connections,
