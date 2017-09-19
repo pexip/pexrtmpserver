@@ -500,7 +500,9 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
     GST_DEBUG_OBJECT (client->server, "Not publishing due to signal rejecting publish");
     return FALSE;
   }
-  connections_add_publisher (client->connections, client, path);
+  if (!connections_add_publisher (client->connections, client, path)) {
+    return FALSE;
+  }
   GST_DEBUG_OBJECT (client->server, "publisher connected.");
 
   /* StreamBegin */
