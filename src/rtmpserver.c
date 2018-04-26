@@ -74,6 +74,7 @@ enum
   PROP_STREAM_ID,
   PROP_CHUNK_SIZE,
   PROP_TCP_SYNCNT,
+  PROP_POLL_COUNT,
 };
 
 enum
@@ -103,6 +104,7 @@ struct _PexRtmpServerPrivate
   gint stream_id;
   gint chunk_size;
   gint tcp_syncnt;
+  gint poll_count;
 
   gint listen_fd;
   gint listen_ssl_fd;
@@ -285,6 +287,9 @@ pex_rtmp_server_get_property (GObject * obj, guint prop_id,
     case PROP_TCP_SYNCNT:
       g_value_set_int (value, srv->priv->tcp_syncnt);
       break;
+    case PROP_POLL_COUNT:
+      g_value_set_int (value, srv->priv->poll_count);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
   }
@@ -367,6 +372,12 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
           "The maximum number of TCP SYN retransmits",
           -1, 255, DEFAULT_TCP_SYNCNT,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_POLL_COUNT,
+      g_param_spec_int ("poll-count", "Poll count",
+          "The number of times poll() has been called",
+          0, G_MAXINT, 0,
+          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   pex_rtmp_server_signals[SIGNAL_ON_PLAY] =
       g_signal_new ("on-play", PEX_TYPE_RTMP_SERVER,
@@ -976,6 +987,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
   }
 
   /* waiting for traffic on all connections */
+  priv->poll_count++;
   const gint timeout = 200; /* 200 ms second */
   gint result = poll ((struct pollfd *)&priv->poll_table->data[0],
       priv->poll_table->len, timeout);

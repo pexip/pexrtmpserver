@@ -1223,7 +1223,9 @@ client_try_to_send (Client * client, gboolean *connect_failed)
     }
 
     return client_connected (client);
-  } else if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS) {
+  } else if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS ||
+      client->state == CLIENT_TLS_HANDSHAKE_WANT_READ ||
+      client->state == CLIENT_TLS_HANDSHAKE_WANT_WRITE) {
     return client_drive_ssl (client);
   }
 
@@ -1281,7 +1283,9 @@ client_receive (Client * client)
   guint8 chunk[4096];
   gint got;
 
-  if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS) {
+  if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS ||
+      client->state == CLIENT_TLS_HANDSHAKE_WANT_READ ||
+      client->state == CLIENT_TLS_HANDSHAKE_WANT_WRITE) {
     return client_drive_ssl (client);
   }
 
