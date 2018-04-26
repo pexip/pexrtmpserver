@@ -1111,6 +1111,10 @@ client_get_poll_events (Client * client)
     events = POLLOUT;
   } else if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS) {
     events = POLLIN | POLLOUT;
+  } else if (client->state == CLIENT_TLS_HANDSHAKE_WANT_READ) {
+    events = POLLIN;
+  } else if (client->state == CLIENT_TLS_HANDSHAKE_WANT_WRITE) {
+    events = POLLOUT;
   } else if (client->send_queue->len > 0 || client->ssl_read_blocked_on_write) {
     events = POLLIN | POLLOUT;
   } else {
@@ -1164,7 +1168,11 @@ client_drive_ssl (Client * client)
   if (ret != 1) {
     int error = SSL_get_error (client->ssl, ret);
     /* We're non-blocking, so tolerate the associated errors */
-    if (error != SSL_ERROR_WANT_READ && error != SSL_ERROR_WANT_WRITE) {
+    if (error == SSL_ERROR_WANT_READ) {
+      client->state = CLIENT_TLS_HANDSHAKE_WANT_READ;
+    } else if (error == SSL_ERROR_WANT_WRITE) {
+      client->state = CLIENT_TLS_HANDSHAKE_WANT_WRITE;
+    } else {
       GST_WARNING_OBJECT (client->server, "Unable to establish ssl-connection (error=%d, ret=%d, errno=%d)", error, ret, errno);
       print_ssl_errors (client);
       return FALSE;
