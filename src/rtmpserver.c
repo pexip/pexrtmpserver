@@ -806,6 +806,8 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   /* Disable packet-accumulation delay (Nagle's algorithm) */
   gint value = 1;
   setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof (value));
+  /* Allow reuse of the local address */
+  setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, (char *)&value, sizeof (value));
 
   /* Configure TCP_SYNCNT */
   if (srv->priv->tcp_syncnt >= 0) {
