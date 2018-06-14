@@ -673,12 +673,14 @@ pex_rtmp_server_get_application_for_path (PexRtmpServer * srv, gchar * path,
 gboolean
 pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
     gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
-    gchar ** path)
+    gchar ** path, gchar ** username, gchar ** password)
 {
   gboolean ret = TRUE;
 
   gchar **space_clip = NULL;
   gchar **protocol_clip = NULL;
+  gchar **at_clip = NULL;
+  gchar **credential_clip = NULL;
   gchar **slash_clip = NULL;
   gchar **address_clip = NULL;
 
@@ -687,6 +689,8 @@ pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
   *ip = NULL;
   *application_name = NULL;
   *path = NULL;
+  *username = NULL;
+  *password = NULL;
 
   /* start by clipping off anything on the end (live=1) */
   space_clip = g_strsplit (url, " ", 1024);
@@ -707,6 +711,22 @@ pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
     GST_WARNING_OBJECT (srv, "Unable to parse");
     ret = FALSE;
     goto done;
+  }
+
+  gint num_ats = count_chars_in_string (the_rest, '@');
+  if (num_ats > 0) {
+    at_clip = g_strsplit (the_rest, "@", 1024);
+    const gchar * credentials = at_clip[0];
+    the_rest = at_clip[1];
+    credential_clip = g_strsplit (credentials, ":", 1024);
+    if (credential_clip[0] && credential_clip[1]) {
+      *username = g_strdup (credential_clip[0]);
+      *password = g_strdup (credential_clip[1]);
+    } else {
+      GST_WARNING_OBJECT (srv, "Could not find both username and password");
+      ret = FALSE;
+      goto done;
+    }
   }
 
   /* clip all "/" bits */
@@ -753,13 +773,15 @@ pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
   *application_name = g_strndup (&the_rest[strlen (address) + 1],
       strlen (the_rest) - strlen (address) - strlen (*path) - 2);
 
-  GST_DEBUG_OBJECT (srv,
-      "Parsed: Protocol: %s, Ip: %s, Port: %d, Application Name: %s, Path: %s",
-      *protocol, *ip, *port, *application_name, *path);
+  GST_INFO_OBJECT (srv, "Parsed: Protocol: %s, Ip: %s, Port: %d, "
+      "Application Name: %s, Path: %s, Username: %s, Password: %s",
+      *protocol, *ip, *port, *application_name, *path, *username, *password);
 
 done:
   g_strfreev (space_clip);
   g_strfreev (protocol_clip);
+  g_strfreev (at_clip);
+  g_strfreev (credential_clip);
   g_strfreev (slash_clip);
   g_strfreev (address_clip);
 
@@ -903,6 +925,8 @@ pex_rtmp_server_external_connect (PexRtmpServer * srv,
   gchar *host = NULL;
   gchar *app = NULL;
   gchar *dialout_path = NULL;
+  gchar *username = NULL;
+  gchar *password = NULL;
   gchar *tcUrl = NULL;
   gchar **addressv = NULL;
   gchar **address = NULL;
@@ -910,7 +934,7 @@ pex_rtmp_server_external_connect (PexRtmpServer * srv,
   gint fd = INVALID_FD;
 
   if (!pex_rtmp_server_parse_url (srv, url,
-          &protocol, &port, &host, &app, &dialout_path)) {
+          &protocol, &port, &host, &app, &dialout_path, &username, &password)) {
     goto done;
   }
 

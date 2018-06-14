@@ -49,7 +49,7 @@ gboolean pex_rtmp_server_external_connect (PexRtmpServer * self, const gchar * p
 
 gboolean pex_rtmp_server_parse_url (PexRtmpServer * self, const gchar * url,
     gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
-    gchar ** path);
+    gchar ** path, gchar ** username, gchar ** password);
 gint pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
     const gchar * ip, gint port, gint src_port);
 gint pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port);
