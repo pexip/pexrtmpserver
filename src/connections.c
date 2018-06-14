@@ -8,19 +8,19 @@ GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 
 struct _Connections
 {
-  GHashTable * map;
+  GHashTable *map;
 };
 
 typedef struct
 {
   gpointer publisher;
-  GSList * subscribers;
+  GSList *subscribers;
 } Connection;
 
 static Connection *
 connection_new ()
 {
-  Connection * connection = g_new0 (Connection, 1);
+  Connection *connection = g_new0 (Connection, 1);
   return connection;
 }
 
@@ -62,9 +62,10 @@ connection_remove_publisher (Connection * connection)
 Connections *
 connections_new ()
 {
-  Connections * connections = g_new0 (Connections, 1);
-  connections->map = g_hash_table_new_full (
-      g_str_hash, g_str_equal, g_free, (GDestroyNotify)connection_free);
+  Connections *connections = g_new0 (Connections, 1);
+  connections->map =
+      g_hash_table_new_full (g_str_hash, g_str_equal, g_free,
+      (GDestroyNotify) connection_free);
   return connections;
 }
 
@@ -78,7 +79,7 @@ connections_free (Connections * connections)
 static Connection *
 connections_get_connection (Connections * connections, const gchar * path)
 {
-  Connection * connection = g_hash_table_lookup (connections->map, path);
+  Connection *connection = g_hash_table_lookup (connections->map, path);
   if (connection == NULL) {
     connection = connection_new ();
     g_hash_table_insert (connections->map, g_strdup (path), connection);
@@ -90,7 +91,7 @@ void
 connections_add_subscriber (Connections * connections,
     gpointer client, const gchar * path)
 {
-  Connection * connection = connections_get_connection (connections, path);
+  Connection *connection = connections_get_connection (connections, path);
   debug ("adding subscriber %p to path %s", client, path);
   connection_add_subscriber (connection, client);
 }
@@ -99,7 +100,7 @@ gboolean
 connections_add_publisher (Connections * connections,
     gpointer client, const gchar * path)
 {
-  Connection * connection = connections_get_connection (connections, path);
+  Connection *connection = connections_get_connection (connections, path);
   if (connection->publisher != NULL) {
     GST_WARNING ("Can't add more then one publisher for a stream");
     return FALSE;
@@ -111,18 +112,16 @@ connections_add_publisher (Connections * connections,
 }
 
 GSList *
-connections_get_subscribers (Connections * connections,
-    const gchar * path)
+connections_get_subscribers (Connections * connections, const gchar * path)
 {
-  Connection * connection = connections_get_connection (connections, path);
+  Connection *connection = connections_get_connection (connections, path);
   return connection->subscribers;
 }
 
 gpointer
-connections_get_publisher (Connections * connections,
-    const gchar * path)
+connections_get_publisher (Connections * connections, const gchar * path)
 {
-  Connection * connection = connections_get_connection (connections, path);
+  Connection *connection = connections_get_connection (connections, path);
   return connection->publisher;
 }
 
@@ -130,7 +129,7 @@ void
 connections_remove_client (Connections * connections,
     gpointer client, const gchar * path)
 {
-  Connection * connection = connections_get_connection (connections, path);
+  Connection *connection = connections_get_connection (connections, path);
   if (connection->publisher == client) {
     connection_remove_publisher (connection);
     return;
@@ -138,4 +137,3 @@ connections_remove_client (Connections * connections,
 
   connection_remove_subscriber (connection, client);
 }
-

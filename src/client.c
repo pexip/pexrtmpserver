@@ -32,7 +32,7 @@ client_write_extended_timestamp (Client * client, guint32 timestamp)
 {
   guint32 ext_timestamp = GUINT32_FROM_BE (timestamp);
   client->send_queue = g_byte_array_append (client->send_queue,
-      (guint8 *)&ext_timestamp, 4);
+      (guint8 *) & ext_timestamp, 4);
   client->written_seq += 4;
 }
 
@@ -45,7 +45,7 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
   const guint msg_len = buf->len;
   gint use_ext_timestamp = timestamp >= EXT_TIMESTAMP_LIMIT;
 
-#if 0 /* FIXME: disable pending investigation on why YouTube fails */
+#if 0                           /* FIXME: disable pending investigation on why YouTube fails */
   /* type 1 check */
   if (msg_stream_id != MSG_STREAM_ID_CONTROL &&
       client->prev_header.msg_stream_id == msg_stream_id) {
@@ -88,7 +88,7 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
       "format:%d, chunk_stream_id:%u, timestamp:%u, msg_len:%u, msg_type_id:%u, msg_stream_id:%u",
       fmt, chunk_stream_id, timestamp, msg_len, msg_type_id, msg_stream_id);
   client->send_queue = g_byte_array_append (client->send_queue,
-      (guint8 *)&header, header_len);
+      (guint8 *) & header, header_len);
   client->written_seq += header_len;
 
   if (use_ext_timestamp)
@@ -130,7 +130,7 @@ client_send_reply (Client * client, double txid, const GValue * reply,
   if (txid <= 0.0)
     return;
 
-  AmfEnc * invoke = amf_enc_new ();
+  AmfEnc *invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "_result");
   amf_enc_write_double (invoke, txid);
   amf_enc_write_value (invoke, reply);
@@ -144,11 +144,12 @@ client_send_reply (Client * client, double txid, const GValue * reply,
 /* Result messages come from a server to the client,
    but in the dial-out case we are both! */
 static void
-client_handle_subscribe_result (Client *client, gint txid, AmfDec * dec)
+client_handle_subscribe_result (Client * client, gint txid, AmfDec * dec)
 {
   if (txid == 1) {
-    GST_DEBUG_OBJECT (client->server, "Sending releaseStream + FCPublish + createStream");
-    AmfEnc * invoke;
+    GST_DEBUG_OBJECT (client->server,
+        "Sending releaseStream + FCPublish + createStream");
+    AmfEnc *invoke;
     invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "releaseStream");
     amf_enc_write_double (invoke, 2.0);
@@ -175,17 +176,19 @@ client_handle_subscribe_result (Client *client, gint txid, AmfDec * dec)
         invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
     amf_enc_free (invoke);
   } else if (txid == 4) {
-    GValue * reply = amf_dec_load (dec);
-    GValue * status = amf_dec_load (dec);
-    client->msg_stream_id = (guint)g_value_get_double(status);
-    GST_DEBUG_OBJECT (client->server, "Got message stream id %d", client->msg_stream_id);
+    GValue *reply = amf_dec_load (dec);
+    GValue *status = amf_dec_load (dec);
+    client->msg_stream_id = (guint) g_value_get_double (status);
+    GST_DEBUG_OBJECT (client->server, "Got message stream id %d",
+        client->msg_stream_id);
     g_value_unset (reply);
     g_value_unset (status);
     g_free (reply);
     g_free (status);
 
-    GST_DEBUG_OBJECT (client->server, "Sending publish to %s", client->dialout_path);
-    AmfEnc * invoke = amf_enc_new ();
+    GST_DEBUG_OBJECT (client->server, "Sending publish to %s",
+        client->dialout_path);
+    AmfEnc *invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "publish");
     amf_enc_write_double (invoke, 0.0);
     amf_enc_write_null (invoke);
@@ -198,11 +201,11 @@ client_handle_subscribe_result (Client *client, gint txid, AmfDec * dec)
 }
 
 static void
-client_handle_publish_result (Client *client, gint txid, AmfDec * dec)
+client_handle_publish_result (Client * client, gint txid, AmfDec * dec)
 {
   if (txid == 1) {
     GST_DEBUG_OBJECT (client->server, "Sending createStream");
-    AmfEnc * invoke;
+    AmfEnc *invoke;
     invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "createStream");
     amf_enc_write_double (invoke, 2.0);
@@ -211,17 +214,19 @@ client_handle_publish_result (Client *client, gint txid, AmfDec * dec)
         invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
     amf_enc_free (invoke);
   } else if (txid == 2) {
-    GValue * reply = amf_dec_load (dec);
-    GValue * status = amf_dec_load (dec);
-    client->msg_stream_id = (guint)g_value_get_double(status);
-    GST_DEBUG_OBJECT (client->server, "Got message stream id %d", client->msg_stream_id);
+    GValue *reply = amf_dec_load (dec);
+    GValue *status = amf_dec_load (dec);
+    client->msg_stream_id = (guint) g_value_get_double (status);
+    GST_DEBUG_OBJECT (client->server, "Got message stream id %d",
+        client->msg_stream_id);
     g_value_unset (reply);
     g_value_unset (status);
     g_free (reply);
     g_free (status);
 
-    GST_DEBUG_OBJECT (client->server, "Sending play to %s", client->dialout_path);
-    AmfEnc * invoke = amf_enc_new ();
+    GST_DEBUG_OBJECT (client->server, "Sending play to %s",
+        client->dialout_path);
+    AmfEnc *invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "play");
     amf_enc_write_double (invoke, 0.0);
     amf_enc_write_null (invoke);
@@ -254,23 +259,24 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
   if (client->dialout_path == NULL)
     return TRUE;
 
-  g_free (amf_dec_load (dec));           /* NULL */
-  GstStructure * object = amf_dec_load_object (dec);
+  g_free (amf_dec_load (dec));  /* NULL */
+  GstStructure *object = amf_dec_load_object (dec);
 
-  const gchar * code = gst_structure_get_string (object, "code");
+  const gchar *code = gst_structure_get_string (object, "code");
   GST_DEBUG_OBJECT (client->server, "onStatus - code: %s", code);
   if (code && g_strcmp0 (code, "NetStream.Play.Start") == 0) {
     /* make the client a subscriber on the local server */
     if (!connections_add_publisher (client->connections, client, client->path))
       return FALSE;
     gboolean reject_play = FALSE;
-    g_signal_emit_by_name (client->server, "on-publish", client->path, &reject_play);
+    g_signal_emit_by_name (client->server, "on-publish", client->path,
+        &reject_play);
   }
   if (code && g_strcmp0 (code, "NetStream.Publish.Start") == 0) {
     /* make the client a subscriber on the local server */
     connections_add_subscriber (client->connections, client, client->path);
 
-    GstStructure * meta = gst_structure_new ("object",
+    GstStructure *meta = gst_structure_new ("object",
         "framerate", G_TYPE_DOUBLE, 30.0,
         "width", G_TYPE_DOUBLE, 1280.0,
         "height", G_TYPE_DOUBLE, 720.0,
@@ -284,7 +290,7 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
         "audiocodecid", G_TYPE_STRING, "mp4a",
         "audiodatarate", G_TYPE_DOUBLE, 64.0,
         NULL);
-    AmfEnc * invoke = amf_enc_new ();
+    AmfEnc *invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "@setDataFrame");
     amf_enc_write_string (invoke, "onMetaData");
     amf_enc_write_object (invoke, meta);
@@ -293,7 +299,8 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
     amf_enc_free (invoke);
     gst_structure_free (meta);
     gboolean reject_play = FALSE;
-    g_signal_emit_by_name (client->server, "on-play", client->path, &reject_play);
+    g_signal_emit_by_name (client->server, "on-play", client->path,
+        &reject_play);
   }
 
 
@@ -304,11 +311,12 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
 static void
 client_set_chunk_size (Client * client, gint chunk_size)
 {
-  GST_DEBUG_OBJECT (client->server, "Setting new send-chunk-size to %d", chunk_size);
+  GST_DEBUG_OBJECT (client->server, "Setting new send-chunk-size to %d",
+      chunk_size);
 
-  AmfEnc * invoke = amf_enc_new ();
+  AmfEnc *invoke = amf_enc_new ();
   amf_enc_add_int (invoke, htonl (chunk_size));
-  client_rtmp_send(client, MSG_SET_CHUNK, MSG_STREAM_ID_CONTROL,
+  client_rtmp_send (client, MSG_SET_CHUNK, MSG_STREAM_ID_CONTROL,
       invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (invoke);
   client->send_chunk_size = chunk_size;
@@ -321,7 +329,7 @@ client_do_connect (Client * client)
       client->tcUrl, client->path);
 
   /* send connect */
-  GstStructure * status = gst_structure_new ("object",
+  GstStructure *status = gst_structure_new ("object",
       "app", G_TYPE_STRING, client->app,
       "tcUrl", G_TYPE_STRING, client->tcUrl,
       "type", G_TYPE_STRING, "nonprivate",
@@ -336,7 +344,7 @@ client_do_connect (Client * client)
 //      "videoFunctions", G_TYPE_DOUBLE, 0.0, /* We can't do seek */
 //      "objectEncoding", G_TYPE_DOUBLE, 0.0, /* AMF0 */
 
-  AmfEnc * invoke = amf_enc_new ();
+  AmfEnc *invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "connect");
   amf_enc_write_double (invoke, 1.0);
   amf_enc_write_object (invoke, status);
@@ -352,8 +360,8 @@ client_do_connect (Client * client)
 static void
 client_handle_connect (Client * client, double txid, AmfDec * dec)
 {
-  AmfEnc * invoke;
-  GstStructure * params = amf_dec_load_object (dec);
+  AmfEnc *invoke;
+  GstStructure *params = amf_dec_load_object (dec);
 
   /* FIXME: support multiple applications */
   //if (strcmp (app, application_name) != 0) {
@@ -361,7 +369,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   //}
 
   client->app = g_strdup (gst_structure_get_string (params, "app"));
-  gchar * params_str = gst_structure_to_string (params);
+  gchar *params_str = gst_structure_to_string (params);
   GST_DEBUG_OBJECT (client->server, "connect: %s", params_str);
   g_free (params_str);
   gst_structure_free (params);
@@ -386,7 +394,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
 
   GValue version = G_VALUE_INIT;
   g_value_init (&version, GST_TYPE_STRUCTURE);
-  GstStructure * version_s = gst_structure_new ("object",
+  GstStructure *version_s = gst_structure_new ("object",
       "fmsVer", G_TYPE_STRING, "FMS/3,5,3,824",
       "capabilities", G_TYPE_DOUBLE, 127.0,
       "mode", G_TYPE_DOUBLE, 1.0,
@@ -396,7 +404,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
 
   GValue status = G_VALUE_INIT;
   g_value_init (&status, GST_TYPE_STRUCTURE);
-  GstStructure * status_s = gst_structure_new ("object",
+  GstStructure *status_s = gst_structure_new ("object",
       "level", G_TYPE_STRING, "status",
       "code", G_TYPE_STRING, "NetConnection.Connect.Success",
       "description", G_TYPE_STRING, "Connection succeeded.",
@@ -413,20 +421,20 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
 static gboolean
 client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
 {
-  g_free (amf_dec_load (dec));           /* NULL */
+  g_free (amf_dec_load (dec));  /* NULL */
 
-  gchar * path = amf_dec_load_string (dec);
+  gchar *path = amf_dec_load_string (dec);
   GST_DEBUG_OBJECT (client->server, "fcpublish %s", path);
   if (path == NULL)
     return FALSE;
 
-  GstStructure * status = gst_structure_new ("object",
+  GstStructure *status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
       "description", G_TYPE_STRING, path,
       NULL);
   g_free (path);
 
-  AmfEnc * invoke = amf_enc_new ();
+  AmfEnc *invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "onFCPublish");
   amf_enc_write_double (invoke, 0.0);
   amf_enc_write_null (invoke);
@@ -449,30 +457,33 @@ client_handle_createstream (Client * client, double txid)
   GValue null_value = G_VALUE_INIT;
   GValue stream_id = G_VALUE_INIT;
   g_value_init (&stream_id, G_TYPE_DOUBLE);
-  g_value_set_double (&stream_id, (gdouble)client->msg_stream_id);
+  g_value_set_double (&stream_id, (gdouble) client->msg_stream_id);
   client_send_reply (client, txid, &null_value, &stream_id);
 }
 
 static gboolean
-client_should_emit_signal (Client * client) {
+client_should_emit_signal (Client * client)
+{
   struct sockaddr_storage addr;
-  struct sockaddr_in6 * sin6;
-  struct sockaddr_in * sin;
+  struct sockaddr_in6 *sin6;
+  struct sockaddr_in *sin;
   socklen_t len = sizeof addr;
   gchar ipstr[INET6_ADDRSTRLEN];
   gboolean should_emit = TRUE;
 
   if (client->ignore_localhost) {
-    if (getpeername(client->fd, (struct sockaddr*)&addr, &len) == 0) {
+    if (getpeername (client->fd, (struct sockaddr *) &addr, &len) == 0) {
       if (addr.ss_family == AF_INET) {
-        sin = (struct sockaddr_in *)&addr;
-        inet_ntop(AF_INET, &sin->sin_addr, ipstr, sizeof(ipstr));
+        sin = (struct sockaddr_in *) &addr;
+        inet_ntop (AF_INET, &sin->sin_addr, ipstr, sizeof (ipstr));
       } else {
-        sin6 = (struct sockaddr_in6 *)&addr;
-        inet_ntop(AF_INET6, &sin6->sin6_addr, ipstr, sizeof ipstr);
+        sin6 = (struct sockaddr_in6 *) &addr;
+        inet_ntop (AF_INET6, &sin6->sin6_addr, ipstr, sizeof ipstr);
       }
     }
-    should_emit = g_strcmp0(ipstr, "::1") != 0 && g_strcmp0 (ipstr, "::ffff:127.0.0.1") != 0 && g_strcmp0 (ipstr, "127.0.0.1") != 0;
+    should_emit = g_strcmp0 (ipstr, "::1") != 0
+        && g_strcmp0 (ipstr, "::ffff:127.0.0.1") != 0
+        && g_strcmp0 (ipstr, "127.0.0.1") != 0;
   }
 
   return should_emit;
@@ -481,8 +492,8 @@ client_should_emit_signal (Client * client) {
 static gboolean
 client_handle_publish (Client * client, double txid, AmfDec * dec)
 {
-  g_free (amf_dec_load (dec)); /* NULL */
-  gchar * path = amf_dec_load_string (dec);
+  g_free (amf_dec_load (dec));  /* NULL */
+  gchar *path = amf_dec_load_string (dec);
   GST_DEBUG_OBJECT (client->server, "publish %s", path);
   if (path == NULL)
     return FALSE;
@@ -494,10 +505,11 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   gboolean reject_publish = FALSE;
   if (client_should_emit_signal (client)) {
     GST_DEBUG_OBJECT (client->server, "emit on-publish: %s", path);
-    g_signal_emit_by_name(client->server, "on-publish", path, &reject_publish);
+    g_signal_emit_by_name (client->server, "on-publish", path, &reject_publish);
   }
   if (reject_publish) {
-    GST_DEBUG_OBJECT (client->server, "Not publishing due to signal rejecting publish");
+    GST_DEBUG_OBJECT (client->server,
+        "Not publishing due to signal rejecting publish");
     return FALSE;
   }
   if (!connections_add_publisher (client->connections, client, path)) {
@@ -506,21 +518,21 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   GST_DEBUG_OBJECT (client->server, "publisher connected.");
 
   /* StreamBegin */
-  AmfEnc * control = amf_enc_new ();
+  AmfEnc *control = amf_enc_new ();
   amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
   amf_enc_add_int (control, htonl (client->msg_stream_id));
   client_rtmp_send (client, MSG_USER_CONTROL, MSG_STREAM_ID_CONTROL,
-                    control->buf, 0, CHUNK_STREAM_ID_CONTROL);
+      control->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (control);
 
   /* _result for publish */
-  GstStructure * status = gst_structure_new ("object",
+  GstStructure *status = gst_structure_new ("object",
       "level", G_TYPE_STRING, "status",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
       "description", G_TYPE_STRING, "Stream is now published.",
       "details", G_TYPE_STRING, path,
       NULL);
-  AmfEnc * invoke = amf_enc_new ();
+  AmfEnc *invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "onStatus");
   amf_enc_write_double (invoke, 0.0);
   amf_enc_write_null (invoke);
@@ -541,19 +553,19 @@ static void
 client_start_playback (Client * client)
 {
   /* StreamBegin */
-  AmfEnc * control = amf_enc_new ();
+  AmfEnc *control = amf_enc_new ();
   amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
   amf_enc_add_int (control, htonl (client->msg_stream_id));
   client_rtmp_send (client, MSG_USER_CONTROL, MSG_STREAM_ID_CONTROL,
-                    control->buf, 0, CHUNK_STREAM_ID_CONTROL);
+      control->buf, 0, CHUNK_STREAM_ID_CONTROL);
   amf_enc_free (control);
 
-  GstStructure * status = gst_structure_new ("object",
+  GstStructure *status = gst_structure_new ("object",
       "code", G_TYPE_STRING, "NetStream.Play.Reset",
       "description", G_TYPE_STRING, "Resetting and playing stream.",
       "level", G_TYPE_STRING, "status",
       NULL);
-  AmfEnc * invoke = amf_enc_new ();
+  AmfEnc *invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "onStatus");
   amf_enc_write_double (invoke, 0.0);
   amf_enc_write_null (invoke);
@@ -594,9 +606,9 @@ client_start_playback (Client * client)
   connections_add_subscriber (client->connections, client, client->path);
 
   /* send pexip metadata to the client */
-  GstStructure * metadata = gst_structure_new ("metadata",
+  GstStructure *metadata = gst_structure_new ("metadata",
       "Server", G_TYPE_STRING, "Pexip RTMP Server", NULL);
-  GST_DEBUG_OBJECT (client->server, "(%s) METADATA %"GST_PTR_FORMAT,
+  GST_DEBUG_OBJECT (client->server, "(%s) METADATA %" GST_PTR_FORMAT,
       client->path, metadata);
   invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "onMetaData");
@@ -610,8 +622,8 @@ client_start_playback (Client * client)
 static gboolean
 client_handle_play (Client * client, double txid, AmfDec * dec)
 {
-  g_free (amf_dec_load (dec));           /* NULL */
-  gchar * path = amf_dec_load_string (dec);
+  g_free (amf_dec_load (dec));  /* NULL */
+  gchar *path = amf_dec_load_string (dec);
   if (path == NULL)
     return FALSE;
 
@@ -622,13 +634,15 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
 
   if (client_should_emit_signal (client)) {
     GST_DEBUG_OBJECT (client->server, "emit on-play: %s", path);
-    g_signal_emit_by_name(client->server, "on-play", path, &reject_play);
+    g_signal_emit_by_name (client->server, "on-play", path, &reject_play);
   }
   if (reject_play) {
-    GST_DEBUG_OBJECT (client->server, "%p Not playing due to signal returning 0", client);
+    GST_DEBUG_OBJECT (client->server,
+        "%p Not playing due to signal returning 0", client);
     return FALSE;
   }
-  GST_DEBUG_OBJECT (client->server, "client %p got play for path: %s", client, path);
+  GST_DEBUG_OBJECT (client->server, "client %p got play for path: %s", client,
+      path);
 
   client_start_playback (client);
 
@@ -641,10 +655,10 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
 static gboolean
 client_handle_play2 (Client * client, double txid, AmfDec * dec)
 {
-  g_free (amf_dec_load (dec));           /* NULL */
+  g_free (amf_dec_load (dec));  /* NULL */
 
-  GstStructure * params = amf_dec_load_object (dec);
-  const gchar * path = gst_structure_get_string (params, "streamName");
+  GstStructure *params = amf_dec_load_object (dec);
+  const gchar *path = gst_structure_get_string (params, "streamName");
   GST_DEBUG_OBJECT (client->server, "play2 %s", path);
   gst_structure_free (params);
 
@@ -662,18 +676,18 @@ client_handle_play2 (Client * client, double txid, AmfDec * dec)
 static void
 client_handle_pause (Client * client, double txid, AmfDec * dec)
 {
-  g_free (amf_dec_load (dec));           /* NULL */
+  g_free (amf_dec_load (dec));  /* NULL */
 
   gboolean paused;
   if (amf_dec_load_boolean (dec, &paused) && paused) {
     GST_DEBUG_OBJECT (client->server, "pausing");
 
-    GstStructure * status = gst_structure_new ("object",
+    GstStructure *status = gst_structure_new ("object",
         "code", G_TYPE_STRING, "NetStream.Pause.Notify",
         "description", G_TYPE_STRING, "Pausing.",
         "level", G_TYPE_STRING, "status",
         NULL);
-    AmfEnc * invoke = amf_enc_new ();
+    AmfEnc *invoke = amf_enc_new ();
     amf_enc_write_string (invoke, "onStatus");
     amf_enc_write_double (invoke, 0.0);
     amf_enc_write_null (invoke);
@@ -698,7 +712,7 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
     return;
   }
 
-  gchar * type = amf_dec_load_string (dec);
+  gchar *type = amf_dec_load_string (dec);
   if (type && strcmp (type, "onMetaData") != 0) {
     GST_WARNING_OBJECT (client->server, "can only set metadata");
   }
@@ -707,20 +721,20 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
   if (client->metadata)
     gst_structure_free (client->metadata);
   client->metadata = amf_dec_load_object (dec);
-  GST_DEBUG_OBJECT (client->server, "(%s) METADATA %"GST_PTR_FORMAT,
+  GST_DEBUG_OBJECT (client->server, "(%s) METADATA %" GST_PTR_FORMAT,
       client->path, client->metadata);
 }
 
 static gboolean
 client_handle_user_control (Client * client, const guint32 timestamp)
 {
-  AmfEnc * enc= amf_enc_new ();
+  AmfEnc *enc = amf_enc_new ();
   guint16 ping_response_id = 7;
   amf_enc_add_short (enc, htons (ping_response_id));
   amf_enc_add_int (enc, htonl (timestamp));
   client_rtmp_send (client, MSG_USER_CONTROL, MSG_STREAM_ID_CONTROL,
       enc->buf, 0, CHUNK_STREAM_ID_CONTROL);
-  amf_enc_free(enc);
+  amf_enc_free (enc);
   return TRUE;
 }
 
@@ -728,7 +742,7 @@ static gboolean
 client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
 {
   gboolean ret = TRUE;
-  gchar * method = amf_dec_load_string (dec);
+  gchar *method = amf_dec_load_string (dec);
   gdouble txid;
 
   if (method == NULL)
@@ -737,8 +751,9 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
   if (!amf_dec_load_number (dec, &txid))
     return FALSE;
 
-  GST_DEBUG_OBJECT (client->server, "%p: invoked %s with txid %lf for Stream Id: %d ",
-      client, method, txid, msg->msg_stream_id);
+  GST_DEBUG_OBJECT (client->server,
+      "%p: invoked %s with txid %lf for Stream Id: %d ", client, method, txid,
+      msg->msg_stream_id);
 
   if (strcmp (method, "onStatus") == 0) {
     ret = client_handle_onstatus (client, dec, msg->msg_stream_id);
@@ -750,7 +765,7 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
     } else if (strcmp (method, "createStream") == 0) {
       client_handle_createstream (client, txid);
     } else if (strcmp (method, "_result") == 0) {
-      client_handle_result (client, (gint)txid, dec);
+      client_handle_result (client, (gint) txid, dec);
     }
   } else if (msg->msg_stream_id == client->msg_stream_id) {
     if (strcmp (method, "publish") == 0) {
@@ -769,20 +784,20 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
 }
 
 gboolean
-client_window_size_reached (Client *client)
+client_window_size_reached (Client * client)
 {
   return (client->bytes_received_since_ack >= client->window_size);
 }
 
 static void
-client_send_ack (Client *client)
+client_send_ack (Client * client)
 {
-  AmfEnc * enc = amf_enc_new ();
+  AmfEnc *enc = amf_enc_new ();
   amf_enc_add_int (enc, htonl (client->total_bytes_received));
   client->bytes_received_since_ack = 0;
-  client_rtmp_send(client, MSG_ACK, MSG_STREAM_ID_CONTROL,
+  client_rtmp_send (client, MSG_ACK, MSG_STREAM_ID_CONTROL,
       enc->buf, 0, CHUNK_STREAM_ID_CONTROL);
-  amf_enc_free(enc);
+  amf_enc_free (enc);
 }
 
 gboolean
@@ -823,9 +838,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_USER_CONTROL:
     {
       guint16 method = load_be16 (&msg->buf->data[pos]);
-      if (method == 6)
-      {
-        guint32 timestamp = load_be32 (&msg->buf->data[pos+2]);
+      if (method == 6) {
+        guint32 timestamp = load_be32 (&msg->buf->data[pos + 2]);
         ret = client_handle_user_control (client, timestamp);
       }
       break;
@@ -842,21 +856,22 @@ client_handle_message (Client * client, RTMP_Message * msg)
     case MSG_SET_PEER_BW:
     {
       client->window_size = load_be32 (&msg->buf->data[pos]);
-      GST_DEBUG_OBJECT (client->server, "%s Got Set Peer BW msg, window size set to %u",
-          client->path, client->window_size);
+      GST_DEBUG_OBJECT (client->server,
+          "%s Got Set Peer BW msg, window size set to %u", client->path,
+          client->window_size);
 
       // Send back the expected Window Ack Msg
-      AmfEnc * invoke = amf_enc_new ();
+      AmfEnc *invoke = amf_enc_new ();
       amf_enc_add_int (invoke, htonl (client->window_size));
       client_rtmp_send (client, MSG_WINDOW_ACK_SIZE, MSG_STREAM_ID_CONTROL,
-      invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
+          invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
       amf_enc_free (invoke);
       break;
     }
 
     case MSG_INVOKE:
     {
-      AmfDec * dec = amf_dec_new (msg->buf, 0);
+      AmfDec *dec = amf_dec_new (msg->buf, 0);
       ret = client_handle_invoke (client, msg, dec);
       amf_dec_free (dec);
       break;
@@ -864,7 +879,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_INVOKE3:
     {
-      AmfDec * dec = amf_dec_new (msg->buf, 1);
+      AmfDec *dec = amf_dec_new (msg->buf, 1);
       ret = client_handle_invoke (client, msg, dec);
       amf_dec_free (dec);
       break;
@@ -872,8 +887,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_NOTIFY:
     {
-      AmfDec * dec = amf_dec_new (msg->buf, 0);
-      gchar * type = amf_dec_load_string (dec);
+      AmfDec *dec = amf_dec_new (msg->buf, 0);
+      gchar *type = amf_dec_load_string (dec);
       GST_DEBUG_OBJECT (client->server, "notify %s", type);
       if (msg->msg_stream_id == client->msg_stream_id) {
         if (type && strcmp (type, "@setDataFrame") == 0) {
@@ -887,8 +902,8 @@ client_handle_message (Client * client, RTMP_Message * msg)
 
     case MSG_DATA:
     {
-      AmfDec * dec = amf_dec_new (msg->buf, 1);
-      gchar * type = amf_dec_load_string (dec);
+      AmfDec *dec = amf_dec_new (msg->buf, 1);
+      gchar *type = amf_dec_load_string (dec);
       GST_DEBUG_OBJECT (client->server, "data %s", type);
       if (msg->msg_stream_id == client->msg_stream_id) {
         if (type && strcmp (type, "@setDataFrame") == 0) {
@@ -905,10 +920,10 @@ client_handle_message (Client * client, RTMP_Message * msg)
         GST_DEBUG_OBJECT (client->server, "not a publisher");
         return FALSE;
       }
-      GSList * subscribers =
+      GSList *subscribers =
           connections_get_subscribers (client->connections, client->path);
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
-        Client * subscriber = (Client *)walk->data;
+        Client *subscriber = (Client *) walk->data;
 
 /* FIXME: this is the best way, can we make it so ?
         client_rtmp_send (subscriber, MSG_AUDIO, subscriber->msg_stream_id,
@@ -927,32 +942,33 @@ client_handle_message (Client * client, RTMP_Message * msg)
         return FALSE;
       }
       guint8 flags = msg->buf->data[0];
-      GSList * subscribers =
-        connections_get_subscribers (client->connections, client->path);
+      GSList *subscribers =
+          connections_get_subscribers (client->connections, client->path);
       gboolean stored_packet = FALSE;
       if (!client->video_codec_data) {
         stored_packet = TRUE;
-        GByteArray * codec_data = g_byte_array_new ();
+        GByteArray *codec_data = g_byte_array_new ();
         g_byte_array_append (codec_data, msg->buf->data, msg->buf->len);
         client->video_codec_data = codec_data;
       }
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
-        Client * subscriber = (Client *)walk->data;
+        Client *subscriber = (Client *) walk->data;
 
         if (!subscriber->ready) {
           client_rtmp_send (subscriber, MSG_VIDEO, subscriber->msg_stream_id,
-                            client->video_codec_data, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
+              client->video_codec_data, msg->abs_timestamp,
+              CHUNK_STREAM_ID_STREAM);
         }
         if (flags >> 4 == FLV_KEY_FRAME && !subscriber->ready) {
           subscriber->ready = TRUE;
           if (!stored_packet) {
             client_rtmp_send (subscriber, MSG_VIDEO, subscriber->msg_stream_id,
-                              msg->buf, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
+                msg->buf, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
           }
         }
         if (subscriber->ready) {
           client_rtmp_send (subscriber, MSG_VIDEO, subscriber->msg_stream_id,
-                            msg->buf, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
+              msg->buf, msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
         }
       }
       break;
@@ -975,7 +991,7 @@ client_handle_message (Client * client, RTMP_Message * msg)
 static RTMP_Message *
 rtmp_message_new ()
 {
-  RTMP_Message * msg = g_new0 (RTMP_Message, 1);
+  RTMP_Message *msg = g_new0 (RTMP_Message, 1);
   msg->buf = g_byte_array_new ();
   return msg;
 }
@@ -990,7 +1006,7 @@ rtmp_message_free (RTMP_Message * msg)
 static RTMP_Message *
 client_get_rtmp_message (Client * client, guint8 chunk_stream_id)
 {
-  RTMP_Message * msg = g_hash_table_lookup (client->rtmp_messages,
+  RTMP_Message *msg = g_hash_table_lookup (client->rtmp_messages,
       GINT_TO_POINTER (chunk_stream_id));
   if (msg == NULL) {
     msg = rtmp_message_new ();
@@ -1007,7 +1023,8 @@ client_incoming_handshake (Client * client)
     guint len = HANDSHAKE_LENGTH + 1;
     if (client->buf->len >= len) {
       /* receive the handshake from the client */
-      if (!pex_rtmp_handshake_process (client->handshake, client->buf->data, len)) {
+      if (!pex_rtmp_handshake_process (client->handshake, client->buf->data,
+              len)) {
         GST_WARNING_OBJECT (client->server, "Unable to process handshake");
         return FALSE;
       }
@@ -1028,7 +1045,8 @@ client_incoming_handshake (Client * client)
     guint len = HANDSHAKE_LENGTH;
     if (client->buf->len >= len) {
       /* receive another handshake */
-      if (!pex_rtmp_handshake_verify_reply (client->handshake, client->buf->data)) {
+      if (!pex_rtmp_handshake_verify_reply (client->handshake,
+              client->buf->data)) {
         GST_WARNING_OBJECT (client->server, "Could not verify handshake reply");
         return FALSE;
       }
@@ -1052,12 +1070,13 @@ client_outgoing_handshake (Client * client)
     memset (&buf[1], 0, 8);
     /* rest of the buffer is random numbers */
     for (gint i = 9; i < HANDSHAKE_LENGTH + 1; i++)
-        buf[i] = 1; /* 1 is random... */
+      buf[i] = 1;               /* 1 is random... */
 
     client->send_queue = g_byte_array_append (client->send_queue,
         buf, HANDSHAKE_LENGTH + 1);
     if (!client_try_to_send (client, NULL)) {
-      GST_WARNING_OBJECT (client->server, "Unable to send outgoing handshake (1)");
+      GST_WARNING_OBJECT (client->server,
+          "Unable to send outgoing handshake (1)");
       return FALSE;
     }
 
@@ -1075,7 +1094,7 @@ client_outgoing_handshake (Client * client)
       guint32 server_uptime;
       guint8 fms_version[4];
       memcpy (&server_uptime, &client->buf->data[0], 4);
-      memcpy (&fms_version,   &client->buf->data[4], 4);
+      memcpy (&fms_version, &client->buf->data[4], 4);
       server_uptime = ntohl (server_uptime);
       GST_DEBUG_OBJECT (client->server,
           "Server Uptime: %u, FMS Version: %u.%u.%u.%u", server_uptime,
@@ -1084,10 +1103,12 @@ client_outgoing_handshake (Client * client)
       client->send_queue = g_byte_array_append (client->send_queue,
           &client->buf->data[0], HANDSHAKE_LENGTH);
       if (!client_try_to_send (client, NULL)) {
-        GST_WARNING_OBJECT (client->server, "Unable to send outgoing handshake (2)");
+        GST_WARNING_OBJECT (client->server,
+            "Unable to send outgoing handshake (2)");
         return FALSE;
       }
-      client->buf = g_byte_array_remove_range (client->buf, 0, HANDSHAKE_LENGTH);
+      client->buf =
+          g_byte_array_remove_range (client->buf, 0, HANDSHAKE_LENGTH);
       client->handshake_state = HANDSHAKE_STAGE2;
     }
   }
@@ -1173,7 +1194,9 @@ client_drive_ssl (Client * client)
     } else if (error == SSL_ERROR_WANT_WRITE) {
       client->state = CLIENT_TLS_HANDSHAKE_WANT_WRITE;
     } else {
-      GST_WARNING_OBJECT (client->server, "Unable to establish ssl-connection (error=%d, ret=%d, errno=%d)", error, ret, errno);
+      GST_WARNING_OBJECT (client->server,
+          "Unable to establish ssl-connection (error=%d, ret=%d, errno=%d)",
+          error, ret, errno);
       print_ssl_errors (client);
       return FALSE;
     }
@@ -1197,7 +1220,7 @@ client_begin_ssl (Client * client)
 }
 
 gboolean
-client_try_to_send (Client * client, gboolean *connect_failed)
+client_try_to_send (Client * client, gboolean * connect_failed)
 {
   if (connect_failed) {
     *connect_failed = FALSE;
@@ -1205,13 +1228,14 @@ client_try_to_send (Client * client, gboolean *connect_failed)
 
   if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS) {
     int error;
-    socklen_t error_len = sizeof(error);
+    socklen_t error_len = sizeof (error);
 
-    getsockopt (client->fd, SOL_SOCKET, SO_ERROR, (void *)&error, &error_len);
+    getsockopt (client->fd, SOL_SOCKET, SO_ERROR, (void *) &error, &error_len);
 
     if (error != 0) {
-      GST_WARNING_OBJECT (client->server, "error in client TCP handshake (%s): %s",
-          client->path, strerror (error));
+      GST_WARNING_OBJECT (client->server,
+          "error in client TCP handshake (%s): %s", client->path,
+          strerror (error));
       if (connect_failed) {
         *connect_failed = TRUE;
       }
@@ -1255,24 +1279,26 @@ client_try_to_send (Client * client, gboolean *connect_failed)
       return FALSE;
     }
   } else {
-    #ifdef __APPLE__
+#ifdef __APPLE__
     written = send (client->fd,
         client->send_queue->data, client->send_queue->len, 0);
-    #else
+#else
     written = send (client->fd,
         client->send_queue->data, client->send_queue->len, MSG_NOSIGNAL);
-    #endif
+#endif
     if (written < 0) {
       if (errno == EAGAIN || errno == EINTR)
         return TRUE;
-      GST_WARNING_OBJECT (client->server, "unable to write to a client (%s): %s",
-          client->path, strerror (errno));
+      GST_WARNING_OBJECT (client->server,
+          "unable to write to a client (%s): %s", client->path,
+          strerror (errno));
       return FALSE;
     }
   }
 
   if (written > 0) {
-    client->send_queue = g_byte_array_remove_range (client->send_queue, 0, written);
+    client->send_queue =
+        g_byte_array_remove_range (client->send_queue, 0, written);
   }
   return TRUE;
 }
@@ -1359,7 +1385,7 @@ client_receive (Client * client)
 
   while (client->buf->len != 0) {
     guint8 flags = client->buf->data[0];
-    guint8 fmt = flags >> 6; /* 5.3.1.2 */
+    guint8 fmt = flags >> 6;    /* 5.3.1.2 */
     guint8 chunk_stream_id = flags & 0x3f;
     guint header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
 
@@ -1368,8 +1394,8 @@ client_receive (Client * client)
       break;
     }
 
-    RTMP_Header * header = (RTMP_Header *)&client->buf->data[0];
-    RTMP_Message * msg = client_get_rtmp_message (client, chunk_stream_id);
+    RTMP_Header *header = (RTMP_Header *) & client->buf->data[0];
+    RTMP_Message *msg = client_get_rtmp_message (client, chunk_stream_id);
 
     /* only get the message fmt from beginning of a new message */
     if (msg->buf->len == 0) {
@@ -1441,8 +1467,11 @@ client_receive (Client * client)
     GST_LOG_OBJECT (client->server,
         "Appending a chunk of %u bytes of data to message, "
         "skipping %u bytes of header (type: %u)", chunk_size, header_len, fmt);
-    msg->buf = g_byte_array_append (msg->buf, &client->buf->data[header_len], chunk_size);
-    client->buf = g_byte_array_remove_range (client->buf, 0, header_len + chunk_size);
+    msg->buf =
+        g_byte_array_append (msg->buf, &client->buf->data[header_len],
+        chunk_size);
+    client->buf =
+        g_byte_array_remove_range (client->buf, 0, header_len + chunk_size);
 
     if (msg->buf->len == msg->len) {
       if (!client_handle_message (client, msg))
@@ -1456,7 +1485,7 @@ client_receive (Client * client)
 static int
 match_dns_name (const gchar * remote_host, ASN1_IA5STRING * candidate)
 {
-  const gchar * data = (gchar *) ASN1_STRING_data (candidate);
+  const gchar *data = (gchar *) ASN1_STRING_data (candidate);
   int len = ASN1_STRING_length (candidate);
   int host_len = strlen (remote_host);
 
@@ -1480,7 +1509,7 @@ match_dns_name (const gchar * remote_host, ASN1_IA5STRING * candidate)
   /* Wildcards: permit the left-most label to be '*' only and match
    * the left-most reference label */
   if (len > 1 && data[0] == '*' && data[1] == '.') {
-    const gchar * host_suffix = strchr (remote_host, '.');
+    const gchar *host_suffix = strchr (remote_host, '.');
     if (host_suffix == NULL || host_suffix == remote_host) {
       /* No dot found, or remote_host starts with a dot: reject */
       return 0;
@@ -1500,15 +1529,16 @@ static int
 match_subject_alternative_names (X509 * cert, const gchar * remote_host)
 {
   int result = -1;
-  GENERAL_NAMES * san;
+  GENERAL_NAMES *san;
 
   san = X509_get_ext_d2i (cert, NID_subject_alt_name, NULL, NULL);
   if (san != NULL) {
     int idx = sk_GENERAL_NAME_num (san);
-    enum {
+    enum
+    {
       HOST_TYPE_DNS = 0,
-      HOST_TYPE_IPv4 = sizeof(struct in_addr),
-      HOST_TYPE_IPv6 = sizeof(struct in6_addr)
+      HOST_TYPE_IPv4 = sizeof (struct in_addr),
+      HOST_TYPE_IPv6 = sizeof (struct in6_addr)
     } host_type;
     int num_sans_for_type = 0;
     struct in6_addr addr;
@@ -1523,8 +1553,8 @@ match_subject_alternative_names (X509 * cert, const gchar * remote_host)
 
     while (--idx >= 0) {
       int type;
-      void * value;
-     
+      void *value;
+
       value = GENERAL_NAME_get0_value (sk_GENERAL_NAME_value (san, idx), &type);
 
       if (type == GEN_DNS && host_type == HOST_TYPE_DNS) {
@@ -1539,7 +1569,7 @@ match_subject_alternative_names (X509 * cert, const gchar * remote_host)
             memcmp (ASN1_STRING_data (value), &addr, len) == 0) {
           break;
         }
-      }     
+      }
     }
 
     GENERAL_NAMES_free (san);
@@ -1556,13 +1586,13 @@ match_subject_alternative_names (X509 * cert, const gchar * remote_host)
 static int
 match_subject_common_name (X509 * cert, const gchar * remote_host)
 {
-  X509_NAME * subject = X509_get_subject_name (cert);
+  X509_NAME *subject = X509_get_subject_name (cert);
 
   if (subject != NULL) {
     int idx = X509_NAME_entry_count (subject);
 
     while (--idx >= 0) {
-      X509_NAME_ENTRY * entry = X509_NAME_get_entry (subject, idx);
+      X509_NAME_ENTRY *entry = X509_NAME_get_entry (subject, idx);
       if (OBJ_obj2nid (X509_NAME_ENTRY_get_object (entry)) == NID_commonName) {
         return match_dns_name (remote_host, X509_NAME_ENTRY_get_data (entry));
       }
@@ -1586,11 +1616,12 @@ verify_hostname (X509 * cert, const gchar * remote_host)
 }
 
 static int
-ssl_verify_callback (int preverify_ok, X509_STORE_CTX *ctx)
+ssl_verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
 {
-  SSL * ssl = X509_STORE_CTX_get_ex_data (ctx, SSL_get_ex_data_X509_STORE_CTX_idx ());
-  Client * client = SSL_get_app_data (ssl);
-  X509 * current_cert = X509_STORE_CTX_get_current_cert (ctx);
+  SSL *ssl =
+      X509_STORE_CTX_get_ex_data (ctx, SSL_get_ex_data_X509_STORE_CTX_idx ());
+  Client *client = SSL_get_app_data (ssl);
+  X509 *current_cert = X509_STORE_CTX_get_current_cert (ctx);
 
   if (preverify_ok == 0 || current_cert == NULL) {
     return preverify_ok;
@@ -1601,7 +1632,7 @@ ssl_verify_callback (int preverify_ok, X509_STORE_CTX *ctx)
   if (current_cert == ctx->cert) {
     /* The current certificate is the peer certificate */
     if (client->remote_host != NULL) {
-      preverify_ok = verify_hostname(current_cert, client->remote_host);
+      preverify_ok = verify_hostname (current_cert, client->remote_host);
     }
   }
 
@@ -1609,7 +1640,7 @@ ssl_verify_callback (int preverify_ok, X509_STORE_CTX *ctx)
 }
 
 static gboolean
-file_exists (const gchar *path)
+file_exists (const gchar * path)
 {
   if (path == NULL || path[0] == '\0') {
     return FALSE;
@@ -1618,27 +1649,29 @@ file_exists (const gchar *path)
 }
 
 static DH *
-make_dh_params (const gchar *cert_file)
+make_dh_params (const gchar * cert_file)
 {
-  DH * dh = NULL;
-  BIO * bio = BIO_new_file (cert_file, "r");
+  DH *dh = NULL;
+  BIO *bio = BIO_new_file (cert_file, "r");
 
   if (bio != NULL) {
-    X509 * cert = PEM_read_bio_X509 (bio, NULL, NULL, NULL);
+    X509 *cert = PEM_read_bio_X509 (bio, NULL, NULL, NULL);
     BIO_free (bio);
 
     if (cert != NULL) {
-      EVP_PKEY * pubkey = X509_get_pubkey (cert);
+      EVP_PKEY *pubkey = X509_get_pubkey (cert);
       if (pubkey != NULL) {
-        static const struct {
+        static const struct
+        {
           int size;
-          BIGNUM * (*prime) (BIGNUM *);
+          BIGNUM *(*prime) (BIGNUM *);
         } gentable[] = {
-          { 2048, get_rfc3526_prime_2048 },
-          { 3072, get_rfc3526_prime_3072 },
-          { 4096, get_rfc3526_prime_4096 },
-          { 6144, get_rfc3526_prime_6144 },
-          { 8192, get_rfc3526_prime_8192 }
+          {
+          2048, get_rfc3526_prime_2048}, {
+          3072, get_rfc3526_prime_3072}, {
+          4096, get_rfc3526_prime_4096}, {
+          6144, get_rfc3526_prime_6144}, {
+          8192, get_rfc3526_prime_8192}
         };
         size_t idx;
         int keylen = 2048;
@@ -1657,7 +1690,7 @@ make_dh_params (const gchar *cert_file)
           idx--;
         }
 
-        dh = DH_new();
+        dh = DH_new ();
         if (dh != NULL) {
           dh->p = gentable[idx].prime (NULL);
           BN_dec2bn (&dh->g, "2");
@@ -1680,11 +1713,12 @@ client_add_incoming_ssl (Client * client,
     const gchar * ca_file, const gchar * ca_dir,
     const gchar * ciphers, gboolean tls1_enabled)
 {
-  BIO * bio;
+  BIO *bio;
   long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
-      SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE | SSL_OP_CIPHER_SERVER_PREFERENCE;
+      SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE |
+      SSL_OP_CIPHER_SERVER_PREFERENCE;
 
-  client->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
+  client->ssl_ctx = SSL_CTX_new (SSLv23_server_method ());
 
   if (!tls1_enabled) {
     ssl_options |= SSL_OP_NO_TLSv1;
@@ -1703,13 +1737,16 @@ client_add_incoming_ssl (Client * client,
       SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
   if (file_exists (cert_file) && file_exists (key_file)) {
-    if (SSL_CTX_use_certificate_file (client->ssl_ctx, cert_file, SSL_FILETYPE_PEM) <= 0) {
-      GST_WARNING_OBJECT (client->server, "did not like the certificate: %s", cert_file);
+    if (SSL_CTX_use_certificate_file (client->ssl_ctx, cert_file,
+            SSL_FILETYPE_PEM) <= 0) {
+      GST_WARNING_OBJECT (client->server, "did not like the certificate: %s",
+          cert_file);
       print_ssl_errors (client);
       return FALSE;
     }
 
-    if (SSL_CTX_use_PrivateKey_file (client->ssl_ctx, key_file, SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_PrivateKey_file (client->ssl_ctx, key_file,
+            SSL_FILETYPE_PEM) <= 0) {
       GST_WARNING_OBJECT (client->server, "did not like the key: %s", key_file);
       print_ssl_errors (client);
       return FALSE;
@@ -1718,7 +1755,7 @@ client_add_incoming_ssl (Client * client,
     /* Configure DH parameters */
     bio = BIO_new_file (cert_file, "r");
     if (bio != NULL) {
-      DH * dh = PEM_read_bio_DHparams (bio, NULL, NULL, NULL);  
+      DH *dh = PEM_read_bio_DHparams (bio, NULL, NULL, NULL);
       BIO_free (bio);
 
       if (dh == NULL) {
@@ -1734,9 +1771,9 @@ client_add_incoming_ssl (Client * client,
     /* Configure ECDH parameters */
     bio = BIO_new_file (cert_file, "r");
     if (bio != NULL) {
-      EC_KEY * key;
+      EC_KEY *key;
       int nid = NID_X9_62_prime256v1;
-      EC_GROUP * group = PEM_read_bio_ECPKParameters (bio, NULL, NULL, NULL);
+      EC_GROUP *group = PEM_read_bio_ECPKParameters (bio, NULL, NULL, NULL);
       BIO_free (bio);
 
       if (group != NULL) {
@@ -1755,22 +1792,22 @@ client_add_incoming_ssl (Client * client,
       }
     }
 
-    ERR_clear_error();
+    ERR_clear_error ();
   }
 
   return TRUE;
 }
 
 static void
-outgoing_ssl_info_callback (const SSL *ssl, int where, int ret)
+outgoing_ssl_info_callback (const SSL * ssl, int where, int ret)
 {
-  Client * client = SSL_get_app_data (ssl);
+  Client *client = SSL_get_app_data (ssl);
 
   if (where & SSL_CB_HANDSHAKE_START) {
     if (client->remote_host != NULL) {
-      if (SSL_set_tlsext_host_name ((SSL *)ssl, client->remote_host) == 0) {
-         print_ssl_errors (client);
-      } 
+      if (SSL_set_tlsext_host_name ((SSL *) ssl, client->remote_host) == 0) {
+        print_ssl_errors (client);
+      }
     }
   }
 }
@@ -1782,7 +1819,7 @@ client_add_outgoing_ssl (Client * client,
 {
   long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3;
 
-  client->ssl_ctx = SSL_CTX_new (SSLv23_client_method());
+  client->ssl_ctx = SSL_CTX_new (SSLv23_client_method ());
 
   if (!tls1_enabled) {
     ssl_options |= SSL_OP_NO_TLSv1;
@@ -1796,8 +1833,7 @@ client_add_outgoing_ssl (Client * client,
   if (file_exists (ca_dir)) {
     SSL_CTX_load_verify_locations (client->ssl_ctx, NULL, ca_dir);
   }
-  SSL_CTX_set_info_callback (client->ssl_ctx,
-      outgoing_ssl_info_callback);
+  SSL_CTX_set_info_callback (client->ssl_ctx, outgoing_ssl_info_callback);
   SSL_CTX_set_verify (client->ssl_ctx,
       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, ssl_verify_callback);
   SSL_CTX_set_mode (client->ssl_ctx,
@@ -1808,10 +1844,10 @@ client_add_outgoing_ssl (Client * client,
 
 Client *
 client_new (gint fd, Connections * connections, GObject * server,
-    gboolean use_ssl, gboolean ignore_localhost, gint stream_id, guint chunk_size,
-    const gchar * remote_host)
+    gboolean use_ssl, gboolean ignore_localhost, gint stream_id,
+    guint chunk_size, const gchar * remote_host)
 {
-  Client * client = g_new0 (Client, 1);
+  Client *client = g_new0 (Client, 1);
 
   client->fd = fd;
   client->state = CLIENT_TCP_HANDSHAKE_IN_PROGRESS;
@@ -1830,7 +1866,7 @@ client_new (gint fd, Connections * connections, GObject * server,
   client->window_size = DEFAULT_WINDOW_SIZE;
 
   client->rtmp_messages = g_hash_table_new_full (NULL, NULL, NULL,
-      (GDestroyNotify)rtmp_message_free);
+      (GDestroyNotify) rtmp_message_free);
 
   client->send_queue = g_byte_array_new ();
   client->buf = g_byte_array_new ();

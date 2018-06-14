@@ -10,7 +10,7 @@ GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 AmfEnc *
 amf_enc_new ()
 {
-  AmfEnc * enc = g_new0 (AmfEnc, 1);
+  AmfEnc *enc = g_new0 (AmfEnc, 1);
   enc->buf = g_byte_array_new ();
   enc->version = AMF0_VERSION;
   return enc;
@@ -32,18 +32,20 @@ amf_enc_add (AmfEnc * enc, const guint8 * data, guint len)
 void
 amf_enc_add_char (AmfEnc * enc, char c)
 {
-  amf_enc_add (enc, (guint8 *)&c, 1);
+  amf_enc_add (enc, (guint8 *) & c, 1);
 }
 
 void
 amf_enc_add_short (AmfEnc * enc, guint16 s)
 {
-  amf_enc_add (enc, (guint8 *)&s, 2);
+  amf_enc_add (enc, (guint8 *) & s, 2);
 }
 
-void write_bytes (guint8 byte) {
-  int i=0;
-  for (i=0; i<8; i++) {
+void
+write_bytes (guint8 byte)
+{
+  int i = 0;
+  for (i = 0; i < 8; i++) {
     printf ("%d", ((byte & (1 << (7 - i))) != 0));
   }
   printf (" ");
@@ -80,12 +82,12 @@ amf_enc_add_int (AmfEnc * enc, guint32 value)
       guint8 byte = bytes[num_bytes - i - 1];
       if (i < num_bytes - 1) {
         /* add a marker-bit for saying "there is more" */
-         byte |= 0x80;
+        byte |= 0x80;
       }
       amf_enc_add (enc, &byte, 1);
     }
   } else {
-    amf_enc_add (enc, (guint8 *)&value, 4);
+    amf_enc_add (enc, (guint8 *) & value, 4);
   }
 }
 
@@ -107,7 +109,7 @@ _write_string (AmfEnc * enc, const gchar * str)
     guint16 str_len = htons (len);
     amf_enc_add_short (enc, str_len);
   }
-  amf_enc_add (enc, (const guint8 *)str, len);
+  amf_enc_add (enc, (const guint8 *) str, len);
 }
 
 void
@@ -145,9 +147,9 @@ amf_enc_write_double (AmfEnc * enc, double n)
   memcpy (&encoded, &n, 8);
 #endif
   uint32_t val = htonl (encoded >> 32);
-  amf_enc_add (enc, (guint8 *)&val, 4);
+  amf_enc_add (enc, (guint8 *) & val, 4);
   val = htonl (encoded);
-  amf_enc_add (enc, (guint8 *)&val, 4);
+  amf_enc_add (enc, (guint8 *) & val, 4);
 }
 
 void
@@ -166,8 +168,8 @@ amf_enc_write_structure (AmfEnc * enc, const GstStructure * s)
 {
   gint len = gst_structure_n_fields (s);
   for (int i = 0; i < len; i++) {
-    const gchar * key = gst_structure_nth_field_name (s, i);
-    const GValue * value = gst_structure_get_value (s, key);
+    const gchar *key = gst_structure_nth_field_name (s, i);
+    const GValue *value = gst_structure_get_value (s, key);
     amf_enc_write_key (enc, key);
     amf_enc_write_value (enc, value);
   }
@@ -231,7 +233,7 @@ amf_enc_write_value (AmfEnc * enc, const GValue * value)
       if (G_VALUE_TYPE (value) == GST_TYPE_STRUCTURE)
         amf_enc_write_object (enc, gst_value_get_structure (value));
       else
-        GST_WARNING ("unknown type %u", (guint)G_VALUE_TYPE (value));
+        GST_WARNING ("unknown type %u", (guint) G_VALUE_TYPE (value));
       break;
   }
 }
@@ -261,7 +263,7 @@ amf_dec_get_byte (AmfDec * dec, guint8 * val)
 AmfDec *
 amf_dec_new (GByteArray * buf, guint pos)
 {
-  AmfDec * dec = g_new0 (AmfDec, 1);
+  AmfDec *dec = g_new0 (AmfDec, 1);
   dec->buf = buf;
   dec->pos = pos;
 
@@ -331,7 +333,7 @@ _load_string (AmfDec * dec)
     GST_WARNING ("Not enough data");
     return NULL;
   }
-  gchar * s = g_strndup ((const gchar *)&dec->buf->data[dec->pos], str_len);
+  gchar *s = g_strndup ((const gchar *) &dec->buf->data[dec->pos], str_len);
   dec->pos += str_len;
   return s;
 }
@@ -397,11 +399,11 @@ amf_dec_load_integer (AmfDec * dec, gint * val)
     return FALSE;
 
   if (dec->version == AMF3_VERSION) {
-    return amf_dec_load_amf3_integer (dec, (guint *)val);
+    return amf_dec_load_amf3_integer (dec, (guint *) val);
   } else {
     gdouble val_d;
     gboolean ret = amf_dec_load_number (dec, &val_d);
-    *val = (gint)val_d;
+    *val = (gint) val_d;
     return ret;
   }
 }
@@ -433,12 +435,12 @@ static void
 amf_dec_load_structure (AmfDec * dec, GstStructure * s)
 {
   while (1) {
-    gchar * key = amf_dec_load_key (dec);
+    gchar *key = amf_dec_load_key (dec);
     if (key == NULL || strlen (key) == 0) {
       g_free (key);
       break;
     }
-    GValue * value = amf_dec_load (dec);
+    GValue *value = amf_dec_load (dec);
     gst_structure_set_value (s, key, value);
     g_free (key);
     g_value_unset (value);
@@ -449,7 +451,7 @@ amf_dec_load_structure (AmfDec * dec, GstStructure * s)
 GstStructure *
 amf_dec_load_object (AmfDec * dec)
 {
-  GstStructure * object = gst_structure_new_empty ("object");
+  GstStructure *object = gst_structure_new_empty ("object");
 
   guint8 type;
   if (!amf_dec_get_byte (dec, &type))
@@ -477,7 +479,7 @@ amf_dec_load_object (AmfDec * dec)
     guint8 object_count;
     if (!amf_dec_get_byte (dec, &object_count))
       goto done;
-    (void)object_count; //FIXME: could use this!
+    (void) object_count;        //FIXME: could use this!
 
     guint8 start_byte;
     if (!amf_dec_get_byte (dec, &start_byte))
@@ -508,7 +510,7 @@ done:
 GValue *
 amf_dec_load (AmfDec * dec)
 {
-  GValue * value = g_new0 (GValue, 1);
+  GValue *value = g_new0 (GValue, 1);
   guint8 type;
   if (!amf_dec_peek_byte (dec, &type))
     goto done;
@@ -518,7 +520,7 @@ amf_dec_load (AmfDec * dec)
       case AMF3_STRING:
       {
         g_value_init (value, G_TYPE_STRING);
-        gchar * string = amf_dec_load_string (dec);
+        gchar *string = amf_dec_load_string (dec);
         g_value_set_string (value, string);
         g_free (string);
         break;
@@ -560,7 +562,7 @@ amf_dec_load (AmfDec * dec)
       case AMF3_OBJECT:
       {
         g_value_init (value, GST_TYPE_STRUCTURE);
-        GstStructure * s = amf_dec_load_object (dec);
+        GstStructure *s = amf_dec_load_object (dec);
         gst_value_set_structure (value, s);
         gst_structure_free (s);
         break;
@@ -581,7 +583,7 @@ amf_dec_load (AmfDec * dec)
       case AMF0_STRING:
       {
         g_value_init (value, G_TYPE_STRING);
-        gchar * string = amf_dec_load_string (dec);
+        gchar *string = amf_dec_load_string (dec);
         g_value_set_string (value, string);
         g_free (string);
         break;
@@ -608,7 +610,7 @@ amf_dec_load (AmfDec * dec)
       case AMF0_ECMA_ARRAY:
       {
         g_value_init (value, GST_TYPE_STRUCTURE);
-        GstStructure * s = amf_dec_load_object (dec);
+        GstStructure *s = amf_dec_load_object (dec);
         gst_value_set_structure (value, s);
         gst_structure_free (s);
         break;

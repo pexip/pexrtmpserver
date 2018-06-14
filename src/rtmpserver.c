@@ -40,10 +40,8 @@ GST_DEBUG_CATEGORY (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
 
 G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
-
 #define PEX_RTMP_SERVER_GET_PRIVATE(obj) (G_TYPE_INSTANCE_GET_PRIVATE ((obj),\
       PEX_TYPE_RTMP_SERVER, PexRtmpServerPrivate))
-
 #define DEFAULT_APPLICATION_NAME ""
 #define DEFAULT_PORT 1935
 #define DEFAULT_SSL_PORT 443
@@ -57,48 +55,47 @@ G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 #define DEFAULT_STREAM_ID 1337
 #define DEFAULT_CHUNK_SIZE 128
 #define DEFAULT_TCP_SYNCNT -1
+     enum
+     {
+       PROP_0,
+       PROP_APPLICATION_NAME,
+       PROP_PORT,
+       PROP_SSL_PORT,
+       PROP_CERT_FILE,
+       PROP_KEY_FILE,
+       PROP_CA_CERT_FILE,
+       PROP_CA_CERT_DIR,
+       PROP_CIPHERS,
+       PROP_TLS1_ENABLED,
+       PROP_IGNORE_LOCALHOST,
+       PROP_STREAM_ID,
+       PROP_CHUNK_SIZE,
+       PROP_TCP_SYNCNT,
+       PROP_POLL_COUNT,
+     };
 
-enum
-{
-  PROP_0,
-  PROP_APPLICATION_NAME,
-  PROP_PORT,
-  PROP_SSL_PORT,
-  PROP_CERT_FILE,
-  PROP_KEY_FILE,
-  PROP_CA_CERT_FILE,
-  PROP_CA_CERT_DIR,
-  PROP_CIPHERS,
-  PROP_TLS1_ENABLED,
-  PROP_IGNORE_LOCALHOST,
-  PROP_STREAM_ID,
-  PROP_CHUNK_SIZE,
-  PROP_TCP_SYNCNT,
-  PROP_POLL_COUNT,
-};
+     enum
+     {
+       SIGNAL_ON_PLAY,
+       SIGNAL_ON_PLAY_DONE,
+       SIGNAL_ON_PUBLISH,
+       SIGNAL_ON_PUBLISH_DONE,
+       SIGNAL_ON_QUEUE_OVERFLOW,
+       LAST_SIGNAL
+     };
 
-enum
-{
-  SIGNAL_ON_PLAY,
-  SIGNAL_ON_PLAY_DONE,
-  SIGNAL_ON_PUBLISH,
-  SIGNAL_ON_PUBLISH_DONE,
-  SIGNAL_ON_QUEUE_OVERFLOW,
-  LAST_SIGNAL
-};
-
-static guint pex_rtmp_server_signals[LAST_SIGNAL] = { 0 };
+     static guint pex_rtmp_server_signals[LAST_SIGNAL] = { 0 };
 
 struct _PexRtmpServerPrivate
 {
-  gchar * application_name;
+  gchar *application_name;
   gint port;
   gint ssl_port;
-  gchar * cert_file;
-  gchar * key_file;
-  gchar * ca_cert_file;
-  gchar * ca_cert_dir;
-  gchar * ciphers;
+  gchar *cert_file;
+  gchar *key_file;
+  gchar *ca_cert_file;
+  gchar *ca_cert_dir;
+  gchar *ciphers;
   gboolean tls1_enabled;
   gboolean ignore_localhost;
   gint stream_id;
@@ -109,13 +106,13 @@ struct _PexRtmpServerPrivate
   gint listen_fd;
   gint listen_ssl_fd;
 
-  GArray * poll_table;
-  GHashTable * fd_to_client;
+  GArray *poll_table;
+  GHashTable *fd_to_client;
   gboolean running;
-  GThread * thread;
+  GThread *thread;
 
-  Connections * connections;
-  GstAtomicQueue * dialout_clients;
+  Connections *connections;
+  GstAtomicQueue *dialout_clients;
 };
 
 
@@ -134,15 +131,13 @@ pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
       "ca-cert-file", ca_cert_file,
       "ca-cert-dir", ca_cert_dir,
       "ciphers", ciphers,
-      "tls1-enabled", tls1_enabled,
-      "ignore-localhost", ignore_localhost,
-      NULL);
+      "tls1-enabled", tls1_enabled, "ignore-localhost", ignore_localhost, NULL);
 }
 
 static void
-pex_rtmp_server_init (PexRtmpServer *srv)
+pex_rtmp_server_init (PexRtmpServer * srv)
 {
-  PexRtmpServerPrivate * priv;
+  PexRtmpServerPrivate *priv;
   priv = srv->priv = PEX_RTMP_SERVER_GET_PRIVATE (srv);
   priv->application_name = NULL;
   priv->port = DEFAULT_PORT;
@@ -172,8 +167,8 @@ pex_rtmp_server_dispose (GObject * obj)
 static void
 pex_rtmp_server_finalize (GObject * obj)
 {
-  PexRtmpServer * srv = PEX_RTMP_SERVER_CAST (obj);
-  PexRtmpServerPrivate * priv = srv->priv;
+  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
+  PexRtmpServerPrivate *priv = srv->priv;
 
   g_free (priv->application_name);
   g_free (priv->cert_file);
@@ -194,7 +189,7 @@ static void
 pex_rtmp_server_set_property (GObject * obj, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
-  PexRtmpServer * srv = PEX_RTMP_SERVER_CAST (obj);
+  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
 
   switch (prop_id) {
     case PROP_APPLICATION_NAME:
@@ -245,7 +240,7 @@ static void
 pex_rtmp_server_get_property (GObject * obj, guint prop_id,
     GValue * value, GParamSpec * pspec)
 {
-  PexRtmpServer * srv = PEX_RTMP_SERVER_CAST (obj);
+  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
 
   switch (prop_id) {
     case PROP_APPLICATION_NAME:
@@ -296,7 +291,7 @@ pex_rtmp_server_get_property (GObject * obj, guint prop_id,
 }
 
 static void
-pex_rtmp_server_class_init (PexRtmpServerClass *klass)
+pex_rtmp_server_class_init (PexRtmpServerClass * klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
@@ -351,7 +346,8 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
           G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_IGNORE_LOCALHOST,
-      g_param_spec_boolean ("ignore-localhost", "Localhost ignored from signal emitting",
+      g_param_spec_boolean ("ignore-localhost",
+          "Localhost ignored from signal emitting",
           "Localhost ignored from signal emitting", DEFAULT_IGNORE_LOCALHOST,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
@@ -376,8 +372,7 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
   g_object_class_install_property (gobject_class, PROP_POLL_COUNT,
       g_param_spec_int ("poll-count", "Poll count",
           "The number of times poll() has been called",
-          0, G_MAXINT, 0,
-          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+          0, G_MAXINT, 0, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   pex_rtmp_server_signals[SIGNAL_ON_PLAY] =
       g_signal_new ("on-play", PEX_TYPE_RTMP_SERVER,
@@ -386,28 +381,28 @@ pex_rtmp_server_class_init (PexRtmpServerClass *klass)
 
   pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE] =
       g_signal_new ("on-play-done", PEX_TYPE_RTMP_SERVER,
-          G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-          G_TYPE_NONE, 1, G_TYPE_STRING);
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_NONE, 1, G_TYPE_STRING);
 
   pex_rtmp_server_signals[SIGNAL_ON_PUBLISH] =
       g_signal_new ("on-publish", PEX_TYPE_RTMP_SERVER,
-          G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-          G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
 
   pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE] =
       g_signal_new ("on-publish-done", PEX_TYPE_RTMP_SERVER,
-          G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-          G_TYPE_NONE, 1, G_TYPE_STRING);
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_NONE, 1, G_TYPE_STRING);
 
   pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW] =
       g_signal_new ("on-queue-overflow", PEX_TYPE_RTMP_SERVER,
-          G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-          G_TYPE_NONE, 1, G_TYPE_STRING);
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_NONE, 1, G_TYPE_STRING);
 
   g_type_class_add_private (gobject_class, sizeof (PexRtmpServerPrivate));
 
-  GST_DEBUG_CATEGORY_INIT (
-    pex_rtmp_server_debug, "pexrtmpserver", 0, "pexrtmpserver");
+  GST_DEBUG_CATEGORY_INIT (pex_rtmp_server_debug, "pexrtmpserver", 0,
+      "pexrtmpserver");
 }
 
 static int
@@ -447,9 +442,10 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 {
   struct sockaddr_in sin;
   socklen_t addrlen = sizeof (sin);
-  gint fd = accept (listen_fd, (struct sockaddr *)&sin, &addrlen);
+  gint fd = accept (listen_fd, (struct sockaddr *) &sin, &addrlen);
   if (fd < 0) {
-    GST_WARNING_OBJECT (srv, "Unable to accept a client on fd %d: %s", listen_fd, strerror (errno));
+    GST_WARNING_OBJECT (srv, "Unable to accept a client on fd %d: %s",
+        listen_fd, strerror (errno));
     return;
   }
 
@@ -457,26 +453,27 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   set_nonblock (fd, TRUE);
 
   gboolean use_ssl = listen_fd == srv->priv->listen_ssl_fd;
-  Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
-      use_ssl, srv->priv->ignore_localhost, srv->priv->stream_id, srv->priv->chunk_size, NULL);
-  GST_INFO_OBJECT (srv, "Accepted client %s connection using port %d (client %p)",
-      use_ssl ? "rtmps" : "rtmp", ntohs(sin.sin_port), client);
+  Client *client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
+      use_ssl, srv->priv->ignore_localhost, srv->priv->stream_id,
+      srv->priv->chunk_size, NULL);
+  GST_INFO_OBJECT (srv,
+      "Accepted client %s connection using port %d (client %p)",
+      use_ssl ? "rtmps" : "rtmp", ntohs (sin.sin_port), client);
 
   /* ssl connection */
   if (use_ssl) {
-    gchar * cert_file, * key_file, * ca_file, * ca_dir, * ciphers;
+    gchar *cert_file, *key_file, *ca_file, *ca_dir, *ciphers;
     gboolean tls1_enabled;
 
     g_object_get (srv,
-                  "cert-file", &cert_file,
-                  "key-file", &key_file,
-                  "ca-cert-file", &ca_file,
-                  "ca-cert-dir", &ca_dir,
-                  "ciphers", &ciphers,
-                  "tls1-enabled", &tls1_enabled,
-                  NULL);
+        "cert-file", &cert_file,
+        "key-file", &key_file,
+        "ca-cert-file", &ca_file,
+        "ca-cert-dir", &ca_dir,
+        "ciphers", &ciphers, "tls1-enabled", &tls1_enabled, NULL);
 
-    client_add_incoming_ssl (client, cert_file, key_file, ca_file, ca_dir, ciphers, tls1_enabled);
+    client_add_incoming_ssl (client, cert_file, key_file, ca_file, ca_dir,
+        ciphers, tls1_enabled);
 
     g_free (cert_file);
     g_free (key_file);
@@ -501,8 +498,9 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
   GST_DEBUG_OBJECT (srv, "Initiating a %s connection", protocol);
   gboolean ignore_localhost;
   g_object_get (srv, "ignore-localhost", &ignore_localhost, NULL);
-  Client * client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
-    use_ssl, ignore_localhost, srv->priv->stream_id, srv->priv->chunk_size, remote_host);
+  Client *client = client_new (fd, srv->priv->connections, G_OBJECT (srv),
+      use_ssl, ignore_localhost, srv->priv->stream_id, srv->priv->chunk_size,
+      remote_host);
   client->path = g_strdup (path);
   client->dialout_path = g_strdup (dialout_path);
   client->tcUrl = g_strdup (tcUrl);
@@ -512,17 +510,16 @@ rtmp_server_create_dialout_client (PexRtmpServer * srv, gint fd,
   client->addresses = g_strdup (addresses);
 
   if (use_ssl) {
-    gchar * ca_file, * ca_dir, * ciphers;
+    gchar *ca_file, *ca_dir, *ciphers;
     gboolean tls1_enabled;
 
     g_object_get (srv,
-                  "ca-cert-file", &ca_file,
-                  "ca-cert-dir", &ca_dir,
-                  "ciphers", &ciphers,
-                  "tls1-enabled", &tls1_enabled,
-                  NULL);
+        "ca-cert-file", &ca_file,
+        "ca-cert-dir", &ca_dir,
+        "ciphers", &ciphers, "tls1-enabled", &tls1_enabled, NULL);
 
-    if (!client_add_outgoing_ssl (client, ca_file, ca_dir, ciphers, tls1_enabled)) {
+    if (!client_add_outgoing_ssl (client, ca_file, ca_dir, ciphers,
+            tls1_enabled)) {
       /* Client logs warnings for us, so no need to do that here */
       g_free (ca_file);
       g_free (ca_dir);
@@ -544,7 +541,8 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
 {
   GST_DEBUG_OBJECT (srv, "removing client %p with fd %d", client, client->fd);
   if (client->added_to_fd_table)
-    g_assert (g_hash_table_remove (srv->priv->fd_to_client, GINT_TO_POINTER (client->fd)));
+    g_assert (g_hash_table_remove (srv->priv->fd_to_client,
+            GINT_TO_POINTER (client->fd)));
   if (!client->released) {
     close (client->fd);
     client->released = TRUE;
@@ -553,7 +551,7 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
   if (client->path)
     connections_remove_client (srv->priv->connections, client, client->path);
 
-  gchar * path = g_strdup (client->path);
+  gchar *path = g_strdup (client->path);
   gboolean publisher = client->publisher;
   client_free (client);
 
@@ -568,10 +566,10 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
   }
 
   if (publisher) {
-    GSList * subscribers = connections_get_subscribers (
-        srv->priv->connections, path);
+    GSList *subscribers =
+        connections_get_subscribers (srv->priv->connections, path);
     for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
-      Client * subscriber = (Client *)walk->data;
+      Client *subscriber = (Client *) walk->data;
       GST_DEBUG_OBJECT (srv,
           "removing streaming subscriber %p as publisher removed with fd %d",
           subscriber, subscriber->fd);
@@ -629,7 +627,7 @@ static gint
 count_chars_in_string (const gchar * s, char c)
 {
   gint ret;
-  for (ret = 0; s[ret]; s[ret]==c ? ret++ : *(s++));
+  for (ret = 0; s[ret]; s[ret] == c ? ret++ : *(s++));
   return ret;
 }
 
@@ -648,14 +646,18 @@ get_port_from_string (const gchar * s, gint * port)
   return TRUE;
 }
 
-gchar*
-pex_rtmp_server_get_application_for_path (PexRtmpServer * srv, gchar * path, gboolean is_publisher) {
-  Client * connection = NULL;
-  GST_WARNING_OBJECT (srv, "Finding application for %s - publish: %d", path, is_publisher);
-  GList * clients = g_hash_table_get_values (srv->priv->fd_to_client);
+gchar *
+pex_rtmp_server_get_application_for_path (PexRtmpServer * srv, gchar * path,
+    gboolean is_publisher)
+{
+  Client *connection = NULL;
+  GST_WARNING_OBJECT (srv, "Finding application for %s - publish: %d", path,
+      is_publisher);
+  GList *clients = g_hash_table_get_values (srv->priv->fd_to_client);
   for (GList * walk = clients; walk; walk = g_list_next (walk)) {
-    Client * client = (Client *)walk->data;
-    if (g_strcmp0 (client->path, path) == 0 && client->publisher == is_publisher) {
+    Client *client = (Client *) walk->data;
+    if (g_strcmp0 (client->path, path) == 0
+        && client->publisher == is_publisher) {
       connection = client;
       break;
     }
@@ -675,10 +677,10 @@ pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
 {
   gboolean ret = TRUE;
 
-  gchar ** space_clip = NULL;
-  gchar ** protocol_clip = NULL;
-  gchar ** slash_clip = NULL;
-  gchar ** address_clip = NULL;
+  gchar **space_clip = NULL;
+  gchar **protocol_clip = NULL;
+  gchar **slash_clip = NULL;
+  gchar **address_clip = NULL;
 
   *protocol = NULL;
   *port = 0;
@@ -688,7 +690,7 @@ pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
 
   /* start by clipping off anything on the end (live=1) */
   space_clip = g_strsplit (url, " ", 1024);
-  const gchar * url_nospace = space_clip[0];
+  const gchar *url_nospace = space_clip[0];
 
   if (url_nospace == NULL) {
     GST_WARNING_OBJECT (srv, "Unable to parse");
@@ -698,9 +700,10 @@ pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
 
   /* then clip before and after protocol (rtmp://) */
   protocol_clip = g_strsplit (url_nospace, "://", 1024);
-  const gchar * protocol_tmp = protocol_clip[0];
-  const gchar * the_rest = protocol_clip[1];
-  if (!(protocol_tmp && the_rest && (g_strcmp0 (protocol_tmp, "rtmp") == 0 || g_strcmp0 (protocol_tmp, "rtmps") == 0))) {
+  const gchar *protocol_tmp = protocol_clip[0];
+  const gchar *the_rest = protocol_clip[1];
+  if (!(protocol_tmp && the_rest && (g_strcmp0 (protocol_tmp, "rtmp") == 0
+              || g_strcmp0 (protocol_tmp, "rtmps") == 0))) {
     GST_WARNING_OBJECT (srv, "Unable to parse");
     ret = FALSE;
     goto done;
@@ -712,15 +715,16 @@ pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
   while (slash_clip[idx] != NULL)
     idx++;
   if (idx < 3) {
-    GST_WARNING_OBJECT (srv, "Not able to find address, application_name and path");
+    GST_WARNING_OBJECT (srv,
+        "Not able to find address, application_name and path");
     ret = FALSE;
     goto done;
   }
 
   /* clip IP and port */
-  const gchar * address = slash_clip[0];
+  const gchar *address = slash_clip[0];
   gint num_colons = count_chars_in_string (address, ':');
-  if (num_colons > 1) { /* ipv6 */
+  if (num_colons > 1) {         /* ipv6 */
     address_clip = g_strsplit (address, "]:", 1024);
 
     if (!get_port_from_string (address_clip[1], port)) {
@@ -730,11 +734,11 @@ pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
     }
 
     if (address_clip[1] != NULL) {
-      *ip = g_strdup (&address_clip[0][1]); /* remove the the beginning '[' */
+      *ip = g_strdup (&address_clip[0][1]);     /* remove the the beginning '[' */
     } else {
       *ip = g_strdup (address);
     }
-  } else { /* ipv4 */
+  } else {                      /* ipv4 */
     address_clip = g_strsplit (address, ":", 1024);
     if (!get_port_from_string (address_clip[1], port)) {
       GST_WARNING_OBJECT (srv, "Specify the port, buster!");
@@ -745,11 +749,12 @@ pex_rtmp_server_parse_url (PexRtmpServer * srv, const gchar * url,
   }
 
   *protocol = g_strdup (protocol_tmp);
-  *path = g_strdup (slash_clip[idx - 1]); /* path is last */
+  *path = g_strdup (slash_clip[idx - 1]);       /* path is last */
   *application_name = g_strndup (&the_rest[strlen (address) + 1],
       strlen (the_rest) - strlen (address) - strlen (*path) - 2);
 
-  GST_DEBUG_OBJECT (srv, "Parsed: Protocol: %s, Ip: %s, Port: %d, Application Name: %s, Path: %s",
+  GST_DEBUG_OBJECT (srv,
+      "Parsed: Protocol: %s, Ip: %s, Port: %d, Application Name: %s, Path: %s",
       *protocol, *ip, *port, *application_name, *path);
 
 done:
@@ -770,19 +775,19 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   int fd;
   struct sockaddr_storage address;
 
-  memset (&address, 0, sizeof(struct sockaddr_storage));
+  memset (&address, 0, sizeof (struct sockaddr_storage));
 
   struct addrinfo hints;
   struct addrinfo *result = NULL;
 
-  memset (&hints, 0, sizeof(struct addrinfo));
-  hints.ai_family = AF_UNSPEC;     /* Allow IPv4 or IPv6 */
-  hints.ai_socktype = SOCK_STREAM; /* Stream soc */
-  hints.ai_protocol = IPPROTO_TCP; /* TCP protocol */
+  memset (&hints, 0, sizeof (struct addrinfo));
+  hints.ai_family = AF_UNSPEC;  /* Allow IPv4 or IPv6 */
+  hints.ai_socktype = SOCK_STREAM;      /* Stream soc */
+  hints.ai_protocol = IPPROTO_TCP;      /* TCP protocol */
 
   ret = getaddrinfo (ip, NULL, &hints, &result);
   if (ret != 0) {
-    GST_WARNING_OBJECT (srv, "getaddrinfo: %s", gai_strerror(ret));
+    GST_WARNING_OBJECT (srv, "getaddrinfo: %s", gai_strerror (ret));
     return INVALID_FD;
   }
   memcpy (&address, result->ai_addr, result->ai_addrlen);
@@ -798,22 +803,22 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   set_nonblock (fd, TRUE);
 
   /* set timeout */
-  struct timeval tv = {30, 0};
-  if (setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof (tv))) {
+  struct timeval tv = { 30, 0 };
+  if (setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, (char *) &tv, sizeof (tv))) {
     GST_WARNING_OBJECT (srv, "Could not set timeout");
   }
 
   /* Disable packet-accumulation delay (Nagle's algorithm) */
   gint value = 1;
-  setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof (value));
+  setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, (char *) &value, sizeof (value));
   /* Allow reuse of the local address */
-  setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, (char *)&value, sizeof (value));
+  setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, (char *) &value, sizeof (value));
 
   /* Configure TCP_SYNCNT */
   if (srv->priv->tcp_syncnt >= 0) {
 #ifdef TCP_SYNCNT
     value = srv->priv->tcp_syncnt;
-    setsockopt (fd, IPPROTO_TCP, TCP_SYNCNT, (char *)&value, sizeof (value));
+    setsockopt (fd, IPPROTO_TCP, TCP_SYNCNT, (char *) &value, sizeof (value));
 #endif
   }
 
@@ -826,7 +831,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
       sin.sin_port = htons (src_port);
       sin.sin_addr.s_addr = INADDR_ANY;
 
-      if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
+      if (bind (fd, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
         GST_WARNING_OBJECT (srv, "Unable to bind to port %d: %s",
             src_port, strerror (errno));
         close (fd);
@@ -839,7 +844,7 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
       sin.sin6_port = htons (src_port);
       sin.sin6_addr = in6addr_any;
 
-      if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
+      if (bind (fd, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
         GST_WARNING_OBJECT (srv, "Unable to bind to port %d: %s",
             src_port, strerror (errno));
         close (fd);
@@ -849,17 +854,21 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
   }
 
   if (address.ss_family == AF_INET) {
-    ((struct sockaddr_in *)&address)->sin_port = htons (port);
-    ret = connect (fd, (struct sockaddr *)&address, sizeof (struct sockaddr_in));
+    ((struct sockaddr_in *) &address)->sin_port = htons (port);
+    ret =
+        connect (fd, (struct sockaddr *) &address, sizeof (struct sockaddr_in));
   } else {
-    ((struct sockaddr_in6 *)&address)->sin6_port = htons (port);
-    ret = connect (fd, (struct sockaddr *)&address, sizeof (struct sockaddr_in6));
+    ((struct sockaddr_in6 *) &address)->sin6_port = htons (port);
+    ret =
+        connect (fd, (struct sockaddr *) &address,
+        sizeof (struct sockaddr_in6));
   }
 
   if (ret != 0 && errno != EINPROGRESS) {
-      GST_WARNING_OBJECT (srv, "could not connect on port %d: %s", port, g_strerror (errno));
-      close (fd);
-      return INVALID_FD;
+    GST_WARNING_OBJECT (srv, "could not connect on port %d: %s", port,
+        g_strerror (errno));
+    close (fd);
+    return INVALID_FD;
   }
 
   return fd;
@@ -867,36 +876,41 @@ pex_rtmp_server_tcp_connect (PexRtmpServer * srv,
 
 gboolean
 pex_rtmp_server_dialout (PexRtmpServer * srv,
-    const gchar * src_path, const gchar * url, const gchar * addresses, gint src_port)
+    const gchar * src_path, const gchar * url, const gchar * addresses,
+    gint src_port)
 {
-  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, FALSE, src_port);
+  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, FALSE,
+      src_port);
 }
 
 gboolean
 pex_rtmp_server_dialin (PexRtmpServer * srv,
-    const gchar * src_path, const gchar * url, const gchar * addresses, gint src_port)
+    const gchar * src_path, const gchar * url, const gchar * addresses,
+    gint src_port)
 {
-  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, TRUE, src_port);
+  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, TRUE,
+      src_port);
 }
 
 gboolean
 pex_rtmp_server_external_connect (PexRtmpServer * srv,
-    const gchar * src_path, const gchar * url, const gchar * addresses, const gboolean is_publisher, gint src_port)
+    const gchar * src_path, const gchar * url, const gchar * addresses,
+    const gboolean is_publisher, gint src_port)
 {
   gboolean ret = FALSE;
-  gchar * protocol = NULL;
+  gchar *protocol = NULL;
   gint port;
-  gchar * host = NULL;
-  gchar * app = NULL;
-  gchar * dialout_path = NULL;
-  gchar * tcUrl = NULL;
-  gchar ** addressv = NULL;
-  gchar ** address = NULL;
-  gchar * new_addresses = NULL;
+  gchar *host = NULL;
+  gchar *app = NULL;
+  gchar *dialout_path = NULL;
+  gchar *tcUrl = NULL;
+  gchar **addressv = NULL;
+  gchar **address = NULL;
+  gchar *new_addresses = NULL;
   gint fd = INVALID_FD;
 
   if (!pex_rtmp_server_parse_url (srv, url,
-      &protocol, &port, &host, &app, &dialout_path)) {
+          &protocol, &port, &host, &app, &dialout_path)) {
     goto done;
   }
 
@@ -919,15 +933,15 @@ pex_rtmp_server_external_connect (PexRtmpServer * srv,
     goto done;
   }
 
-  new_addresses = g_strjoinv(",", addressv+1);
+  new_addresses = g_strjoinv (",", addressv + 1);
 
   const gchar *tcUrlFmt = "%s://%s:%d/%s";
-  if (strchr (host, ':')) { /* ipv6 */
+  if (strchr (host, ':')) {     /* ipv6 */
     tcUrlFmt = "%s://[%s]:%d/%s";
   }
   tcUrl = g_strdup_printf (tcUrlFmt, protocol, host, port, app);
 
-  Client * client = rtmp_server_create_dialout_client (srv, fd,
+  Client *client = rtmp_server_create_dialout_client (srv, fd,
       src_path, protocol, host, tcUrl, app, dialout_path,
       url, new_addresses, is_publisher);
 
@@ -956,10 +970,10 @@ done:
 void
 rtmp_server_add_pending_dialout_clients (PexRtmpServer * srv)
 {
-  PexRtmpServerPrivate * priv = srv->priv;
+  PexRtmpServerPrivate *priv = srv->priv;
 
   while (gst_atomic_queue_length (priv->dialout_clients) > 0) {
-    Client * client = gst_atomic_queue_pop (priv->dialout_clients);
+    Client *client = gst_atomic_queue_pop (priv->dialout_clients);
     rtmp_server_add_client_to_poll_table (srv, client);
     GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, client->fd);
   }
@@ -968,15 +982,15 @@ rtmp_server_add_pending_dialout_clients (PexRtmpServer * srv)
 static gboolean
 rtmp_server_do_poll (PexRtmpServer * srv)
 {
-  PexRtmpServerPrivate * priv = srv->priv;
+  PexRtmpServerPrivate *priv = srv->priv;
 
   rtmp_server_add_pending_dialout_clients (srv);
 
   for (size_t i = 0; i < priv->poll_table->len; ++i) {
-    struct pollfd * entry = (struct pollfd *)&g_array_index (
-        priv->poll_table, struct pollfd, i);
+    struct pollfd *entry =
+        (struct pollfd *) &g_array_index (priv->poll_table, struct pollfd, i);
 
-    Client * client = g_hash_table_lookup (priv->fd_to_client,
+    Client *client = g_hash_table_lookup (priv->fd_to_client,
         GINT_TO_POINTER (entry->fd));
     if (client != NULL) {
 #if defined(HOST_LINUX)
@@ -990,8 +1004,8 @@ rtmp_server_do_poll (PexRtmpServer * srv)
 
   /* waiting for traffic on all connections */
   priv->poll_count++;
-  const gint timeout = 200; /* 200 ms second */
-  gint result = poll ((struct pollfd *)&priv->poll_table->data[0],
+  const gint timeout = 200;     /* 200 ms second */
+  gint result = poll ((struct pollfd *) &priv->poll_table->data[0],
       priv->poll_table->len, timeout);
 
   if (priv->running == FALSE)
@@ -1008,28 +1022,33 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     if (priv->running == FALSE)
       return FALSE;
 
-    struct pollfd * entry = (struct pollfd *)&g_array_index (
-        priv->poll_table, struct pollfd, i);
-    Client * client = g_hash_table_lookup (priv->fd_to_client,
+    struct pollfd *entry =
+        (struct pollfd *) &g_array_index (priv->poll_table, struct pollfd, i);
+    Client *client = g_hash_table_lookup (priv->fd_to_client,
         GINT_TO_POINTER (entry->fd));
     //GST_DEBUG_OBJECT (srv, "fd %d has client %p", entry->fd, client);
 
     /* ready to send */
     if (client && entry->revents & POLLNVAL) {
-        GST_WARNING_OBJECT (srv, "poll() called on closed fd - removing client (path=%s, publisher=%d)", client->path, client->publisher);
-        rtmp_server_remove_client (srv, client);
-        srv->priv->poll_table = g_array_remove_index (priv->poll_table, i);
-        i--;
-        continue;
+      GST_WARNING_OBJECT (srv,
+          "poll() called on closed fd - removing client (path=%s, publisher=%d)",
+          client->path, client->publisher);
+      rtmp_server_remove_client (srv, client);
+      srv->priv->poll_table = g_array_remove_index (priv->poll_table, i);
+      i--;
+      continue;
     }
 
     if (client && entry->revents & POLLOUT) {
       gboolean connect_failed = FALSE;
       if (!client_try_to_send (client, &connect_failed)) {
         if (connect_failed && client->addresses) {
-          pex_rtmp_server_external_connect (srv, client->path, client->url, client->addresses, client->publisher, 0);
+          pex_rtmp_server_external_connect (srv, client->path, client->url,
+              client->addresses, client->publisher, 0);
         } else {
-          GST_WARNING_OBJECT (srv, "client error, send failed (path=%s, publisher=%d)", client->path, client->publisher);
+          GST_WARNING_OBJECT (srv,
+              "client error, send failed (path=%s, publisher=%d)", client->path,
+              client->publisher);
         }
         rtmp_server_remove_client (srv, client);
         srv->priv->poll_table = g_array_remove_index (priv->poll_table, i);
@@ -1057,8 +1076,8 @@ rtmp_server_do_poll (PexRtmpServer * srv)
 static gpointer
 rtmp_server_func (gpointer data)
 {
-  PexRtmpServer * srv = PEX_RTMP_SERVER_CAST (data);
-  PexRtmpServerPrivate * priv = srv->priv;
+  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (data);
+  PexRtmpServerPrivate *priv = srv->priv;
 
   gboolean ret = TRUE;
   signal (SIGPIPE, SIG_IGN);
@@ -1069,9 +1088,9 @@ rtmp_server_func (gpointer data)
 
   /* remove outstanding clients */
   for (size_t i = 0; i < srv->priv->poll_table->len; ++i) {
-    struct pollfd * entry = (struct pollfd *)&g_array_index (
-        priv->poll_table, struct pollfd, i);
-    Client * client = g_hash_table_lookup (priv->fd_to_client,
+    struct pollfd *entry =
+        (struct pollfd *) &g_array_index (priv->poll_table, struct pollfd, i);
+    Client *client = g_hash_table_lookup (priv->fd_to_client,
         GINT_TO_POINTER (entry->fd));
     if (client)
       rtmp_server_remove_client (srv, client);
@@ -1080,7 +1099,7 @@ rtmp_server_func (gpointer data)
   }
 
   while (gst_atomic_queue_length (priv->dialout_clients) > 0) {
-    Client * client = gst_atomic_queue_pop (priv->dialout_clients);
+    Client *client = gst_atomic_queue_pop (priv->dialout_clients);
     rtmp_server_remove_client (srv, client);
   }
 
@@ -1094,8 +1113,7 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
   g_assert_cmpint (fd, >=, 0);
 
   int sock_optval = 1;
-  setsockopt (fd, SOL_SOCKET, SO_REUSEADDR,
-      &sock_optval, sizeof (sock_optval));
+  setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &sock_optval, sizeof (sock_optval));
 
   struct sockaddr_in6 sin;
   memset (&sin, 0, sizeof (struct sockaddr_in6));
@@ -1103,7 +1121,7 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
   sin.sin6_port = htons (port);
   sin.sin6_addr = in6addr_any;
 
-  if (bind (fd, (struct sockaddr *)&sin, sizeof (sin)) < 0) {
+  if (bind (fd, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
     GST_WARNING_OBJECT (srv, "Unable to listen to port %d: %s",
         port, strerror (errno));
     close (fd);
@@ -1119,7 +1137,7 @@ pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
 gboolean
 pex_rtmp_server_start (PexRtmpServer * srv)
 {
-  PexRtmpServerPrivate * priv = srv->priv;
+  PexRtmpServerPrivate *priv = srv->priv;
 
   /* listen for normal and ssl connections */
   priv->listen_fd = pex_rtmp_server_add_listen_fd (srv, priv->port);
@@ -1142,7 +1160,7 @@ pex_rtmp_server_start (PexRtmpServer * srv)
 void
 pex_rtmp_server_stop (PexRtmpServer * srv)
 {
-  PexRtmpServerPrivate * priv = srv->priv;
+  PexRtmpServerPrivate *priv = srv->priv;
 
   GST_DEBUG_OBJECT (srv, "Stopping...");
   priv->running = FALSE;
@@ -1155,7 +1173,8 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
     close (priv->listen_ssl_fd);
 }
 
-void pex_rtmp_server_free (PexRtmpServer * srv)
+void
+pex_rtmp_server_free (PexRtmpServer * srv)
 {
   g_object_unref (srv);
 }
