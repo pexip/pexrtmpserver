@@ -630,7 +630,6 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   g_free (client->path);
   client->path = path;
   gboolean reject_play = FALSE;
-  gboolean ignored = FALSE;
 
   if (client_should_emit_signal (client)) {
     GST_DEBUG_OBJECT (client->server, "emit on-play: %s", path);
