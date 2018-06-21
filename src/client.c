@@ -15,13 +15,11 @@
 
 #include <string.h>
 #include <sys/poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
 #include <arpa/inet.h>
 
 #include <openssl/crypto.h>
 #include <openssl/err.h>
-#include <openssl/x509v3.h>
+
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
@@ -112,7 +110,7 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
     client->send_queue = g_byte_array_append (client->send_queue,
         &buf->data[pos], chunk);
 
-    client_try_to_send (client, NULL);
+    client_try_to_send (client);
 
     client->written_seq += chunk;
     pos += chunk;
@@ -252,6 +250,29 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
   }
 }
 
+static void
+client_handle_error (Client * client, gint txid, AmfDec * dec)
+{
+  /* we won't handle this unless we are dialing out to a path */
+  if (client->dialout_path == NULL)
+    return;
+
+  g_free (amf_dec_load (dec));  /* NULL */
+  GstStructure *object = amf_dec_load_object (dec);
+
+  const gchar *code = gst_structure_get_string (object, "code");
+ // const gchar *description = gst_structure_get_string (object, "description");
+
+  GST_DEBUG_OBJECT (client->server, "Handling error for txid %d with object %s",
+      txid, gst_structure_to_string (object));
+
+  if (g_strcmp0 (code, "NetConnection.Connect.Rejected") == 0) {
+    client->handshake_state = HANDSHAKE_START;
+  }
+
+  gst_structure_free (object);
+}
+
 static gboolean
 client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
 {
@@ -328,13 +349,23 @@ client_do_connect (Client * client)
   GST_DEBUG_OBJECT (client->server, "connecting to: %s with path: %s",
       client->tcUrl, client->path);
 
+
+#if 0
+  if (username && password) {
+    const gchar *token= "?authmod=adobe&user=username&challenge=1ea75814&response=pkixff5qLppehcgVz6xEjQ==&opaque=PDAxXg==";
+
+    app = g_strdup_printf ("%s%s", app, token);
+    tcUrl = g_strdup_printf ("%s%s", tcUrl, token);
+  }
+#endif
+
   /* send connect */
   GstStructure *status = gst_structure_new ("object",
       "app", G_TYPE_STRING, client->app,
       "tcUrl", G_TYPE_STRING, client->tcUrl,
       "type", G_TYPE_STRING, "nonprivate",
       "fpad", G_TYPE_BOOLEAN, TRUE,
-      "flashVer", G_TYPE_STRING, "Pexip RTMP Server",
+      "flashVer", G_TYPE_STRING, "FMLE/3.0 (Pexip RTMP Server)",
       "swfUrl", G_TYPE_STRING, client->tcUrl,
       NULL);
 
@@ -765,6 +796,8 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
       client_handle_createstream (client, txid);
     } else if (strcmp (method, "_result") == 0) {
       client_handle_result (client, (gint) txid, dec);
+    } else if (strcmp (method, "_error") == 0) {
+      client_handle_error (client, (gint) txid, dec);
     }
   } else if (msg->msg_stream_id == client->msg_stream_id) {
     if (strcmp (method, "publish") == 0) {
@@ -1033,7 +1066,7 @@ client_incoming_handshake (Client * client)
       client->send_queue = g_byte_array_append (client->send_queue,
           pex_rtmp_handshake_get_buffer (client->handshake),
           pex_rtmp_handshake_get_length (client->handshake));
-      if (!client_try_to_send (client, NULL)) {
+      if (!client_try_to_send (client)) {
         GST_WARNING_OBJECT (client->server, "Unable to send handshake reply");
         return FALSE;
       }
@@ -1073,7 +1106,7 @@ client_outgoing_handshake (Client * client)
 
     client->send_queue = g_byte_array_append (client->send_queue,
         buf, HANDSHAKE_LENGTH + 1);
-    if (!client_try_to_send (client, NULL)) {
+    if (!client_try_to_send (client)) {
       GST_WARNING_OBJECT (client->server,
           "Unable to send outgoing handshake (1)");
       return FALSE;
@@ -1101,7 +1134,7 @@ client_outgoing_handshake (Client * client)
 
       client->send_queue = g_byte_array_append (client->send_queue,
           &client->buf->data[0], HANDSHAKE_LENGTH);
-      if (!client_try_to_send (client, NULL)) {
+      if (!client_try_to_send (client)) {
         GST_WARNING_OBJECT (client->server,
             "Unable to send outgoing handshake (2)");
         return FALSE;
@@ -1219,12 +1252,8 @@ client_begin_ssl (Client * client)
 }
 
 gboolean
-client_try_to_send (Client * client, gboolean * connect_failed)
+client_try_to_send (Client * client)
 {
-  if (connect_failed) {
-    *connect_failed = FALSE;
-  }
-
   if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS) {
     int error;
     socklen_t error_len = sizeof (error);
@@ -1235,9 +1264,6 @@ client_try_to_send (Client * client, gboolean * connect_failed)
       GST_WARNING_OBJECT (client->server,
           "error in client TCP handshake (%s): %s", client->path,
           strerror (error));
-      if (connect_failed) {
-        *connect_failed = TRUE;
-      }
       return FALSE;
     }
 
@@ -1316,7 +1342,7 @@ client_receive (Client * client)
 
   if (client->use_ssl) {
     if (client->ssl_write_blocked_on_read) {
-      return client_try_to_send (client, NULL);
+      return client_try_to_send (client);
     }
     client->ssl_read_blocked_on_write = FALSE;
     got = SSL_read (client->ssl, &chunk[0], sizeof (chunk));
@@ -1482,139 +1508,6 @@ client_receive (Client * client)
 }
 
 static int
-match_dns_name (const gchar * remote_host, ASN1_IA5STRING * candidate)
-{
-  const gchar *data = (gchar *) ASN1_STRING_data (candidate);
-  int len = ASN1_STRING_length (candidate);
-  int host_len = strlen (remote_host);
-
-  if ((int) strnlen (data, len) != len) {
-    /* Candidate contains embedded NULs: reject it */
-    return 0;
-  }
-
-  /* See RFC6125 $6.4. We assume that any IDN has been pre-normalised
-   * to remove any U-labels. */
-  if (len == host_len && g_ascii_strncasecmp (remote_host, data, len) == 0) {
-    /* Exact match */
-    return 1;
-  }
-
-  if (g_hostname_is_ip_address (remote_host)) {
-    /* Do not attempt to match wildcards against IP addresses */
-    return 0;
-  }
-
-  /* Wildcards: permit the left-most label to be '*' only and match
-   * the left-most reference label */
-  if (len > 1 && data[0] == '*' && data[1] == '.') {
-    const gchar *host_suffix = strchr (remote_host, '.');
-    if (host_suffix == NULL || host_suffix == remote_host) {
-      /* No dot found, or remote_host starts with a dot: reject */
-      return 0;
-    }
-
-    if (len - 1 == host_len - (host_suffix - remote_host) &&
-        g_ascii_strncasecmp (host_suffix, data + 1, len - 1) == 0) {
-      /* Wildcard matched */
-      return 1;
-    }
-  }
-
-  return 0;
-}
-
-static int
-match_subject_alternative_names (X509 * cert, const gchar * remote_host)
-{
-  int result = -1;
-  GENERAL_NAMES *san;
-
-  san = X509_get_ext_d2i (cert, NID_subject_alt_name, NULL, NULL);
-  if (san != NULL) {
-    int idx = sk_GENERAL_NAME_num (san);
-    enum
-    {
-      HOST_TYPE_DNS = 0,
-      HOST_TYPE_IPv4 = sizeof (struct in_addr),
-      HOST_TYPE_IPv6 = sizeof (struct in6_addr)
-    } host_type;
-    int num_sans_for_type = 0;
-    struct in6_addr addr;
-
-    if (inet_pton (AF_INET6, remote_host, &addr)) {
-      host_type = HOST_TYPE_IPv6;
-    } else if (inet_pton (AF_INET, remote_host, &addr)) {
-      host_type = HOST_TYPE_IPv4;
-    } else {
-      host_type = HOST_TYPE_DNS;
-    }
-
-    while (--idx >= 0) {
-      int type;
-      void *value;
-
-      value = GENERAL_NAME_get0_value (sk_GENERAL_NAME_value (san, idx), &type);
-
-      if (type == GEN_DNS && host_type == HOST_TYPE_DNS) {
-        num_sans_for_type++;
-        if (match_dns_name (remote_host, value)) {
-          break;
-        }
-      } else if (type == GEN_IPADD && host_type != HOST_TYPE_DNS) {
-        int len = ASN1_STRING_length (value);
-        num_sans_for_type++;
-        if (len == (int) host_type &&
-            memcmp (ASN1_STRING_data (value), &addr, len) == 0) {
-          break;
-        }
-      }
-    }
-
-    GENERAL_NAMES_free (san);
-
-    if (num_sans_for_type > 0) {
-      result = (idx >= 0);
-    }
-  }
-
-  /* -1 if no applicable SANs present; 0 for no match; 1 for match */
-  return result;
-}
-
-static int
-match_subject_common_name (X509 * cert, const gchar * remote_host)
-{
-  X509_NAME *subject = X509_get_subject_name (cert);
-
-  if (subject != NULL) {
-    int idx = X509_NAME_entry_count (subject);
-
-    while (--idx >= 0) {
-      X509_NAME_ENTRY *entry = X509_NAME_get_entry (subject, idx);
-      if (OBJ_obj2nid (X509_NAME_ENTRY_get_object (entry)) == NID_commonName) {
-        return match_dns_name (remote_host, X509_NAME_ENTRY_get_data (entry));
-      }
-    }
-  }
-
-  return 0;
-}
-
-static int
-verify_hostname (X509 * cert, const gchar * remote_host)
-{
-  /* See RFC2818 $3.1 */
-  int result = match_subject_alternative_names (cert, remote_host);
-
-  if (result == -1) {
-    result = match_subject_common_name (cert, remote_host);
-  }
-
-  return result;
-}
-
-static int
 ssl_verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
 {
   SSL *ssl =
@@ -1638,74 +1531,6 @@ ssl_verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
   return preverify_ok;
 }
 
-static gboolean
-file_exists (const gchar * path)
-{
-  if (path == NULL || path[0] == '\0') {
-    return FALSE;
-  }
-  return g_file_test (path, G_FILE_TEST_EXISTS);
-}
-
-static DH *
-make_dh_params (const gchar * cert_file)
-{
-  DH *dh = NULL;
-  BIO *bio = BIO_new_file (cert_file, "r");
-
-  if (bio != NULL) {
-    X509 *cert = PEM_read_bio_X509 (bio, NULL, NULL, NULL);
-    BIO_free (bio);
-
-    if (cert != NULL) {
-      EVP_PKEY *pubkey = X509_get_pubkey (cert);
-      if (pubkey != NULL) {
-        static const struct
-        {
-          int size;
-          BIGNUM *(*prime) (BIGNUM *);
-        } gentable[] = {
-          {
-          2048, get_rfc3526_prime_2048}, {
-          3072, get_rfc3526_prime_3072}, {
-          4096, get_rfc3526_prime_4096}, {
-          6144, get_rfc3526_prime_6144}, {
-          8192, get_rfc3526_prime_8192}
-        };
-        size_t idx;
-        int keylen = 2048;
-        int type = EVP_PKEY_type (pubkey->type);
-        if (type == EVP_PKEY_RSA || type == EVP_PKEY_DSA) {
-          keylen = EVP_PKEY_bits (pubkey);
-        }
-        EVP_PKEY_free (pubkey);
-
-        for (idx = 0; idx < sizeof (gentable) / sizeof (gentable[0]); idx++) {
-          if (keylen <= gentable[idx].size) {
-            break;
-          }
-        }
-        if (idx == sizeof (gentable) / sizeof (gentable[0])) {
-          idx--;
-        }
-
-        dh = DH_new ();
-        if (dh != NULL) {
-          dh->p = gentable[idx].prime (NULL);
-          BN_dec2bn (&dh->g, "2");
-          if (dh->p == NULL || dh->g == NULL) {
-            DH_free (dh);
-            dh = NULL;
-          }
-        }
-      }
-      X509_free (cert);
-    }
-  }
-
-  return dh;
-}
-
 gboolean
 client_add_incoming_ssl (Client * client,
     const gchar * cert_file, const gchar * key_file,
@@ -1727,9 +1552,13 @@ client_add_incoming_ssl (Client * client,
   SSL_CTX_set_options (client->ssl_ctx, ssl_options);
   if (file_exists (ca_file)) {
     SSL_CTX_load_verify_locations (client->ssl_ctx, ca_file, NULL);
+  } else {
+    GST_WARNING ("%s does not exist!", ca_file);
   }
   if (file_exists (ca_dir)) {
     SSL_CTX_load_verify_locations (client->ssl_ctx, NULL, ca_dir);
+  } else {
+    GST_WARNING ("%s does not exist!", ca_dir);
   }
   SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_NONE, ssl_verify_callback);
   SSL_CTX_set_mode (client->ssl_ctx,
@@ -1841,28 +1670,97 @@ client_add_outgoing_ssl (Client * client,
   return TRUE;
 }
 
+gboolean
+client_tcp_connect (Client * client)
+{
+  gboolean ret = FALSE;
+  gint fd = INVALID_FD;
+  gchar **address;
+
+  gchar **addressv = g_strsplit (client->addresses, ",", 1024);
+  if (!addressv[0]) {
+    GST_WARNING ("No more addresses");
+    goto done;
+  }
+
+  for (address = addressv; *address; address++) {
+    fd = tcp_connect (client->remote_host, client->port, client->src_port, client->tcp_syncnt);
+    if (fd != INVALID_FD) {
+      client->fd = fd;
+      GST_INFO_OBJECT (client->server, "Connected to %s:%d from port %d with fd %d",
+          client->remote_host, client->port, client->src_port, client->fd);
+      ret = TRUE;
+      break;
+    }
+  }
+
+done:
+  g_strfreev (addressv);
+  return ret;
+}
+
+gboolean
+client_add_external_connect (Client * client,
+    gboolean publisher,
+    const gchar * path,
+    const gchar * url,
+    const gchar * addresses,
+    gint src_port,
+    gint tcp_syncnt)
+{
+  if (!parse_rtmp_url (url,
+          &client->protocol, &client->port, &client->remote_host, &client->app,
+          &client->dialout_path, &client->username, &client->password)) {
+     return FALSE;
+  }
+
+  client->publisher = publisher;
+  client->path = g_strdup (path);
+  client->url = g_strdup (url);
+  if (addresses) {
+    client->addresses = g_strdup (addresses);
+  } else {
+    client->addresses = g_strdup (client->remote_host);
+  }
+  client->src_port = src_port;
+  client->tcp_syncnt = tcp_syncnt;
+
+  client->use_ssl = (g_strcmp0 (client->protocol, "rtmps") == 0);
+
+  const gchar *tcUrlFmt = "%s://%s:%d/%s";
+  if (strchr (client->remote_host, ':')) {     /* ipv6 */
+    tcUrlFmt = "%s://[%s]:%d/%s";
+  }
+  client->tcUrl = g_strdup_printf (tcUrlFmt, client->protocol,
+      client->remote_host, client->port, client->app);
+
+  return TRUE;
+}
+
 Client *
-client_new (gint fd, Connections * connections, GObject * server,
-    gboolean use_ssl, gboolean ignore_localhost, gint stream_id,
-    guint chunk_size, const gchar * remote_host)
+client_new (GObject * server,
+    Connections * connections,
+    gboolean ignore_localhost,
+    gint stream_id,
+    guint chunk_size)
 {
   Client *client = g_new0 (Client, 1);
 
-  client->fd = fd;
-  client->state = CLIENT_TCP_HANDSHAKE_IN_PROGRESS;
-  client->connections = connections;
+  client->fd = INVALID_FD;
   client->server = server;
-  client->use_ssl = use_ssl;
+  client->connections = connections;
   client->ignore_localhost = ignore_localhost;
   client->msg_stream_id = stream_id;
   client->chunk_size = chunk_size;
-  client->recv_chunk_size = DEFAULT_CHUNK_SIZE;
-  client->send_chunk_size = DEFAULT_CHUNK_SIZE;
 
   GST_DEBUG_OBJECT (client->server, "Chunk Size: %d, Stream ID:%d\n",
       chunk_size, stream_id);
 
+  client->state = CLIENT_TCP_HANDSHAKE_IN_PROGRESS;
+  client->recv_chunk_size = DEFAULT_CHUNK_SIZE;
+  client->send_chunk_size = DEFAULT_CHUNK_SIZE;
   client->window_size = DEFAULT_WINDOW_SIZE;
+
 
   client->rtmp_messages = g_hash_table_new_full (NULL, NULL, NULL,
       (GDestroyNotify) rtmp_message_free);
@@ -1873,16 +1771,24 @@ client_new (gint fd, Connections * connections, GObject * server,
   client->handshake = pex_rtmp_handshake_new ();
   client->handshake_state = HANDSHAKE_START;
 
-  if (remote_host != NULL) {
-    client->remote_host = g_strdup (remote_host);
-  }
-
   return client;
 }
 
 void
 client_free (Client * client)
 {
+  g_free (client->path);
+  g_free (client->url);
+  g_free (client->addresses);
+  g_free (client->protocol);
+  g_free (client->remote_host);
+  g_free (client->app);
+  g_free (client->dialout_path);
+  g_free (client->username);
+  g_free (client->password);
+  g_free (client->tcUrl);
+
+
   g_hash_table_destroy (client->rtmp_messages);
 
   g_byte_array_free (client->buf, TRUE);
@@ -1890,12 +1796,6 @@ client_free (Client * client)
 
   if (client->metadata)
     gst_structure_free (client->metadata);
-  g_free (client->path);
-  g_free (client->tcUrl);
-  g_free (client->app);
-  g_free (client->dialout_path);
-  g_free (client->url);
-  g_free (client->addresses);
   if (client->video_codec_data)
     g_byte_array_free (client->video_codec_data, TRUE);
 
@@ -1910,7 +1810,6 @@ client_free (Client * client)
     SSL_CTX_free (client->ssl_ctx);
   if (client->ssl)
     SSL_free (client->ssl);
-  g_free (client->remote_host);
 
   g_free (client);
 }

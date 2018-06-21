@@ -267,7 +267,7 @@ amf_dec_new (GByteArray * buf, guint pos)
   dec->buf = buf;
   dec->pos = pos;
 
-  guint8 type;
+  guint8 type = 0;
   if (!amf_dec_peek_byte (dec, &type)) {
     dec->version = AMF_INVALID;
     return dec;
@@ -511,7 +511,7 @@ GValue *
 amf_dec_load (AmfDec * dec)
 {
   GValue *value = g_new0 (GValue, 1);
-  guint8 type;
+  guint8 type = 0;
   if (!amf_dec_peek_byte (dec, &type))
     goto done;
 
