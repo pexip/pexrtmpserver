@@ -24,4 +24,10 @@ int verify_hostname (X509 * cert, const gchar * remote_host);
 gboolean file_exists (const gchar * path);
 DH * make_dh_params (const gchar * cert_file);
 
+gchar * get_auth_token (const gchar * server_auth_str,
+    const gchar * username, const gchar * password);
+gboolean verify_auth (const gchar * app, const gchar * username,
+    const gchar * password, const gchar * salt, const gchar * opaque,
+    gchar ** description);
+
 #endif /* _UTILS_H_ */

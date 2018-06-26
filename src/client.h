@@ -43,11 +43,10 @@ typedef enum
 struct _Client
 {
   gint fd;
-  gboolean released;
   gboolean added_to_fd_table;
   ClientConnectionState state;
-  Connections * connections;
-  GObject * server;
+  Connections *connections;
+  GObject *server;
   gboolean use_ssl;
   gboolean ignore_localhost;
   guint msg_stream_id;
@@ -66,20 +65,27 @@ struct _Client
   gint port;
   gchar *remote_host;
 
-  gchar * path;
-  gchar * dialout_path;
-  gchar * url;
-  gchar * addresses;
-  gchar * tcUrl;
-  gchar * app;
-  gchar * username;
-  gchar * password;
+  gchar *path;
+  gchar *dialout_path;
+  gchar *url;
+  gchar *addresses;
+  gchar *tcUrl;
+  gchar *app;
   gint tcp_syncnt;
   gint src_port;
+
+  /* auth stuff */
+  gchar *username;
+  gchar *password;
+  gchar *auth_token;
+  gchar *salt;
+  gchar *opaque;
 
   gboolean playing;             /* Wants to receive the stream? */
   gboolean ready;               /* Wants to receive and seen a keyframe */
   gboolean publisher;           /* Is this a publisher */
+
+  gboolean retry_connection;
 
   GstStructure * metadata;
   guint32 written_seq;
@@ -90,14 +96,14 @@ struct _Client
 
   /* Write queue overflow bookkeeping */
   gint last_write_queue_size;
-  GTimer * last_queue_overflow;
+  GTimer *last_queue_overflow;
 
   PexRtmpHandshake * handshake;
   PexRtmpHandshakeState handshake_state;
 
   /* crypto */
-  SSL_CTX * ssl_ctx;
-  SSL * ssl;
+  SSL_CTX *ssl_ctx;
+  SSL *ssl;
   gboolean ssl_write_blocked_on_read;
   gboolean ssl_read_blocked_on_write;
   GByteArray * video_codec_data;

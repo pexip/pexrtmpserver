@@ -139,6 +139,38 @@ client_send_reply (Client * client, double txid, const GValue * reply,
   amf_enc_free (invoke);
 }
 
+
+static void
+client_send_error (Client * client, double txid, const GstStructure * status)
+{
+  if (txid <= 0.0)
+    return;
+
+  AmfEnc *invoke = amf_enc_new ();
+  amf_enc_write_string (invoke, "_error");
+  amf_enc_write_double (invoke, txid);
+  amf_enc_write_null (invoke);
+  amf_enc_write_object (invoke, status);
+
+  client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
+  amf_enc_free (invoke);
+}
+
+static void
+client_set_chunk_size (Client * client, gint chunk_size)
+{
+  GST_DEBUG_OBJECT (client->server, "Setting new send-chunk-size to %d",
+      chunk_size);
+
+  AmfEnc *invoke = amf_enc_new ();
+  amf_enc_add_int (invoke, htonl (chunk_size));
+  client_rtmp_send (client, MSG_SET_CHUNK, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
+  amf_enc_free (invoke);
+  client->send_chunk_size = chunk_size;
+}
+
 /* Result messages come from a server to the client,
    but in the dial-out case we are both! */
 static void
@@ -202,6 +234,8 @@ static void
 client_handle_publish_result (Client * client, gint txid, AmfDec * dec)
 {
   if (txid == 1) {
+    client_set_chunk_size (client, client->chunk_size);
+
     GST_DEBUG_OBJECT (client->server, "Sending createStream");
     AmfEnc *invoke;
     invoke = amf_enc_new ();
@@ -250,6 +284,7 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
   }
 }
 
+
 static void
 client_handle_error (Client * client, gint txid, AmfDec * dec)
 {
@@ -261,13 +296,29 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
   GstStructure *object = amf_dec_load_object (dec);
 
   const gchar *code = gst_structure_get_string (object, "code");
- // const gchar *description = gst_structure_get_string (object, "description");
 
   GST_DEBUG_OBJECT (client->server, "Handling error for txid %d with object %s",
       txid, gst_structure_to_string (object));
 
   if (g_strcmp0 (code, "NetConnection.Connect.Rejected") == 0) {
-    client->handshake_state = HANDSHAKE_START;
+    const gchar *description = gst_structure_get_string (object, "description");
+
+    if (g_strrstr (description, "authmod=adobe")) {
+      if (g_strrstr (description, "code=403 need auth")) {
+        g_free (client->auth_token);
+        client->auth_token = g_strdup_printf ("?authmod=adobe&user=%s",
+            client->username);
+        client->retry_connection = TRUE;
+      } else {
+        gchar *auth_str = g_strrstr (description, "?reason=needauth");
+        if (auth_str) {
+          g_free (client->auth_token);
+          client->auth_token = get_auth_token (auth_str,
+              client->username, client->password);
+          client->retry_connection = TRUE;
+        }
+      }
+    }
   }
 
   gst_structure_free (object);
@@ -330,44 +381,34 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
 }
 
 static void
-client_set_chunk_size (Client * client, gint chunk_size)
-{
-  GST_DEBUG_OBJECT (client->server, "Setting new send-chunk-size to %d",
-      chunk_size);
-
-  AmfEnc *invoke = amf_enc_new ();
-  amf_enc_add_int (invoke, htonl (chunk_size));
-  client_rtmp_send (client, MSG_SET_CHUNK, MSG_STREAM_ID_CONTROL,
-      invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
-  amf_enc_free (invoke);
-  client->send_chunk_size = chunk_size;
-}
-
-static void
 client_do_connect (Client * client)
 {
   GST_DEBUG_OBJECT (client->server, "connecting to: %s with path: %s",
       client->tcUrl, client->path);
 
+  gchar *app;
+  gchar *tcUrl;
 
-#if 0
-  if (username && password) {
-    const gchar *token= "?authmod=adobe&user=username&challenge=1ea75814&response=pkixff5qLppehcgVz6xEjQ==&opaque=PDAxXg==";
-
-    app = g_strdup_printf ("%s%s", app, token);
-    tcUrl = g_strdup_printf ("%s%s", tcUrl, token);
+  if (client->auth_token) {
+    app = g_strdup_printf ("%s%s", client->app, client->auth_token);
+    tcUrl = g_strdup_printf ("%s%s", client->tcUrl, client->auth_token);
+  } else {
+    app = g_strdup (client->app);
+    tcUrl = g_strdup (client->tcUrl);
   }
-#endif
 
   /* send connect */
   GstStructure *status = gst_structure_new ("object",
-      "app", G_TYPE_STRING, client->app,
-      "tcUrl", G_TYPE_STRING, client->tcUrl,
+      "app", G_TYPE_STRING, app,
       "type", G_TYPE_STRING, "nonprivate",
-      "fpad", G_TYPE_BOOLEAN, TRUE,
       "flashVer", G_TYPE_STRING, "FMLE/3.0 (Pexip RTMP Server)",
+      "tcUrl", G_TYPE_STRING, tcUrl,
+      "fpad", G_TYPE_BOOLEAN, TRUE,
       "swfUrl", G_TYPE_STRING, client->tcUrl,
       NULL);
+
+  g_free (app);
+  g_free (tcUrl);
 
 //      "fpad", G_TYPE_BOOLEAN, TRUE, /* we are doing proxying */
 //      "audioCodecs", G_TYPE_DOUBLE, (gdouble)(SUPPORT_SND_AAC | SUPPORT_SND_SPEEX),
@@ -384,26 +425,40 @@ client_do_connect (Client * client)
       invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
   amf_enc_free (invoke);
   gst_structure_free (status);
-
-  client_set_chunk_size (client, client->chunk_size);
 }
 
-static void
+static gboolean
 client_handle_connect (Client * client, double txid, AmfDec * dec)
 {
   AmfEnc *invoke;
+  gboolean ret = FALSE;
   GstStructure *params = amf_dec_load_object (dec);
-
-  /* FIXME: support multiple applications */
-  //if (strcmp (app, application_name) != 0) {
-  //  GST_WARNING_OBJECT (client->server, "Unsupported application: %s", app);
-  //}
 
   client->app = g_strdup (gst_structure_get_string (params, "app"));
   gchar *params_str = gst_structure_to_string (params);
-  GST_DEBUG_OBJECT (client->server, "connect: %s", params_str);
+  GST_INFO_OBJECT (client->server, "connect: %s", params_str);
   g_free (params_str);
-  gst_structure_free (params);
+
+  /* a bit hackish, we use the presence of "type" to determine if this is
+     a publisher */
+  const gchar *type = gst_structure_get_string (params, "type");
+
+  if (type && client->username && client->password) {
+    gchar *description;
+    gboolean ret = verify_auth (client->app, client->username, client->password,
+        client->salt, client->opaque, &description);
+    if (!ret) {
+      GstStructure *status = gst_structure_new ("object",
+          "level", G_TYPE_STRING, "error",
+          "code", G_TYPE_STRING, "NetConnection.Connect.Rejected",
+          "description", G_TYPE_STRING, description,
+          NULL);
+      client_send_error (client, txid, status);
+      gst_structure_free (status);
+      g_free (description);
+      goto done;
+    }
+  }
 
   /* Send win ack size */
   invoke = amf_enc_new ();
@@ -447,6 +502,13 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   client_send_reply (client, txid, &version, &status);
   g_value_unset (&version);
   g_value_unset (&status);
+
+  ret = TRUE;
+
+done:
+  gst_structure_free (params);
+
+  return ret;
 }
 
 static gboolean
@@ -789,7 +851,7 @@ client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
     ret = client_handle_onstatus (client, dec, msg->msg_stream_id);
   } else if (msg->msg_stream_id == MSG_STREAM_ID_CONTROL) {
     if (strcmp (method, "connect") == 0) {
-      client_handle_connect (client, txid, dec);
+      ret = client_handle_connect (client, txid, dec);
     } else if (strcmp (method, "FCPublish") == 0) {
       ret = client_handle_fcpublish (client, txid, dec);
     } else if (strcmp (method, "createStream") == 0) {
@@ -1684,11 +1746,13 @@ client_tcp_connect (Client * client)
   }
 
   for (address = addressv; *address; address++) {
-    fd = tcp_connect (client->remote_host, client->port, client->src_port, client->tcp_syncnt);
+    fd = tcp_connect (client->remote_host, client->port, client->src_port,
+        client->tcp_syncnt);
     if (fd != INVALID_FD) {
       client->fd = fd;
-      GST_INFO_OBJECT (client->server, "Connected to %s:%d from port %d with fd %d",
-          client->remote_host, client->port, client->src_port, client->fd);
+      GST_INFO_OBJECT (client->server,
+          "Connected to %s:%d from port %d with fd %d", client->remote_host,
+          client->port, client->src_port, client->fd);
       ret = TRUE;
       break;
     }
@@ -1711,7 +1775,7 @@ client_add_external_connect (Client * client,
   if (!parse_rtmp_url (url,
           &client->protocol, &client->port, &client->remote_host, &client->app,
           &client->dialout_path, &client->username, &client->password)) {
-     return FALSE;
+    return FALSE;
   }
 
   client->publisher = publisher;
@@ -1761,7 +1825,6 @@ client_new (GObject * server,
   client->send_chunk_size = DEFAULT_CHUNK_SIZE;
   client->window_size = DEFAULT_WINDOW_SIZE;
 
-
   client->rtmp_messages = g_hash_table_new_full (NULL, NULL, NULL,
       (GDestroyNotify) rtmp_message_free);
 
@@ -1787,7 +1850,9 @@ client_free (Client * client)
   g_free (client->username);
   g_free (client->password);
   g_free (client->tcUrl);
-
+  g_free (client->opaque);
+  g_free (client->salt);
+  g_free (client->auth_token);
 
   g_hash_table_destroy (client->rtmp_messages);
 
