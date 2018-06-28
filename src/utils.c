@@ -248,7 +248,7 @@ parse_rtmp_url (const gchar * url,
 
   gint num_ats = count_chars_in_string (the_rest, '@');
   if (num_ats > 0) {
-    at_clip = g_strsplit (the_rest, "@", 1024);
+    at_clip = g_strsplit (the_rest, "@", 2);
     const gchar *credentials = at_clip[0];
     the_rest = at_clip[1];
     credential_clip = g_strsplit (credentials, ":", 1024);
