@@ -16,7 +16,9 @@ rtmpserver_lib = shared_library('pexrtmpserver',
 )
 
 rtmpserver_dep = declare_dependency(link_with: rtmpserver_lib)
-rtmpsrv = executable('rtmpsrv', 'main.c', dependencies : [rtmpserver_dep, gstreamer_dep])
+rtmpsrv = executable('rtmpsrv', 'main.c',
+  dependencies : [rtmpserver_dep, gstreamer_dep],
+  install : true)
 
 gir_scanner = find_program('g-ir-scanner', required : false)
 if gir_scanner.found()

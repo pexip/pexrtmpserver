@@ -43,11 +43,10 @@ typedef enum
 struct _Client
 {
   gint fd;
-  gboolean released;
   gboolean added_to_fd_table;
   ClientConnectionState state;
-  Connections * connections;
-  GObject * server;
+  Connections *connections;
+  GObject *server;
   gboolean use_ssl;
   gboolean ignore_localhost;
   guint msg_stream_id;
@@ -62,16 +61,31 @@ struct _Client
   GByteArray * send_queue;
   GByteArray * buf;
 
-  gchar * path;
-  gchar * dialout_path;
-  gchar * url;
-  gchar * addresses;
-  gchar * tcUrl;
-  gchar * app;
+  gchar *protocol;
+  gint port;
+  gchar *remote_host;
+
+  gchar *path;
+  gchar *dialout_path;
+  gchar *url;
+  gchar *addresses;
+  gchar *tcUrl;
+  gchar *app;
+  gint tcp_syncnt;
+  gint src_port;
+
+  /* auth stuff */
+  gchar *username;
+  gchar *password;
+  gchar *auth_token;
+  gchar *salt;
+  gchar *opaque;
 
   gboolean playing;             /* Wants to receive the stream? */
   gboolean ready;               /* Wants to receive and seen a keyframe */
   gboolean publisher;           /* Is this a publisher */
+
+  gboolean retry_connection;
 
   GstStructure * metadata;
   guint32 written_seq;
@@ -82,27 +96,39 @@ struct _Client
 
   /* Write queue overflow bookkeeping */
   gint last_write_queue_size;
-  GTimer * last_queue_overflow;
+  GTimer *last_queue_overflow;
 
   PexRtmpHandshake * handshake;
   PexRtmpHandshakeState handshake_state;
 
   /* crypto */
-  SSL_CTX * ssl_ctx;
-  SSL * ssl;
-  gchar * remote_host;
+  SSL_CTX *ssl_ctx;
+  SSL *ssl;
   gboolean ssl_write_blocked_on_read;
   gboolean ssl_read_blocked_on_write;
   GByteArray * video_codec_data;
 };
 
-Client * client_new (gint fd, Connections * connection,
-    GObject * server, gboolean use_ssl, gboolean ignore_localhost, gint stream_id, guint chunk_size,
-    const gchar * remote_host);
+Client * client_new (GObject * server,
+    Connections * connections,
+    gboolean ignore_localhost,
+    gint stream_id,
+    guint chunk_size);
+
+gboolean client_add_external_connect (Client * client,
+    gboolean publisher,
+    const gchar * path,
+    const gchar * url,
+    const gchar * addresses,
+    gint src_port,
+    gint tcp_syncnt);
+
 void client_free (Client * client);
 
+gboolean client_tcp_connect (Client * client);
+
 gint client_get_poll_events (Client * client);
-gboolean client_try_to_send (Client * client, gboolean *connect_failed);
+gboolean client_try_to_send (Client * client);
 gboolean client_receive (Client * client);
 gboolean client_handle_message (Client * client, RTMP_Message * msg);
 gboolean client_window_size_reached (Client *client);

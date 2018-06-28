@@ -19,16 +19,19 @@ audiotestsrc ! audio/x-raw-int,rate=48000,channels=1 ! pexaacenc !  mux.audio
 /* defaults */
 static gint port = 1935;
 static gchar app_name[] = "pexip";
-static gchar * dialout_url = NULL;
-static gchar * dialout_path = NULL;
+static gchar *dialout_url = NULL;
+static gchar *dialout_path = NULL;
 
-static GOptionEntry entries[] =
-{
-  { "port",             'p', 0, G_OPTION_ARG_INT,    &port,         "Set rtmp listening port to N", "N" },
-  { "application-name", 'a', 0, G_OPTION_ARG_STRING, &app_name,     "Set the Application Name", NULL },
-  { "dialout-path",     'd', 0, G_OPTION_ARG_STRING, &dialout_path, "The rtmp-path to forward to the dialed out address", NULL },
-  { "dialout-url",      'u', 0, G_OPTION_ARG_STRING, &dialout_url,  "The rtmp:// address to dial out to", NULL },
-  { NULL, 0, 0, 0, NULL, NULL, NULL},
+static GOptionEntry entries[] = {
+  {"port", 'p', 0, G_OPTION_ARG_INT, &port, "Set rtmp listening port to N",
+        "N"},
+  {"application-name", 'a', 0, G_OPTION_ARG_STRING, &app_name,
+        "Set the Application Name", NULL},
+  {"dialout-path", 'd', 0, G_OPTION_ARG_STRING, &dialout_path,
+        "The rtmp-path to forward to the dialed out address", NULL},
+  {"dialout-url", 'u', 0, G_OPTION_ARG_STRING, &dialout_url,
+        "The rtmp:// address to dial out to", NULL},
+  {NULL, 0, 0, 0, NULL, NULL, NULL},
 };
 
 int
@@ -46,7 +49,9 @@ main (int argc, char *argv[])
 
   gst_init (NULL, NULL);
 
-  PexRtmpServer * srv = pex_rtmp_server_new (app_name, port, 0, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+  PexRtmpServer *srv =
+      pex_rtmp_server_new (app_name, port, 0, NULL, NULL, NULL, NULL, NULL,
+      FALSE, FALSE);
   if (srv == NULL)
     return 1;
 
@@ -67,4 +72,3 @@ main (int argc, char *argv[])
 
   return 0;
 }
-
