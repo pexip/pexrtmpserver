@@ -15,6 +15,7 @@ void set_le32 (void * p, guint32 val);
 
 gint tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt);
 int tcp_set_nonblock (int fd, gboolean enabled);
+void tcp_disconnect (gint fd);
 
 gboolean parse_rtmp_url (const gchar * url,
     gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,

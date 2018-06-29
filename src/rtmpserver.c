@@ -559,7 +559,7 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client,
     g_assert (client->fd != INVALID_FD);
     g_assert (g_hash_table_remove (priv->fd_to_client,
             GINT_TO_POINTER (client->fd)));
-    close (client->fd);
+    tcp_disconnect (client->fd);
     client->fd = INVALID_FD;
   }
 

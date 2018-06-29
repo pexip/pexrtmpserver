@@ -179,6 +179,16 @@ tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt)
   return fd;
 }
 
+void
+tcp_disconnect (gint fd)
+{
+  shutdown (fd, SHUT_RDWR);
+  struct linger linger;
+  linger.l_onoff = 1;
+  linger.l_linger = 0;
+  setsockopt (fd, SOL_SOCKET, SO_LINGER, (char *)&linger, sizeof (linger));
+  close (fd);
+}
 
 static gint
 count_chars_in_string (const gchar * s, char c)

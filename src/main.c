@@ -18,12 +18,15 @@ audiotestsrc ! audio/x-raw-int,rate=48000,channels=1 ! pexaacenc !  mux.audio
 
 /* defaults */
 static gint port = 1935;
+static gint src_port = 0;
 static gchar app_name[] = "pexip";
 static gchar *dialout_url = NULL;
 static gchar *dialout_path = NULL;
 
 static GOptionEntry entries[] = {
   {"port", 'p', 0, G_OPTION_ARG_INT, &port, "Set rtmp listening port to N",
+        "N"},
+  {"src-port", 's', 0, G_OPTION_ARG_INT, &src_port, "Set rtmp src-port for dial-out to N",
         "N"},
   {"application-name", 'a', 0, G_OPTION_ARG_STRING, &app_name,
         "Set the Application Name", NULL},
@@ -59,7 +62,7 @@ main (int argc, char *argv[])
   printf ("ready...\n");
 
   if (dialout_path && dialout_url) {
-    pex_rtmp_server_dialout (srv, dialout_path, dialout_url, NULL, 0);
+    pex_rtmp_server_dialout (srv, dialout_path, dialout_url, NULL, src_port);
     printf ("dialed out from path %s to %s\n", dialout_path, dialout_url);
   }
 
