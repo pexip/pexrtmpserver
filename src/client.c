@@ -306,16 +306,20 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
     if (g_strrstr (description, "authmod=adobe")) {
       if (g_strrstr (description, "code=403 need auth")) {
         g_free (client->auth_token);
-        client->auth_token = g_strdup_printf ("?authmod=adobe&user=%s",
-            client->username);
-        client->retry_connection = TRUE;
+        if (client->username) {
+          client->auth_token = g_strdup_printf ("?authmod=adobe&user=%s",
+              client->username);
+          client->retry_connection = TRUE;
+        }
       } else {
         gchar *auth_str = g_strrstr (description, "?reason=needauth");
         if (auth_str) {
           g_free (client->auth_token);
-          client->auth_token = get_auth_token (auth_str,
-              client->username, client->password);
-          client->retry_connection = TRUE;
+          if (client->username && client->password) {
+            client->auth_token = get_auth_token (auth_str,
+                client->username, client->password);
+            client->retry_connection = TRUE;
+          }
         }
       }
     }
