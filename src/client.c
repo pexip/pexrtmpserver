@@ -296,9 +296,10 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
   GstStructure *object = amf_dec_load_object (dec);
 
   const gchar *code = gst_structure_get_string (object, "code");
-
+  gchar *object_str = gst_structure_to_string (object);
   GST_DEBUG_OBJECT (client->server, "Handling error for txid %d with object %s",
-      txid, gst_structure_to_string (object));
+      txid, object_str);
+  g_free (object_str);
 
   if (g_strcmp0 (code, "NetConnection.Connect.Rejected") == 0) {
     const gchar *description = gst_structure_get_string (object, "description");
