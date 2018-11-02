@@ -558,7 +558,7 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client,
   if (client->added_to_fd_table) {
     g_assert (client->fd != INVALID_FD);
     g_assert (g_hash_table_remove (priv->fd_to_client,
-            GINT_TO_POINTER (client->fd)));
+        GINT_TO_POINTER (client->fd)));
     tcp_disconnect (client->fd);
     client->fd = INVALID_FD;
   }
@@ -596,11 +596,9 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client,
     for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
       Client *subscriber = (Client *) walk->data;
       GST_DEBUG_OBJECT (srv,
-          "removing streaming subscriber %p as publisher removed with fd %d",
+          "removing subscriber %p (fd: %d) as its publisher was removed",
           subscriber, subscriber->fd);
-      if (subscriber->dialout_path) {
-        close (subscriber->fd);
-      }
+      tcp_disconnect (subscriber->fd);
     }
   }
 
