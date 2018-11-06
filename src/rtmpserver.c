@@ -598,7 +598,7 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client,
       GST_DEBUG_OBJECT (srv,
           "removing subscriber %p (fd: %d) as its publisher was removed",
           subscriber, subscriber->fd);
-      tcp_disconnect (subscriber->fd);
+      subscriber->disconnect = TRUE;
     }
   }
 
@@ -813,6 +813,14 @@ rtmp_server_do_poll (PexRtmpServer * srv)
         struct pollfd, pt_idx);
     Client *client = g_hash_table_lookup (priv->fd_to_client,
         GINT_TO_POINTER (entry->fd));
+
+    /* asked to disconnect */
+    if (client && client->disconnect) {
+      GST_INFO_OBJECT (srv, "Disconnecting client for path=%s on request",
+          client->path);
+      rtmp_server_remove_client (srv, client, &pt_idx);
+      continue;
+    }
 
     /* fd closed */
     if (client && entry->revents & POLLNVAL) {

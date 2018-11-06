@@ -44,6 +44,8 @@ struct _Client
 {
   gint fd;
   gboolean added_to_fd_table;
+  gboolean disconnect;
+
   ClientConnectionState state;
   Connections *connections;
   GObject *server;
