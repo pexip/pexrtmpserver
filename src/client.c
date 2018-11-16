@@ -578,10 +578,10 @@ client_should_emit_signal (Client * client)
         sin6 = (struct sockaddr_in6 *) &addr;
         inet_ntop (AF_INET6, &sin6->sin6_addr, ipstr, sizeof ipstr);
       }
+      should_emit = g_strcmp0 (ipstr, "::1") != 0
+          && g_strcmp0 (ipstr, "::ffff:127.0.0.1") != 0
+          && g_strcmp0 (ipstr, "127.0.0.1") != 0;
     }
-    should_emit = g_strcmp0 (ipstr, "::1") != 0
-        && g_strcmp0 (ipstr, "::ffff:127.0.0.1") != 0
-        && g_strcmp0 (ipstr, "127.0.0.1") != 0;
   }
 
   return should_emit;
