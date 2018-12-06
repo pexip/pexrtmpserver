@@ -256,22 +256,6 @@ parse_rtmp_url (const gchar * url,
     goto done;
   }
 
-  gint num_ats = count_chars_in_string (the_rest, '@');
-  if (num_ats > 0) {
-    at_clip = g_strsplit (the_rest, "@", 2);
-    const gchar *credentials = at_clip[0];
-    the_rest = at_clip[1];
-    credential_clip = g_strsplit (credentials, ":", 1024);
-    if (credential_clip[0] && credential_clip[1]) {
-      *username = g_strdup (credential_clip[0]);
-      *password = g_strdup (credential_clip[1]);
-    } else {
-      GST_WARNING ("Could not find both username and password");
-      ret = FALSE;
-      goto done;
-    }
-  }
-
   /* clip all "/" bits */
   slash_clip = g_strsplit (the_rest, "/", 1024);
   gint idx = 0;
@@ -285,6 +269,24 @@ parse_rtmp_url (const gchar * url,
 
   /* clip IP and port */
   const gchar *address = slash_clip[0];
+
+  /* check for credentials */
+  gint num_ats = count_chars_in_string (address, '@');
+  if (num_ats > 0) {
+    at_clip = g_strsplit (address, "@", 2);
+    const gchar *credentials = at_clip[0];
+    address = at_clip[1];
+    credential_clip = g_strsplit (credentials, ":", 1024);
+    if (credential_clip[0] && credential_clip[1]) {
+      *username = g_strdup (credential_clip[0]);
+      *password = g_strdup (credential_clip[1]);
+    } else {
+      GST_WARNING ("Could not find both username and password");
+      ret = FALSE;
+      goto done;
+    }
+  }
+
   gint num_colons = count_chars_in_string (address, ':');
   if (num_colons > 1) {         /* ipv6 */
     address_clip = g_strsplit (address, "]:", 1024);
@@ -312,8 +314,8 @@ parse_rtmp_url (const gchar * url,
 
   *protocol = g_strdup (protocol_tmp);
   *path = g_strdup (slash_clip[idx - 1]);       /* path is last */
-  *application_name = g_strndup (&the_rest[strlen (address) + 1],
-      strlen (the_rest) - strlen (address) - strlen (*path) - 2);
+  *application_name = g_strndup (&the_rest[strlen (slash_clip[0]) + 1],
+      strlen (the_rest) - strlen (slash_clip[0]) - strlen (*path) - 2);
 
   GST_INFO ("Parsed: Protocol: %s, Ip: %s, Port: %d, "
       "Application Name: %s, Path: %s, Username: %s, Password: %s",
