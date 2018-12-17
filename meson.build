@@ -9,7 +9,11 @@ gst_req = '>= 1.0.0'
 
 gstreamer_dep = dependency('gstreamer-1.0', version : gst_req)
 gst_base_dep = dependency('gstreamer-base-1.0', version : gst_req)
-openssl_dep = dependency('openssl', version : '>= 1.0.1')
+
+openssl_dep = dependency('openssl', version : '>= 1.0.1', required : false)
+if not openssl_dep.found()
+    openssl_dep = [cc.find_library('libeay32'), cc.find_library('ssleay32')]
+endif
 
 winsock2_dep = cc.find_library('ws2_32', required : false)
 
@@ -29,10 +33,7 @@ core_conf.set('VERSION', '"@0@"'.format(version))
 core_conf.set('PLUGIN_DIR', '"@0@"'.format(join_paths(get_option('prefix'), plugins_install_dir)))
 
 check_headers = [
-  'string.h',
-  'strings.h',
-  'unistd.h',
-  'stdlib.h',
+  'linux/sockios.h',
 ]
 foreach h : check_headers
   # Only define if header exist so that both #if and #ifdef works

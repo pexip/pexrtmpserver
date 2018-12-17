@@ -1,8 +1,13 @@
 #include "amf.h"
 #include "utils.h"
 #include <string.h>
-#include <arpa/inet.h>
 #include <stdio.h>
+
+#ifdef _MSC_VER
+#include <winsock2.h>
+#else
+#include <arpa/inet.h>
+#endif
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
@@ -141,12 +146,12 @@ void
 amf_enc_write_double (AmfEnc * enc, double n)
 {
   amf_enc_add_char (enc, AMF0_NUMBER);
-  uint64_t encoded = 0;
+  guint64 encoded = 0;
 #if defined(__i386__) || defined(__x86_64__)
   /* Flash uses same floating point format as x86 */
   memcpy (&encoded, &n, 8);
 #endif
-  uint32_t val = htonl (encoded >> 32);
+  guint32 val = htonl (encoded >> 32);
   amf_enc_add (enc, (guint8 *) & val, 4);
   val = htonl (encoded);
   amf_enc_add (enc, (guint8 *) & val, 4);
@@ -381,7 +386,7 @@ amf_dec_load_number (AmfDec * dec, gdouble * val)
     GST_WARNING ("Not enough data");
     return FALSE;
   }
-  uint64_t n = ((uint64_t) load_be32 (&dec->buf->data[dec->pos]) << 32) |
+  guint64 n = ((guint64) load_be32 (&dec->buf->data[dec->pos]) << 32) |
       load_be32 (&dec->buf->data[dec->pos + 4]);
   *val = 0;
 #if defined(__i386__) || defined(__x86_64__)

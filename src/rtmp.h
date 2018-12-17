@@ -50,17 +50,18 @@
 #define SUPPORT_SND_SPEEX 0x0800
 #define SUPPORT_VID_H264  0x0080
 
-#define PACKED __attribute__((packed))
+/* Chunk Message Header sizes based on "fmt" sizes, see 5.3.1.2 in spec */
+static const gint CHUNK_MSG_HEADER_LENGTH[] = { 12, 8, 4, 1 };
+static const guint32 EXT_TIMESTAMP_LIMIT = 0xffffff;
+
+#pragma pack(push)  /* push current alignment to stack */
+#pragma pack(1)     /* set alignment to 1 byte boundary */
 
 struct _Handshake
 {
   guint8 flags[8];
   guint8 random[RANDOM_LEN];
-} PACKED;
-
-/* Chunk Message Header sizes based on "fmt" sizes, see 5.3.1.2 in spec */
-static const gint CHUNK_MSG_HEADER_LENGTH[] = { 12, 8, 4, 1 };
-static const guint32 EXT_TIMESTAMP_LIMIT = 0xffffff;
+};
 
 /* This is the Chunk Message Header FIXME: rename? */
 struct _RTMP_Header
@@ -70,7 +71,9 @@ struct _RTMP_Header
   guint8 msg_len[3];
   guint8 msg_type_id;
   guint32 msg_stream_id; /* Note, this is little-endian while others are BE */
-} PACKED;
+};
+
+#pragma pack(pop)   /* restore original alignment from stack */
 
 typedef struct _Handshake Handshake;
 typedef struct _RTMP_Header RTMP_Header;

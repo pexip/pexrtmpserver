@@ -14,7 +14,9 @@ void set_be24 (void * p, guint32 val);
 void set_le32 (void * p, guint32 val);
 
 gint tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt);
-int tcp_set_nonblock (int fd, gboolean enabled);
+gint tcp_listen (gint port);
+gint tcp_accept (gint listen_fd);
+void tcp_set_nonblock (int fd, gboolean enabled);
 void tcp_disconnect (gint fd);
 
 gboolean parse_rtmp_url (const gchar * url,

@@ -2,6 +2,13 @@
 #define __CLIENT_H__
 
 #include <gst/gst.h>
+
+#ifdef _MSC_VER
+#  define WIN32_LEAN_AND_MEAN
+#  include <winsock2.h>
+#  include <windows.h>
+#endif
+
 #include <openssl/ssl.h>
 #include "connections.h"
 #include "handshake.h"

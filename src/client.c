@@ -14,16 +14,22 @@
 #include "rtmp.h"
 
 #include <string.h>
-#include <sys/poll.h>
-#include <arpa/inet.h>
+
+#ifdef _MSC_VER
+#  include <Ws2ipdef.h>
+#  include <Ws2tcpip.h>
+#  include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#  define MSG_NOSIGNAL 0x4000
+#else
+#  include <arpa/inet.h>
+#endif
 
 #include <openssl/crypto.h>
 #include <openssl/err.h>
 
-
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
-
 
 static void
 client_write_extended_timestamp (Client * client, guint32 timestamp)
@@ -43,7 +49,8 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
   const guint msg_len = buf->len;
   gint use_ext_timestamp = timestamp >= EXT_TIMESTAMP_LIMIT;
 
-#if 0                           /* FIXME: disable pending investigation on why YouTube fails */
+/* FIXME: disable pending investigation on why YouTube fails */
+#if 0
   /* type 1 check */
   if (msg_stream_id != MSG_STREAM_ID_CONTROL &&
       client->prev_header.msg_stream_id == msg_stream_id) {

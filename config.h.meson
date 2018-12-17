@@ -1,20 +1,7 @@
 #mesondefine PACKAGE
 #mesondefine PACKAGE_VERSION
 #mesondefine VERSION
-#mesondefine HAVE_STRING_H
-#mesondefine HAVE_STRINGS_H
-#mesondefine HAVE_UNISTD_H
-#mesondefine HAVE_STDLIB_H
+#mesondefine HAVE_LINUX_SOCKIOS_H
 
 /* plugin dir for generic plugins */
 #mesondefine PLUGIN_DIR
-
-#if defined(_MSC_VER)
-#  ifdef PEX_RTMPSERVER_EXPORTS
-#    define PEX_RTMPSERVER_EXPORT __declspec(dllexport)
-#  else
-#    define PEX_RTMPSERVER_EXPORT __declspec(dllimport) extern
-#  endif
-#else
-#  define PEX_RTMPSERVER_EXPORT extern
-#endif

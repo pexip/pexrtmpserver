@@ -7,8 +7,6 @@
 #define KEYS_LENGTH 128
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
-#define debug(fmt...) \
-  GST_INFO(fmt)
 
 const guint8 SERVER_KEY[] = {
   0x47, 0x65, 0x6e, 0x75, 0x69, 0x6e, 0x65, 0x20, 0x41, 0x64, 0x6f, 0x62,
@@ -47,7 +45,7 @@ static void
 print_data (const guint8 * data, guint len)
 {
   for (guint i = 0; i < len; i++)
-    debug ("0x%x ", data[i]);
+    GST_INFO ("0x%x ", data[i]);
 }
 */
 
@@ -68,7 +66,7 @@ _get_scheme (PexRtmpHandshake * hs, const guint8 data[HANDSHAKE_LENGTH])
   HMAC_Final (&hs->hmac, &hs->hash[0], &hash_len);
   g_assert_cmpint (hash_len, ==, 32);
   if (memcmp (&hs->hash[0], &data[digest_offset], hash_len) == 0) {
-    debug ("Identified scheme 0");
+    GST_INFO ("Identified scheme 0");
     return 0;
   }
 
@@ -85,11 +83,11 @@ _get_scheme (PexRtmpHandshake * hs, const guint8 data[HANDSHAKE_LENGTH])
   g_assert_cmpint (hash_len, ==, 32);
 
   if (memcmp (&hs->hash[0], &data[digest_offset], hash_len) == 0) {
-    debug ("Identified scheme 1");
+    GST_INFO ("Identified scheme 1");
     return 1;
   }
 
-  debug ("Can't parse Handshake, assuming scheme 0");
+  GST_INFO ("Can't parse Handshake, assuming scheme 0");
   return 0;
 }
 
@@ -100,13 +98,13 @@ pex_rtmp_handshake_process (PexRtmpHandshake * hs, const guint8 * org_data,
   guint hash_len;
 
   if (len != HANDSHAKE_LENGTH + 1) {
-    debug ("Invalid handshake lenght");
+    GST_INFO ("Invalid handshake lenght");
     return FALSE;
   }
 
   guint8 type = org_data[0];
   if (type != 3) {
-    debug ("Invalid handshake type %d", type);
+    GST_INFO ("Invalid handshake type %d", type);
     return FALSE;
   }
 
@@ -251,7 +249,7 @@ pex_rtmp_handshake_verify_reply (PexRtmpHandshake * hs,
   /* the client should send back the same thing we sent it after 4 bytes
      timestamp and 4 bytes server version */
   if (memcmp (hs->first_half + 8, reply + 8, HANDSHAKE_LENGTH - 8) != 0) {
-    debug ("Warning handshake verify failed. Acting like it was correct");
+    GST_INFO ("Warning handshake verify failed. Acting like it was correct");
   }
   return TRUE;
 }

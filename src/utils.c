@@ -3,11 +3,21 @@
 #if defined(HOST_LINUX)
 #  include <linux/sockios.h>
 #endif
-#include <fcntl.h>
-#include <netdb.h>
-#include <netinet/tcp.h>
-#include <unistd.h>
-#include <arpa/inet.h>
+
+#if defined(_MSC_VER)
+#  define WIN32_LEAN_AND_MEAN
+#  include <winsock2.h>
+#  include <windows.h>
+#  include <Ws2ipdef.h>
+#  include <Ws2tcpip.h>
+#else
+#  include <fcntl.h>
+#  include <arpa/inet.h>
+#  include <unistd.h>
+#  include <netdb.h>
+#  include <netinet/tcp.h>
+#endif
+
 #include <openssl/pem.h>
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
@@ -64,14 +74,19 @@ set_le32 (void *p, guint32 val)
   data[3] = val >> 24;
 }
 
-int
+void
 tcp_set_nonblock (int fd, gboolean enabled)
 {
+#ifdef _MSC_VER
+  u_long arg = enabled ? 1 : 0;
+  ioctlsocket (fd, FIONBIO, &arg);
+#else
   int flags = fcntl (fd, F_GETFL) & ~O_NONBLOCK;
   if (enabled) {
     flags |= O_NONBLOCK;
   }
-  return fcntl (fd, F_SETFL, flags);
+  fcntl (fd, F_SETFL, flags);
+#endif /* _MSC_VER */
 }
 
 gint
@@ -179,10 +194,52 @@ tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt)
   return fd;
 }
 
+gint
+tcp_listen (gint port)
+{
+  gint fd = socket (AF_INET6, SOCK_STREAM, 0);
+  g_assert_cmpint (fd, >=, 0);
+
+  char sock_optval = 1;
+  setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &sock_optval, sizeof (sock_optval));
+
+  struct sockaddr_in6 sin;
+  memset (&sin, 0, sizeof (struct sockaddr_in6));
+  sin.sin6_family = AF_INET6;
+  sin.sin6_port = htons (port);
+  sin.sin6_addr = in6addr_any;
+
+  if (bind (fd, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
+    GST_WARNING ("Unable to listen to port %d: %s",
+        port, strerror (errno));
+    close (fd);
+    return -1;
+  }
+
+  listen (fd, 10);
+  GST_DEBUG ("Listening on port %d with fd %d", port, fd);
+
+  return fd;
+}
+
+gint
+tcp_accept (gint listen_fd)
+{
+  struct sockaddr_in sin;
+  socklen_t addrlen = sizeof (sin);
+  return accept (listen_fd, (struct sockaddr *) &sin, &addrlen);
+
+  /* port: ntohs (sin.sin_port) */
+}
+
 void
 tcp_disconnect (gint fd)
 {
+#ifdef _MSC_VER
+  shutdown (fd, SD_BOTH);
+#else
   shutdown (fd, SHUT_RDWR);
+#endif
   struct linger linger;
   linger.l_onoff = 1;
   linger.l_linger = 0;

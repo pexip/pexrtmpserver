@@ -3,8 +3,6 @@
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
-#define debug(fmt...) \
-  GST_INFO(fmt)
 
 struct _Connections
 {
@@ -92,7 +90,7 @@ connections_add_subscriber (Connections * connections,
     gpointer client, const gchar * path)
 {
   Connection *connection = connections_get_connection (connections, path);
-  debug ("adding subscriber %p to path %s", client, path);
+  GST_INFO ("adding subscriber %p to path %s", client, path);
   connection_add_subscriber (connection, client);
 }
 
@@ -105,7 +103,7 @@ connections_add_publisher (Connections * connections,
     GST_WARNING ("Can't add more then one publisher for a stream");
     return FALSE;
   }
-  debug ("adding publisher %p to path %s", client, path);
+  GST_INFO ("adding publisher %p to path %s", client, path);
   connection->publisher = client;
 
   return TRUE;

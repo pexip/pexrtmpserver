@@ -18,25 +18,11 @@
 #include "rtmp.h"
 #include "utils.h"
 
-#include <stdio.h>
-#include <string.h>
-#include <errno.h>
-#include <sys/poll.h>
-#include <unistd.h>
-#include <fcntl.h>
+#ifdef HAVE_LINUX_SOCKIOS_H
+#include <linux/sockios.h>
 #include <sys/ioctl.h>
-#if defined(HOST_LINUX)
-#  include <linux/sockios.h>
 #endif
 
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-
-// GOBJECT Stuff
 GST_DEBUG_CATEGORY (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
 
@@ -472,9 +458,7 @@ rtmp_server_add_client_to_poll_table (PexRtmpServer * srv, Client * client)
 static void
 rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 {
-  struct sockaddr_in sin;
-  socklen_t addrlen = sizeof (sin);
-  gint fd = accept (listen_fd, (struct sockaddr *) &sin, &addrlen);
+  gint fd = tcp_accept (listen_fd);
   if (fd < 0) {
     GST_WARNING_OBJECT (srv, "Unable to accept a client on fd %d: %s",
         listen_fd, strerror (errno));
@@ -497,9 +481,8 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   client->opaque = g_strdup (srv->opaque);
   client->salt = g_strdup (srv->salt);
 
-  GST_INFO_OBJECT (srv,
-      "Accepted client %s connection using port %d (client %p)",
-      use_ssl ? "rtmps" : "rtmp", ntohs (sin.sin_port), client);
+  GST_INFO_OBJECT (srv, "Accepted %s connection with client %p",
+      use_ssl ? "rtmps" : "rtmp", client);
 
   /* ssl connection */
   if (use_ssl) {
@@ -528,7 +511,7 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, fd);
 }
 
-#if defined(HOST_LINUX)
+#ifdef HAVE_LINUX_SOCKIOS_H
 static void
 rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
 {
@@ -732,7 +715,7 @@ rtmp_server_update_poll_ctl (PexRtmpServer * srv)
 {
   for (GList *walk = srv->active_clients; walk; walk = walk->next) {
     Client *client = walk->data;
-#if defined(HOST_LINUX)
+#ifdef HAVE_LINUX_SOCKIOS_H
     if (!client->publisher)
       rtmp_server_update_send_queues (srv, client);
 #endif
@@ -829,7 +812,9 @@ rtmp_server_func (gpointer data)
   PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (data);
 
   gboolean ret = TRUE;
+#ifndef _MSC_VER
   signal (SIGPIPE, SIG_IGN);
+#endif
 
   while (srv->running && ret) {
     ret = rtmp_server_do_poll (srv);
@@ -848,42 +833,14 @@ rtmp_server_func (gpointer data)
   return NULL;
 }
 
-gint
-pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port)
-{
-  gint fd = socket (AF_INET6, SOCK_STREAM, 0);
-  g_assert_cmpint (fd, >=, 0);
-
-  int sock_optval = 1;
-  setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &sock_optval, sizeof (sock_optval));
-
-  struct sockaddr_in6 sin;
-  memset (&sin, 0, sizeof (struct sockaddr_in6));
-  sin.sin6_family = AF_INET6;
-  sin.sin6_port = htons (port);
-  sin.sin6_addr = in6addr_any;
-
-  if (bind (fd, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
-    GST_WARNING_OBJECT (srv, "Unable to listen to port %d: %s",
-        port, strerror (errno));
-    close (fd);
-    return -1;
-  }
-
-  listen (fd, 10);
-  GST_DEBUG_OBJECT (srv, "Listening on port %d with fd %d", port, fd);
-
-  return fd;
-}
-
 gboolean
 pex_rtmp_server_start (PexRtmpServer * srv)
 {
   /* listen for normal and ssl connections */
-  srv->listen_fd = pex_rtmp_server_add_listen_fd (srv, srv->port);
+  srv->listen_fd = tcp_listen (srv->port);
   if (srv->listen_fd <= 0)
     return FALSE;
-  srv->listen_ssl_fd = pex_rtmp_server_add_listen_fd (srv, srv->ssl_port);
+  srv->listen_ssl_fd = tcp_listen (srv->ssl_port);
   if (srv->listen_ssl_fd <= 0)
     return FALSE;
 
@@ -913,9 +870,9 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
     g_thread_join (srv->thread);
 
   if (srv->listen_fd > 0)
-    close (srv->listen_fd);
+    tcp_disconnect (srv->listen_fd);
   if (srv->listen_ssl_fd > 0)
-    close (srv->listen_ssl_fd);
+    tcp_disconnect (srv->listen_ssl_fd);
 }
 
 void

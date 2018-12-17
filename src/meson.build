@@ -13,7 +13,7 @@ rtmpserver_lib = shared_library('pexrtmpserver',
   rtmpserver_sources,
   c_args : rtmpserver_flags,
   include_directories : [config_h_inc],
-  dependencies : [gstreamer_dep, openssl_dep],
+  dependencies : [gstreamer_dep, openssl_dep, winsock2_dep],
   install : true,
 )
 
