@@ -43,6 +43,8 @@ typedef enum
 struct _Client
 {
   gint fd;
+  GstPollFD gfd;
+
   gboolean added_to_fd_table;
   gboolean disconnect;
 
@@ -129,7 +131,8 @@ void client_free (Client * client);
 
 gboolean client_tcp_connect (Client * client);
 
-gint client_get_poll_events (Client * client);
+void client_get_poll_ctl (Client * client, gboolean * read, gboolean * write);
+
 gboolean client_try_to_send (Client * client);
 gboolean client_receive (Client * client);
 gboolean client_window_size_reached (Client *client);
@@ -143,4 +146,3 @@ gboolean client_add_outgoing_ssl (Client * client,
     const gchar * ciphers, gboolean tls1_enabled);
 
 #endif /* __CLIENT_H__ */
-

@@ -899,7 +899,7 @@ client_send_ack (Client * client)
   amf_enc_free (enc);
 }
 
-static gboolean
+gboolean
 client_handle_message (Client * client, RTMP_Message * msg)
 {
   GST_LOG_OBJECT (client->server, "RTMP message %02x, len %u, abs-timestamp %u",
@@ -1222,26 +1222,33 @@ client_outgoing_handshake (Client * client)
   return TRUE;
 }
 
-gint
-client_get_poll_events (Client * client)
+
+void
+client_get_poll_ctl (Client * client, gboolean * read, gboolean * write)
 {
-  gint events;
+  *read = FALSE;
+  *write = FALSE;
 
-  if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS) {
-    events = POLLOUT;
-  } else if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS) {
-    events = POLLIN | POLLOUT;
-  } else if (client->state == CLIENT_TLS_HANDSHAKE_WANT_READ) {
-    events = POLLIN;
-  } else if (client->state == CLIENT_TLS_HANDSHAKE_WANT_WRITE) {
-    events = POLLOUT;
-  } else if (client->send_queue->len > 0 || client->ssl_read_blocked_on_write) {
-    events = POLLIN | POLLOUT;
-  } else {
-    events = POLLIN;
+  switch (client->state) {
+    case CLIENT_TCP_HANDSHAKE_IN_PROGRESS:
+      *write = TRUE;
+      break;
+    case CLIENT_TLS_HANDSHAKE_IN_PROGRESS:
+      *read = TRUE;
+      *write = TRUE;
+      break;
+    case CLIENT_TLS_HANDSHAKE_WANT_READ:
+      *read = TRUE;
+      break;
+    case CLIENT_TLS_HANDSHAKE_WANT_WRITE:
+      *write = TRUE;
+      break;
+    default:
+      *read = TRUE;
+      if (client->send_queue->len > 0 || client->ssl_read_blocked_on_write)
+        *write = TRUE;
+      break;
   }
-
-  return events;
 }
 
 static gboolean
