@@ -878,6 +878,7 @@ gst_buffer_queue_push (GstBufferQueue * queue, GstBuffer * buf)
   g_mutex_lock (&queue->lock);
   if (!queue->running) {
     g_mutex_unlock (&queue->lock);
+    gst_buffer_unref (buf);
     return;
   }
   g_queue_push_head (queue->queue, buf);
