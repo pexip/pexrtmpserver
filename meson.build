@@ -47,3 +47,4 @@ configure_file(output : 'config.h', input: 'config.h.meson',
 
 subdir('pkgconfig')
 subdir('src')
+subdir('plugins')
