@@ -10,7 +10,6 @@
 #include "client.h"
 
 #include "amf.h"
-#include "utils.h"
 #include "rtmp.h"
 
 #include <string.h>
@@ -31,19 +30,53 @@ typedef SSIZE_T ssize_t;
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
 
+/* This is the Chunk Message Header FIXME: rename? */
+#pragma pack(push)  /* push current alignment to stack */
+#pragma pack(1)     /* set alignment to 1 byte boundary */
+typedef struct
+{
+  guint8 flags;
+  guint8 timestamp[3];
+  guint8 msg_len[3];
+  guint8 msg_type_id;
+  guint32 msg_stream_id; /* Note, this is little-endian while others are BE */
+} RTMPHeader;
+
+#pragma pack(pop)   /* restore original alignment from stack */
+
 static void
 client_write_extended_timestamp (Client * client, guint32 timestamp)
 {
   guint32 ext_timestamp = GUINT32_FROM_BE (timestamp);
   client->send_queue = g_byte_array_append (client->send_queue,
       (guint8 *) & ext_timestamp, 4);
-  client->written_seq += 4;
+}
+
+static void
+client_direct_send (Client * client,
+    guint8 id, GByteArray * buf, guint32 timestamp)
+{
+  if (id != MSG_AUDIO && id != MSG_VIDEO && id != MSG_NOTIFY)
+    return;
+
+  if (client->write_flv_header) {
+    gst_buffer_queue_push (client->flv_queue, generate_flv_header ());
+    client->write_flv_header = FALSE;
+  }
+
+  gst_buffer_queue_push (client->flv_queue,
+      generate_flv_tag (buf->data, buf->len, id, timestamp));
 }
 
 static void
 client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
     GByteArray * buf, guint32 abs_timestamp, guint8 chunk_stream_id)
 {
+  if (client->direct) {
+    client_direct_send (client, msg_type_id, buf, abs_timestamp);
+    return;
+  }
+
   gint fmt = 0;
   guint32 timestamp = abs_timestamp;
   const guint msg_len = buf->len;
@@ -77,7 +110,7 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
   client->prev_header.msg_len = msg_len;
   client->prev_header.msg_type_id = msg_type_id;
 
-  RTMP_Header header;
+  RTMPHeader header;
   guint header_len = CHUNK_MSG_HEADER_LENGTH[fmt];
   chunk_stream_id &= 0x3f;
   header.flags = chunk_stream_id | (fmt << 6);
@@ -94,7 +127,6 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
       fmt, chunk_stream_id, timestamp, msg_len, msg_type_id, msg_stream_id);
   client->send_queue = g_byte_array_append (client->send_queue,
       (guint8 *) & header, header_len);
-  client->written_seq += header_len;
 
   if (use_ext_timestamp)
     client_write_extended_timestamp (client, timestamp);
@@ -104,7 +136,6 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
     if (pos) {
       guint8 flags = chunk_stream_id | (3 << 6);
       client->send_queue = g_byte_array_append (client->send_queue, &flags, 1);
-      client->written_seq += 1;
 
       /* we rewrite the extended timestamp for multiple chunks in a message, like Flash does */
       if (use_ext_timestamp)
@@ -117,9 +148,7 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
     client->send_queue = g_byte_array_append (client->send_queue,
         &buf->data[pos], chunk);
 
-    client_try_to_send (client);
-
-    client->written_seq += chunk;
+    client_send (client);
     pos += chunk;
 
     GST_LOG_OBJECT (client->server, "Sent chunk of size %u (%u / %u)",
@@ -145,7 +174,6 @@ client_send_reply (Client * client, double txid, const GValue * reply,
       invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
   amf_enc_free (invoke);
 }
-
 
 static void
 client_send_error (Client * client, double txid, const GstStructure * status)
@@ -843,7 +871,7 @@ client_handle_user_control (Client * client, const guint32 timestamp)
 }
 
 static gboolean
-client_handle_invoke (Client * client, const RTMP_Message * msg, AmfDec * dec)
+client_handle_invoke (Client * client, const RTMPMessage * msg, AmfDec * dec)
 {
   gboolean ret = TRUE;
   gchar *method = amf_dec_load_string (dec);
@@ -907,7 +935,7 @@ client_send_ack (Client * client)
 }
 
 gboolean
-client_handle_message (Client * client, RTMP_Message * msg)
+client_handle_message (Client * client, RTMPMessage * msg)
 {
   GST_LOG_OBJECT (client->server, "RTMP message %02x, len %u, abs-timestamp %u",
       msg->type, msg->len, msg->abs_timestamp);
@@ -928,7 +956,6 @@ client_handle_message (Client * client, RTMP_Message * msg)
         GST_DEBUG_OBJECT (client->server, "Not enough data");
         return FALSE;
       }
-      client->read_seq = load_be32 (&msg->buf->data[pos]);
       break;
 
     case MSG_SET_CHUNK:
@@ -1094,25 +1121,25 @@ client_handle_message (Client * client, RTMP_Message * msg)
   return ret;
 }
 
-static RTMP_Message *
+static RTMPMessage *
 rtmp_message_new ()
 {
-  RTMP_Message *msg = g_new0 (RTMP_Message, 1);
+  RTMPMessage *msg = g_new0 (RTMPMessage, 1);
   msg->buf = g_byte_array_new ();
   return msg;
 }
 
 static void
-rtmp_message_free (RTMP_Message * msg)
+rtmp_message_free (RTMPMessage * msg)
 {
   g_byte_array_free (msg->buf, TRUE);
   g_free (msg);
 }
 
-static RTMP_Message *
+static RTMPMessage *
 client_get_rtmp_message (Client * client, guint8 chunk_stream_id)
 {
-  RTMP_Message *msg = g_hash_table_lookup (client->rtmp_messages,
+  RTMPMessage *msg = g_hash_table_lookup (client->rtmp_messages,
       GINT_TO_POINTER (chunk_stream_id));
   if (msg == NULL) {
     msg = rtmp_message_new ();
@@ -1140,7 +1167,7 @@ client_incoming_handshake (Client * client)
       client->send_queue = g_byte_array_append (client->send_queue,
           pex_rtmp_handshake_get_buffer (client->handshake),
           pex_rtmp_handshake_get_length (client->handshake));
-      if (!client_try_to_send (client)) {
+      if (!client_send (client)) {
         GST_WARNING_OBJECT (client->server, "Unable to send handshake reply");
         return FALSE;
       }
@@ -1180,7 +1207,7 @@ client_outgoing_handshake (Client * client)
 
     client->send_queue = g_byte_array_append (client->send_queue,
         buf, HANDSHAKE_LENGTH + 1);
-    if (!client_try_to_send (client)) {
+    if (!client_send (client)) {
       GST_WARNING_OBJECT (client->server,
           "Unable to send outgoing handshake (1)");
       return FALSE;
@@ -1208,7 +1235,7 @@ client_outgoing_handshake (Client * client)
 
       client->send_queue = g_byte_array_append (client->send_queue,
           &client->buf->data[0], HANDSHAKE_LENGTH);
-      if (!client_try_to_send (client)) {
+      if (!client_send (client)) {
         GST_WARNING_OBJECT (client->server,
             "Unable to send outgoing handshake (2)");
         return FALSE;
@@ -1333,7 +1360,7 @@ client_begin_ssl (Client * client)
 }
 
 gboolean
-client_try_to_send (Client * client)
+client_send (Client * client)
 {
   if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS) {
     int error;
@@ -1361,7 +1388,7 @@ client_try_to_send (Client * client)
 
   ssize_t written;
 
-  if (client->use_ssl) {
+   if (client->use_ssl) {
     if (client->ssl_read_blocked_on_write) {
       return client_receive (client);
     } else if (client->send_queue->len == 0) {
@@ -1410,6 +1437,67 @@ client_try_to_send (Client * client)
 }
 
 gboolean
+client_push_flv (Client * client, GstBuffer * buf)
+{
+  RTMPMessage msg;
+  GstMapInfo map;
+  guint payload_size;
+  gboolean ret = FALSE;
+  guint total_parsed = 0;
+
+  gst_buffer_map (buf, &map, GST_MAP_READ);
+
+  while (total_parsed < map.size) {
+    guint8 *data = &map.data[total_parsed];
+    guint parsed = 0;
+
+    if ((parsed = parse_flv_header (data))) {
+      total_parsed += parsed;
+      continue;
+    }
+
+    /* ignore if we don't parse */
+    if (!(parsed = parse_flv_tag (data,
+        &msg.type, &payload_size, &msg.abs_timestamp))) {
+      GST_WARNING_OBJECT (client->server, "Could not parse header!");
+      goto done;
+    }
+
+    GST_DEBUG_OBJECT (client->server,
+        "Got flv buffer with type: 0x0%x, size: %u, payload_size: %u",
+        msg.type, (guint)map.size, payload_size);
+
+    if (msg.type == MSG_AUDIO || msg.type == MSG_VIDEO) {
+      client->buf = g_byte_array_append (client->buf,
+          data + parsed, payload_size);
+      msg.len = payload_size;
+      msg.buf = client->buf;
+      ret = client_handle_message (client, &msg);
+      client->buf = g_byte_array_remove_range (client->buf, 0, client->buf->len);
+    }
+
+    total_parsed += (parsed + payload_size + 4);
+  }
+
+done:
+  gst_buffer_unmap (buf, &map);
+  return ret;
+}
+
+gboolean
+client_pull_flv (Client * client, GstBuffer ** buf)
+{
+  *buf = gst_buffer_queue_pop (client->flv_queue);
+  return *buf != NULL;
+}
+
+void
+client_unlock_flv_pull (Client * client)
+{
+  gst_buffer_queue_flush (client->flv_queue);
+}
+
+gboolean
 client_receive (Client * client)
 {
   guint8 chunk[4096];
@@ -1423,7 +1511,7 @@ client_receive (Client * client)
 
   if (client->use_ssl) {
     if (client->ssl_write_blocked_on_read) {
-      return client_try_to_send (client);
+      return client_send (client);
     }
     client->ssl_read_blocked_on_write = FALSE;
     got = SSL_read (client->ssl, &chunk[0], sizeof (chunk));
@@ -1500,8 +1588,8 @@ client_receive (Client * client)
       break;
     }
 
-    RTMP_Header *header = (RTMP_Header *) & client->buf->data[0];
-    RTMP_Message *msg = client_get_rtmp_message (client, chunk_stream_id);
+    RTMPHeader *header = (RTMPHeader *) & client->buf->data[0];
+    RTMPMessage *msg = client_get_rtmp_message (client, chunk_stream_id);
 
     /* only get the message fmt from beginning of a new message */
     if (msg->buf->len == 0) {
@@ -1821,6 +1909,31 @@ client_add_external_connect (Client * client,
 
   return TRUE;
 }
+void
+client_add_direct_publisher (Client * client, const gchar * path)
+{
+  client->direct = TRUE;
+  client->publisher = TRUE;
+  client->path = g_strdup (path);
+
+  client->recv_chunk_size = G_MAXUINT;
+
+  connections_add_publisher (client->connections, client, client->path);
+}
+
+void
+client_add_direct_subscriber (Client * client, const gchar * path)
+{
+  client->direct = TRUE;
+  client->publisher = FALSE;
+  client->path = g_strdup (path);
+  client->flv_queue = gst_buffer_queue_new ();
+  client->write_flv_header = TRUE;
+
+  client->send_chunk_size = G_MAXUINT;
+
+  connections_add_subscriber (client->connections, client, client->path);
+}
 
 Client *
 client_new (GObject * server,
@@ -1879,6 +1992,9 @@ client_free (Client * client)
 
   g_byte_array_free (client->buf, TRUE);
   g_byte_array_free (client->send_queue, TRUE);
+
+  if (client->flv_queue)
+    gst_buffer_queue_free (client->flv_queue);
 
   if (client->metadata)
     gst_structure_free (client->metadata);

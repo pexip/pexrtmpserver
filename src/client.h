@@ -12,6 +12,7 @@
 #include <openssl/ssl.h>
 #include "connections.h"
 #include "handshake.h"
+#include "utils.h"
 
 typedef struct _Client Client;
 
@@ -27,7 +28,7 @@ typedef struct
   guint32 abs_timestamp;
   guint32 msg_stream_id;
   GByteArray * buf;
-} RTMP_Message;
+} RTMPMessage;
 
 typedef struct
 {
@@ -36,7 +37,7 @@ typedef struct
   guint8 msg_type_id;
   guint32 abs_timestamp;
   guint msg_len;
-} RTMP_Header_State;
+} RTMPHeaderData;
 
 typedef enum
 {
@@ -62,7 +63,7 @@ struct _Client
   gboolean ignore_localhost;
   guint msg_stream_id;
 
-  RTMP_Header_State prev_header;
+  RTMPHeaderData prev_header;
   guint chunk_size;
   guint recv_chunk_size;
   guint send_chunk_size;
@@ -99,8 +100,6 @@ struct _Client
   gboolean retry_connection;
 
   GstStructure * metadata;
-  guint32 written_seq;
-  guint32 read_seq;
 
   guint32 bytes_received_since_ack;
   guint32 total_bytes_received;
@@ -118,6 +117,10 @@ struct _Client
   gboolean ssl_write_blocked_on_read;
   gboolean ssl_read_blocked_on_write;
   GByteArray * video_codec_data;
+
+  gboolean direct;
+  GstBufferQueue *flv_queue;
+  gboolean write_flv_header;
 };
 
 Client * client_new (GObject * server,
@@ -134,13 +137,22 @@ gboolean client_add_external_connect (Client * client,
     gint src_port,
     gint tcp_syncnt);
 
+void client_add_direct_publisher (Client * client, const gchar * path);
+void client_add_direct_subscriber (Client * client, const gchar * path);
+
+gboolean client_push_flv (Client * client, GstBuffer * buf);
+gboolean client_pull_flv (Client * client, GstBuffer ** buf);
+void client_unlock_flv_pull (Client * client);
+
+gboolean client_handle_message (Client * client, RTMPMessage * msg);
+
 void client_free (Client * client);
 
 gboolean client_tcp_connect (Client * client);
 
 void client_get_poll_ctl (Client * client, gboolean * read, gboolean * write);
 
-gboolean client_try_to_send (Client * client);
+gboolean client_send (Client * client);
 gboolean client_receive (Client * client);
 gboolean client_window_size_reached (Client *client);
 

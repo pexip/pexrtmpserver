@@ -112,6 +112,7 @@ struct _PexRtmpServer
   GstAtomicQueue *dialout_clients;
 
   GHashTable *direct_publishers;
+  GHashTable *direct_subscribers;
 };
 
 G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
@@ -162,7 +163,9 @@ pex_rtmp_server_init (PexRtmpServer * srv)
   srv->salt = g_base64_encode ((guchar *)&rand_data, sizeof (guint32));
 
   srv->direct_publishers = g_hash_table_new_full (
-      g_str_hash, g_str_equal, g_free, NULL);
+      g_str_hash, g_str_equal, g_free, (GDestroyNotify)client_free);
+  srv->direct_subscribers = g_hash_table_new_full (
+      g_str_hash, g_str_equal, g_free, (GDestroyNotify)client_free);
 }
 
 static void
@@ -195,6 +198,7 @@ pex_rtmp_server_finalize (GObject * obj)
   connections_free (srv->connections);
   gst_atomic_queue_unref (srv->dialout_clients);
   g_hash_table_destroy (srv->direct_publishers);
+  g_hash_table_destroy (srv->direct_subscribers);
 
   G_OBJECT_CLASS (pex_rtmp_server_parent_class)->finalize (obj);
 }
@@ -588,6 +592,59 @@ pex_rtmp_server_dialin (PexRtmpServer * srv,
       src_port);
 }
 
+void
+pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
+    const gchar * path)
+{
+  GST_DEBUG_OBJECT (srv, "Adding a direct publisher");
+
+  Client *client = client_new (G_OBJECT (srv), srv->connections,
+      srv->ignore_localhost, srv->stream_id,
+      srv->chunk_size);
+
+  client_add_direct_publisher (client, path);
+
+  g_hash_table_insert (srv->direct_publishers, g_strdup (path), client);
+}
+
+void
+pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
+    const gchar * path)
+{
+  GST_DEBUG_OBJECT (srv, "Adding a direct subscriber");
+
+  Client *client = client_new (G_OBJECT (srv), srv->connections,
+      srv->ignore_localhost, srv->stream_id,
+      srv->chunk_size);
+
+  client_add_direct_subscriber (client, path);
+
+  g_hash_table_insert (srv->direct_subscribers, g_strdup (path), client);
+}
+
+gboolean
+pex_rtmp_server_publish_flv (PexRtmpServer * srv, const gchar * path,
+    GstBuffer * buf)
+{
+  Client *client = g_hash_table_lookup (srv->direct_publishers, path);
+  return client_push_flv (client, buf);
+}
+
+gboolean
+pex_rtmp_server_subscribe_flv (PexRtmpServer * srv, const gchar * path,
+    GstBuffer ** buf)
+{
+  Client *client = g_hash_table_lookup (srv->direct_subscribers, path);
+  return client_pull_flv (client, buf);
+}
+
+void
+pex_rtmp_server_flush_subscribe (PexRtmpServer * srv, const gchar * path)
+{
+  Client *client = g_hash_table_lookup (srv->direct_subscribers, path);
+  client_unlock_flv_pull (client);
+}
+
 static gboolean
 _establish_client_tcp_connection (PexRtmpServer * srv, Client * client)
 {
@@ -748,11 +805,11 @@ rtmp_server_do_poll (PexRtmpServer * srv)
   }
 
   /* check for new connections */
-  if (gst_poll_fd_can_read (srv->fd_set, &srv->listen_gfd)) {
+  if (srv->port && gst_poll_fd_can_read (srv->fd_set, &srv->listen_gfd)) {
     rtmp_server_create_client (srv, srv->listen_gfd.fd);
     return TRUE;
   }
-  if (gst_poll_fd_can_read (srv->fd_set, &srv->listen_ssl_gfd)) {
+  if (srv->ssl_port && gst_poll_fd_can_read (srv->fd_set, &srv->listen_ssl_gfd)) {
     rtmp_server_create_client (srv, srv->listen_ssl_gfd.fd);
     return TRUE;
   }
@@ -770,11 +827,11 @@ rtmp_server_do_poll (PexRtmpServer * srv)
 
     /* ready to send */
     if (gst_poll_fd_can_write (srv->fd_set, &client->gfd)) {
-      gboolean ret = client_try_to_send (client);
+      gboolean ret = client_send (client);
       if (!ret) {
         GST_WARNING_OBJECT (srv,
-            "client error, send failed (path=%s, publisher=%d)", client->path,
-            client->publisher);
+            "client error, send failed (client=%p, path=%s, publisher=%d)",
+            client, client->path, client->publisher);
         rtmp_server_remove_client (srv, client);
         break;
       }
@@ -785,19 +842,19 @@ rtmp_server_do_poll (PexRtmpServer * srv)
       gboolean ret = client_receive (client);
       if (!ret) {
         GST_WARNING_OBJECT (srv,
-            "client error: client_recv_from_client failed (client=%p path=%s, publisher=%d)",
+            "client error: recv failed (client=%p, path=%s, publisher=%d)",
             client, client->path, client->publisher);
         rtmp_server_remove_client (srv, client);
         break;
       }
     }
 
-    /* fd closed */
+    /* error */
     if (gst_poll_fd_has_closed (srv->fd_set, &client->gfd) ||
         gst_poll_fd_has_error (srv->fd_set, &client->gfd)) {
       GST_WARNING_OBJECT (srv,
-          "poll() called on closed fd - removing client (path=%s, publisher=%d)",
-          client->path, client->publisher);
+          "poll error - removing client (client=%p, path=%s, publisher=%d)",
+           client, client->path, client->publisher);
       rtmp_server_remove_client (srv, client);
       break;
     }
@@ -837,23 +894,29 @@ gboolean
 pex_rtmp_server_start (PexRtmpServer * srv)
 {
   /* listen for normal and ssl connections */
-  srv->listen_fd = tcp_listen (srv->port);
-  if (srv->listen_fd <= 0)
-    return FALSE;
-  srv->listen_ssl_fd = tcp_listen (srv->ssl_port);
-  if (srv->listen_ssl_fd <= 0)
-    return FALSE;
+  if (srv->port) {
+    srv->listen_fd = tcp_listen (srv->port);
+    if (srv->listen_fd <= 0) {
+      GST_ERROR_OBJECT (srv, "Could not listen on port %d", srv->port);
+      return FALSE;
+    }
+    gst_poll_fd_init (&srv->listen_gfd);
+    srv->listen_gfd.fd = srv->listen_fd;
+    gst_poll_add_fd (srv->fd_set, &srv->listen_gfd);
+    gst_poll_fd_ctl_read (srv->fd_set, &srv->listen_gfd, TRUE);
+  }
 
-  /* add fds to poll table */
-  gst_poll_fd_init (&srv->listen_gfd);
-  gst_poll_fd_init (&srv->listen_ssl_gfd);
-  srv->listen_gfd.fd = srv->listen_fd;
-  srv->listen_ssl_gfd.fd = srv->listen_ssl_fd;
-  gst_poll_add_fd (srv->fd_set, &srv->listen_gfd);
-  gst_poll_add_fd (srv->fd_set, &srv->listen_ssl_gfd);
-
-  gst_poll_fd_ctl_read (srv->fd_set, &srv->listen_gfd, TRUE);
-  gst_poll_fd_ctl_read (srv->fd_set, &srv->listen_ssl_gfd, TRUE);
+  if (srv->ssl_port) {
+    srv->listen_ssl_fd = tcp_listen (srv->ssl_port);
+    if (srv->listen_ssl_fd <= 0) {
+      GST_ERROR_OBJECT (srv, "Could not listen on port %d", srv->ssl_port);
+      return FALSE;
+    }
+    gst_poll_fd_init (&srv->listen_ssl_gfd);
+    srv->listen_ssl_gfd.fd = srv->listen_ssl_fd;
+    gst_poll_add_fd (srv->fd_set, &srv->listen_ssl_gfd);
+    gst_poll_fd_ctl_read (srv->fd_set, &srv->listen_ssl_gfd, TRUE);
+  }
 
   srv->running = TRUE;
   srv->thread = g_thread_new ("RTMPServer", rtmp_server_func, srv);

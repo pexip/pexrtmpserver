@@ -18,7 +18,6 @@ G_DECLARE_FINAL_TYPE (PexRtmpServer, pex_rtmp_server, PEX, RTMP_SERVER, GObject)
 #define PEX_TYPE_RTMP_SERVER (pex_rtmp_server_get_type ())
 #define PEX_RTMP_SERVER_CAST(obj) ((PexRtmpServer *)(obj))
 
-
 PEX_RTMPSERVER_EXPORT
 PexRtmpServer * pex_rtmp_server_new (const gchar * application_name,
     gint port, gint ssl_port,
@@ -49,6 +48,23 @@ PEX_RTMPSERVER_EXPORT
 gboolean pex_rtmp_server_external_connect (PexRtmpServer * self,
     const gchar * path, const gchar * url, const gchar * addresses,
     const gboolean is_publisher, gint src_port);
+
+PEX_RTMPSERVER_EXPORT
+void pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
+    const gchar * path);
+PEX_RTMPSERVER_EXPORT
+gboolean pex_rtmp_server_publish_flv (PexRtmpServer * srv, const gchar * path,
+    GstBuffer * buf);
+
+PEX_RTMPSERVER_EXPORT
+void pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
+    const gchar * path);
+PEX_RTMPSERVER_EXPORT
+gboolean pex_rtmp_server_subscribe_flv (PexRtmpServer * srv, const gchar * path,
+    GstBuffer ** buf);
+PEX_RTMPSERVER_EXPORT
+void pex_rtmp_server_flush_subscribe (PexRtmpServer * srv, const gchar * path);
+
 
 /* For testing */
 PEX_RTMPSERVER_EXPORT

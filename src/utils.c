@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "rtmp.h"
 
 #if defined(HOST_LINUX)
 #  include <linux/sockios.h>
@@ -73,6 +74,104 @@ set_le32 (void *p, guint32 val)
   data[2] = val >> 16;
   data[3] = val >> 24;
 }
+
+void
+set_be32 (void *p, guint32 val)
+{
+  guint8 *data = (guint8 *) p;
+  data[0] = val >> 24;
+  data[1] = val >> 16;
+  data[2] = val >> 8;
+  data[3] = val;
+}
+
+/*
+typedef struct
+{
+  guint8 packet_type;
+  guint8 payload_size[3];
+  guint8 timestamp[4];
+  guint8 stream_id[3];
+} FLVPacketHeader;
+*/
+
+static const guint flv_tag_header_size = 11;
+static const gchar flv_header[] = {
+    'F', 'L', 'V',
+    0x01, /* version 1 */
+    0x05, /* audio and video */
+    0x00, 0x00, 0x00, 0x09, /* 9 bytes header */
+    0x00, 0x00, 0x00, 0x00, /* cheating, putting PreviousTagSize0 here */
+};
+
+guint
+parse_flv_header (const guint8 * data)
+{
+  /* could use this to "turn on" publishing ? */
+  if (data[0] == 'F' && data[1] == 'L' && data[2] == 'V' && data[3] == 0x01)
+    return sizeof (flv_header);
+
+  return 0;
+}
+
+guint
+parse_flv_tag (const guint8 * data,
+    guint8 * packet_type, guint * payload_size, guint * timestamp)
+{
+  /* we only want to deal with audio or video for now */
+  if (data[0] != MSG_AUDIO && data[0] != MSG_VIDEO && data[0] != 0x12) {
+    GST_DEBUG ("Not audio or video or metadata (0x%x)", data[0]);
+    return 0;
+  }
+
+  *packet_type = data[0];
+  *payload_size = load_be24 (&data[1]);
+  *timestamp = load_be24 (&data[4]) | (data[7] << 24);
+
+  return flv_tag_header_size;
+}
+
+GstBuffer *
+generate_flv_header ()
+{
+  guint8 *data = g_malloc (sizeof (flv_header));
+  memcpy (data, flv_header, sizeof (flv_header));
+  return gst_buffer_new_wrapped (data, sizeof (flv_header));
+}
+
+static void
+write_flv_tag (guint8 * data,
+    guint8 packet_type, guint payload_size, guint32 timestamp)
+{
+  data[0] = packet_type;
+  set_be24 (&data[1], payload_size);
+
+  if (timestamp > EXT_TIMESTAMP_LIMIT) {
+    set_be32 (&data[4], timestamp);
+  } else {
+    set_be24 (&data[4], timestamp);
+    data[7] = 0;
+  }
+  set_be24 (&data[8], 0);
+}
+
+GstBuffer *
+generate_flv_tag (const guint8 * data, gsize size, guint8 id, guint32 timestamp)
+{
+  guint size_with_header = size + flv_tag_header_size;
+  guint tag_size = size_with_header + 4;
+  guint8 *tag = g_malloc (tag_size);
+
+  write_flv_tag (tag, id, size, timestamp);
+
+  memcpy (&tag[flv_tag_header_size], data, size);
+
+  /* write the total length (size_with_header) in the last 4 bytes */
+  set_be32 (&tag[size_with_header], size_with_header);
+
+  return gst_buffer_new_wrapped (tag, tag_size);
+}
+
 
 void
 tcp_set_nonblock (int fd, gboolean enabled)
@@ -730,4 +829,72 @@ done:
   g_strfreev (auth_clip);
 
   return ret;
+}
+
+struct _GstBufferQueue
+{
+  GQueue *queue;
+  GMutex lock;
+  GCond cond;
+  gboolean running;
+};
+
+GstBufferQueue *
+gst_buffer_queue_new ()
+{
+  GstBufferQueue *queue = g_new0 (GstBufferQueue, 1);
+  g_mutex_init (&queue->lock);
+  g_cond_init (&queue->cond);
+  queue->queue = g_queue_new ();
+  queue->running = TRUE;
+  return queue;
+}
+
+void
+gst_buffer_queue_flush (GstBufferQueue * queue)
+{
+  if (queue->queue == NULL)
+    return;
+  g_mutex_lock (&queue->lock);
+  queue->running = FALSE;
+  g_cond_signal (&queue->cond);
+  g_queue_free_full (queue->queue, (GDestroyNotify)gst_buffer_unref);
+  queue->queue = NULL;
+  g_mutex_unlock (&queue->lock);
+}
+
+void
+gst_buffer_queue_free (GstBufferQueue * queue)
+{
+  gst_buffer_queue_flush (queue);
+  g_cond_clear (&queue->cond);
+  g_mutex_clear (&queue->lock);
+  g_free (queue);
+}
+
+void
+gst_buffer_queue_push (GstBufferQueue * queue, GstBuffer * buf)
+{
+  g_mutex_lock (&queue->lock);
+  if (!queue->running) {
+    g_mutex_unlock (&queue->lock);
+    return;
+  }
+  g_queue_push_head (queue->queue, buf);
+  g_cond_signal (&queue->cond);
+  g_mutex_unlock (&queue->lock);
+}
+
+GstBuffer *
+gst_buffer_queue_pop (GstBufferQueue * queue)
+{
+  GstBuffer *buf = NULL;
+  g_mutex_lock (&queue->lock);
+  while (queue->running && g_queue_get_length (queue->queue) == 0)
+    g_cond_wait (&queue->cond, &queue->lock);
+
+  if (queue->running)
+    buf = g_queue_pop_tail (queue->queue);
+  g_mutex_unlock (&queue->lock);
+  return buf;
 }
