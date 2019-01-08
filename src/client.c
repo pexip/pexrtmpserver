@@ -899,7 +899,7 @@ client_send_ack (Client * client)
   amf_enc_free (enc);
 }
 
-gboolean
+static gboolean
 client_handle_message (Client * client, RTMP_Message * msg)
 {
   GST_LOG_OBJECT (client->server, "RTMP message %02x, len %u, abs-timestamp %u",

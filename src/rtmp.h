@@ -50,7 +50,7 @@
 #define SUPPORT_SND_SPEEX 0x0800
 #define SUPPORT_VID_H264  0x0080
 
-#define PACKED	__attribute__((packed))
+#define PACKED __attribute__((packed))
 
 struct _Handshake
 {

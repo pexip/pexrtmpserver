@@ -132,7 +132,6 @@ gboolean client_tcp_connect (Client * client);
 gint client_get_poll_events (Client * client);
 gboolean client_try_to_send (Client * client);
 gboolean client_receive (Client * client);
-gboolean client_handle_message (Client * client, RTMP_Message * msg);
 gboolean client_window_size_reached (Client *client);
 
 gboolean client_add_incoming_ssl (Client * client,
