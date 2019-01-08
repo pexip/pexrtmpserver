@@ -11,11 +11,16 @@ rtmpserver_sources = [
 
 rtmpserver_lib = shared_library('pexrtmpserver',
   rtmpserver_sources,
+  c_args : rtmpserver_flags,
+  include_directories : [config_h_inc],
   dependencies : [gstreamer_dep, openssl_dep],
   install : true,
 )
 
-rtmpserver_dep = declare_dependency(link_with: rtmpserver_lib)
+rtmpserver_dep = declare_dependency(
+  link_with: rtmpserver_lib,
+  include_directories : include_directories('.'))
+
 rtmpsrv = executable('rtmpsrv', 'main.c',
   dependencies : [rtmpserver_dep, gstreamer_dep],
   install : true)
