@@ -37,6 +37,8 @@ enum
   PROP_SERVER,
   PROP_PATH,
   PROP_DIALIN_URL,
+  PROP_BYTES_RECEIVED,
+  PROP_PACKETS_RECEIVED,
 };
 
 static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE ("src",
@@ -55,8 +57,11 @@ struct _PexRTMPServerSrc
   gboolean on_publish;
   gboolean on_publish_done;
 
+  /* properties */
   gchar *path;
   gchar *dialin_url;
+  guint bytes_received;
+  guint packets_received;
 };
 
 #define pex_rtmp_server_src_parent_class parent_class
@@ -167,8 +172,12 @@ pex_rtmp_server_src_create (GstPushSrc * pushsrc, GstBuffer ** buf)
   gboolean ret = pex_rtmp_server_subscribe_flv (src->server, src->path, buf);
   flowret = ret ? GST_FLOW_OK : GST_FLOW_EOS;
 
-  GST_DEBUG_OBJECT (src, "subscribing %" GST_PTR_FORMAT, *buf);
-  //gst_util_dump_buffer (*buf);
+  if (ret) {
+    src->bytes_received = gst_buffer_get_size (*buf);
+    src->packets_received++;
+    GST_DEBUG_OBJECT (src, "subscribing %" GST_PTR_FORMAT, *buf);
+    //gst_util_dump_buffer (*buf);
+  }
 
   return flowret;
 }
@@ -188,6 +197,12 @@ pex_rtmp_server_src_get_property (GObject * object, guint prop_id,
       break;
     case PROP_DIALIN_URL:
       g_value_set_string (value, src->dialin_url);
+      break;
+    case PROP_BYTES_RECEIVED:
+      g_value_set_uint (value, src->bytes_received);
+      break;
+    case PROP_PACKETS_RECEIVED:
+      g_value_set_uint (value, src->packets_received);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -254,7 +269,6 @@ pex_rtmp_server_src_class_init (PexRTMPServerSrcClass * klass)
   gstbasesrc_class->unlock = GST_DEBUG_FUNCPTR (pex_rtmp_server_src_unlock);
   gstpushsrc_class->create = GST_DEBUG_FUNCPTR (pex_rtmp_server_src_create);
 
-
   g_object_class_install_property (gobject_class, PROP_SERVER,
       g_param_spec_object ("server", "RTMP Server",
           "The Pex RTMP server to use", PEX_TYPE_RTMP_SERVER,
@@ -269,6 +283,16 @@ pex_rtmp_server_src_class_init (PexRTMPServerSrcClass * klass)
       g_param_spec_string ("dialin-url", "RTMP Dialin URL",
           "The RTMP URL to subscribe to",
           NULL, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_BYTES_RECEIVED,
+      g_param_spec_uint ("bytes-received", "Bytes Received",
+          "Number of bytes received", 0, G_MAXUINT, 0,
+          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_PACKETS_RECEIVED,
+      g_param_spec_uint ("packets-recevied", "Packets Received",
+          "Number of packets received", 0, G_MAXUINT, 0,
+          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   gst_element_class_set_static_metadata (gstelement_class,
       "RTMP output src",

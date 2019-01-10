@@ -36,6 +36,8 @@ enum
   PROP_SERVER,
   PROP_PATH,
   PROP_DIALOUT_URL,
+  PROP_BYTES_SENT,
+  PROP_PACKETS_SENT,
 };
 
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
@@ -57,8 +59,11 @@ struct _PexRTMPServerSink
   GstBuffer *header;
   gboolean first;
 
+  /* properties */
   gchar *path;
   gchar *dialout_url;
+  guint bytes_sent;
+  guint packets_sent;
 };
 
 #define pex_rtmp_server_sink_parent_class parent_class
@@ -176,12 +181,15 @@ pex_rtmp_server_sink_render (GstBaseSink * basesink, GstBuffer * buf)
     sink->first = FALSE;
   }
 
-  GST_DEBUG_OBJECT (sink, "publishing %" GST_PTR_FORMAT, buf);
-  //gst_util_dump_buffer (buf);
-
   gboolean ret = pex_rtmp_server_publish_flv (sink->server, sink->path, buf);
-  if (!ret)
+  if (ret) {
+    sink->bytes_sent = gst_buffer_get_size (buf);
+    sink->packets_sent++;
+    GST_DEBUG_OBJECT (sink, "publishing %" GST_PTR_FORMAT, buf);
+    //gst_util_dump_buffer (buf);
+  } else {
     GST_WARNING_OBJECT (sink, "Publish FLV returned FALSE");
+  }
 
   if (need_unref)
     gst_buffer_unref (buf);
@@ -250,6 +258,12 @@ pex_rtmp_server_sink_get_property (GObject * object, guint prop_id,
       break;
     case PROP_DIALOUT_URL:
       g_value_set_string (value, sink->dialout_url);
+      break;
+    case PROP_BYTES_SENT:
+      g_value_set_uint (value, sink->bytes_sent);
+      break;
+    case PROP_PACKETS_SENT:
+      g_value_set_uint (value, sink->packets_sent);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -323,6 +337,16 @@ pex_rtmp_server_sink_class_init (PexRTMPServerSinkClass * klass)
       g_param_spec_string ("dialout-url", "RTMP Dialout URL",
           "The RTMP URL to dial out to",
           NULL, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_BYTES_SENT,
+      g_param_spec_uint ("bytes-sent", "Bytes Sent",
+          "Number of bytes sent", 0, G_MAXUINT, 0,
+          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_PACKETS_SENT,
+      g_param_spec_uint ("packets-sent", "Packets Sent",
+          "Number of packets sent", 0, G_MAXUINT, 0,
+          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   gst_element_class_set_static_metadata (gstelement_class,
       "RTMP output sink",
