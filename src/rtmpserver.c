@@ -407,9 +407,10 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
 
   gchar *path = g_strdup (client->path);
   gboolean publisher = client->publisher;
+  gboolean direct = client->direct;
   client_free (client);
 
-  if (srv->running) {
+  if (srv->running && !direct) {
     if (publisher) {
       g_signal_emit (srv,
           pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE], 0, path);
@@ -653,7 +654,7 @@ pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
 static void
 _client_destroy (Client * client)
 {
-  rtmp_server_remove_client (client->server, client);
+  rtmp_server_remove_client (PEX_RTMP_SERVER_CAST (client->server), client);
 }
 
 static void
