@@ -141,7 +141,7 @@ pex_rtmp_server_src_stop (GstBaseSrc * basesrc)
   PexRTMPServerSrc *src = PEX_RTMP_SERVER_SRC_CAST (basesrc);
   GST_DEBUG_OBJECT (src, "Stopping");
 
-  /* FIXME: remove subscriber */
+  pex_rtmp_server_remove_direct_subscriber (src->server, src->path);
 
   if (src->spawned_server) {
     pex_rtmp_server_stop (src->server);

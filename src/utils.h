@@ -21,15 +21,18 @@ GstBuffer * generate_flv_header ();
 GstBuffer * generate_flv_tag (const guint8 * data,
     gsize size, guint8 id, guint32 timestamp);
 
-gint tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt);
-gint tcp_listen (gint port);
-gint tcp_accept (gint listen_fd);
-void tcp_set_nonblock (int fd, gboolean enabled);
-void tcp_disconnect (gint fd);
-
+/*
 gboolean parse_rtmp_url (const gchar * url,
     gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
     gchar ** path, gchar ** username, gchar ** password);
+
+gint tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt);
+gint tcp_listen (gint port);
+void tcp_disconnect (gint fd);
+*/
+gint tcp_accept (gint listen_fd);
+void tcp_set_nonblock (int fd, gboolean enabled);
+
 
 int verify_hostname (X509 * cert, const gchar * remote_host);
 gboolean file_exists (const gchar * path);

@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "rtmpserver.h"
 #include "rtmp.h"
 
 #if defined(HOST_LINUX)

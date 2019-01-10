@@ -53,6 +53,9 @@ PEX_RTMPSERVER_EXPORT
 void pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
     const gchar * path);
 PEX_RTMPSERVER_EXPORT
+void pex_rtmp_server_remove_direct_publisher (PexRtmpServer * srv,
+    const gchar * path);
+PEX_RTMPSERVER_EXPORT
 gboolean pex_rtmp_server_publish_flv (PexRtmpServer * srv, const gchar * path,
     GstBuffer * buf);
 
@@ -60,15 +63,15 @@ PEX_RTMPSERVER_EXPORT
 void pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
     const gchar * path);
 PEX_RTMPSERVER_EXPORT
+void pex_rtmp_server_remove_direct_subscriber (PexRtmpServer * srv,
+    const gchar * path);
+PEX_RTMPSERVER_EXPORT
 gboolean pex_rtmp_server_subscribe_flv (PexRtmpServer * srv, const gchar * path,
     GstBuffer ** buf);
 PEX_RTMPSERVER_EXPORT
 void pex_rtmp_server_flush_subscribe (PexRtmpServer * srv, const gchar * path);
 
-
 /* For testing */
-PEX_RTMPSERVER_EXPORT
-gint pex_rtmp_server_add_listen_fd (PexRtmpServer * srv, gint port);
 PEX_RTMPSERVER_EXPORT
 gboolean parse_rtmp_url (const gchar * url,
     gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
@@ -77,5 +80,7 @@ PEX_RTMPSERVER_EXPORT
 gint tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt);
 PEX_RTMPSERVER_EXPORT
 gint tcp_listen (gint port);
+PEX_RTMPSERVER_EXPORT
+void tcp_disconnect (gint fd);
 
 #endif /* __RTMP_SERVER_H__ */

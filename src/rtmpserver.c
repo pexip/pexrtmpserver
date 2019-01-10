@@ -596,7 +596,7 @@ void
 pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
     const gchar * path)
 {
-  GST_DEBUG_OBJECT (srv, "Adding a direct publisher");
+  GST_DEBUG_OBJECT (srv, "Adding a direct publisher for path %s", path);
 
   Client *client = client_new (G_OBJECT (srv), srv->connections,
       srv->ignore_localhost, srv->stream_id,
@@ -608,10 +608,18 @@ pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
 }
 
 void
+pex_rtmp_server_remove_direct_publisher (PexRtmpServer * srv,
+    const gchar * path)
+{
+  GST_DEBUG_OBJECT (srv, "Removing a direct publisher for path %s", path);
+  g_hash_table_remove (srv->direct_publishers, path);
+}
+
+void
 pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
     const gchar * path)
 {
-  GST_DEBUG_OBJECT (srv, "Adding a direct subscriber");
+  GST_DEBUG_OBJECT (srv, "Adding a direct subscriber for path %s", path);
 
   Client *client = client_new (G_OBJECT (srv), srv->connections,
       srv->ignore_localhost, srv->stream_id,
@@ -620,6 +628,14 @@ pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
   client_add_direct_subscriber (client, path);
 
   g_hash_table_insert (srv->direct_subscribers, g_strdup (path), client);
+}
+
+void
+pex_rtmp_server_remove_direct_subscriber (PexRtmpServer * srv,
+    const gchar * path)
+{
+  GST_DEBUG_OBJECT (srv, "Removing a direct subscriber for path %s", path);
+  g_hash_table_remove (srv->direct_subscribers, path);
 }
 
 gboolean

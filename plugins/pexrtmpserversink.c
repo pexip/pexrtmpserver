@@ -145,6 +145,8 @@ pex_rtmp_server_sink_stop (GstBaseSink * basesink)
 {
   PexRTMPServerSink *sink = PEX_RTMP_SERVER_SINK_CAST (basesink);
 
+  pex_rtmp_server_remove_direct_publisher (sink->server, sink->path);
+
   if (sink->header) {
     gst_buffer_unref (sink->header);
     sink->header = NULL;

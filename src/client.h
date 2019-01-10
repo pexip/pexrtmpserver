@@ -27,7 +27,7 @@ typedef struct
   guint32 timestamp;
   guint32 abs_timestamp;
   guint32 msg_stream_id;
-  GByteArray * buf;
+  GByteArray *buf;
 } RTMPMessage;
 
 typedef struct
@@ -69,9 +69,9 @@ struct _Client
   guint send_chunk_size;
 
   guint32 window_size;
-  GHashTable * rtmp_messages;
-  GByteArray * send_queue;
-  GByteArray * buf;
+  GHashTable *rtmp_messages;
+  GByteArray *send_queue;
+  GByteArray *buf;
 
   gchar *protocol;
   gint port;
@@ -99,7 +99,7 @@ struct _Client
 
   gboolean retry_connection;
 
-  GstStructure * metadata;
+  GstStructure *metadata;
 
   guint32 bytes_received_since_ack;
   guint32 total_bytes_received;
@@ -108,7 +108,7 @@ struct _Client
   gint last_write_queue_size;
   GTimer *last_queue_overflow;
 
-  PexRtmpHandshake * handshake;
+  PexRtmpHandshake *handshake;
   PexRtmpHandshakeState handshake_state;
 
   /* crypto */
@@ -116,7 +116,7 @@ struct _Client
   SSL *ssl;
   gboolean ssl_write_blocked_on_read;
   gboolean ssl_read_blocked_on_write;
-  GByteArray * video_codec_data;
+  GByteArray *video_codec_data;
 
   gboolean direct;
   GstBufferQueue *flv_queue;
