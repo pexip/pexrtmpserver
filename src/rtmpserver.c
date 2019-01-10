@@ -117,335 +117,6 @@ struct _PexRtmpServer
 
 G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 
-PexRtmpServer *
-pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
-    const gchar * cert_file, const gchar * key_file, const gchar * ca_cert_file,
-    const gchar * ca_cert_dir, const gchar * ciphers, gboolean tls1_enabled,
-    gboolean ignore_localhost)
-{
-  return g_object_new (PEX_TYPE_RTMP_SERVER,
-      "application-name", application_name,
-      "port", port,
-      "ssl-port", ssl_port,
-      "cert-file", cert_file,
-      "key-file", key_file,
-      "ca-cert-file", ca_cert_file,
-      "ca-cert-dir", ca_cert_dir,
-      "ciphers", ciphers,
-      "tls1-enabled", tls1_enabled, "ignore-localhost", ignore_localhost, NULL);
-}
-
-static void
-pex_rtmp_server_init (PexRtmpServer * srv)
-{
-  srv->application_name = NULL;
-  srv->port = DEFAULT_PORT;
-  srv->ssl_port = DEFAULT_SSL_PORT;
-  srv->cert_file = NULL;
-  srv->key_file = NULL;
-  srv->ca_cert_file = NULL;
-  srv->ca_cert_dir = NULL;
-  srv->ciphers = NULL;
-  srv->tls1_enabled = DEFAULT_TLS1_ENABLED;
-  srv->ignore_localhost = DEFAULT_IGNORE_LOCALHOST;
-
-  srv->thread = NULL;
-
-  srv->fd_set = gst_poll_new (TRUE);
-
-  srv->connections = connections_new ();
-  srv->dialout_clients = gst_atomic_queue_new (0);
-
-  /* FIXME: only need to generate this when username and password is set */
-  guint32 rand_data = g_random_int();
-  srv->opaque = g_base64_encode ((guchar *)&rand_data, sizeof (guint32));
-  rand_data = g_random_int();
-  srv->salt = g_base64_encode ((guchar *)&rand_data, sizeof (guint32));
-
-  srv->direct_publishers = g_hash_table_new_full (
-      g_str_hash, g_str_equal, g_free, (GDestroyNotify)client_free);
-  srv->direct_subscribers = g_hash_table_new_full (
-      g_str_hash, g_str_equal, g_free, (GDestroyNotify)client_free);
-}
-
-static void
-pex_rtmp_server_dispose (GObject * obj)
-{
-  G_OBJECT_CLASS (pex_rtmp_server_parent_class)->dispose (obj);
-}
-
-static void
-pex_rtmp_server_finalize (GObject * obj)
-{
-  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
-
-  g_free (srv->application_name);
-  g_free (srv->cert_file);
-  g_free (srv->key_file);
-  g_free (srv->ca_cert_file);
-  g_free (srv->ca_cert_dir);
-  g_free (srv->ciphers);
-  g_free (srv->opaque);
-  g_free (srv->salt);
-  g_free (srv->username);
-  g_free (srv->password);
-
-
-  gst_poll_free (srv->fd_set);
-  g_list_free (srv->active_clients);
-
-
-  connections_free (srv->connections);
-  gst_atomic_queue_unref (srv->dialout_clients);
-  g_hash_table_destroy (srv->direct_publishers);
-  g_hash_table_destroy (srv->direct_subscribers);
-
-  G_OBJECT_CLASS (pex_rtmp_server_parent_class)->finalize (obj);
-}
-
-static void
-pex_rtmp_server_set_property (GObject * obj, guint prop_id,
-    const GValue * value, GParamSpec * pspec)
-{
-  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
-
-  switch (prop_id) {
-    case PROP_APPLICATION_NAME:
-      srv->application_name = g_value_dup_string (value);
-      break;
-    case PROP_PORT:
-      srv->port = g_value_get_int (value);
-      break;
-    case PROP_SSL_PORT:
-      srv->ssl_port = g_value_get_int (value);
-      break;
-    case PROP_CERT_FILE:
-      srv->cert_file = g_value_dup_string (value);
-      break;
-    case PROP_KEY_FILE:
-      srv->key_file = g_value_dup_string (value);
-      break;
-    case PROP_CA_CERT_FILE:
-      srv->ca_cert_file = g_value_dup_string (value);
-      break;
-    case PROP_CA_CERT_DIR:
-      srv->ca_cert_dir = g_value_dup_string (value);
-      break;
-    case PROP_CIPHERS:
-      srv->ciphers = g_value_dup_string (value);
-      break;
-    case PROP_TLS1_ENABLED:
-      srv->tls1_enabled = g_value_get_boolean (value);
-      break;
-    case PROP_IGNORE_LOCALHOST:
-      srv->ignore_localhost = g_value_get_boolean (value);
-      break;
-    case PROP_STREAM_ID:
-      srv->stream_id = g_value_get_int (value);
-      break;
-    case PROP_CHUNK_SIZE:
-      srv->chunk_size = g_value_get_int (value);
-      break;
-    case PROP_TCP_SYNCNT:
-      srv->tcp_syncnt = g_value_get_int (value);
-      break;
-    case PROP_USERNAME:
-      g_free (srv->username);
-      srv->username = g_value_dup_string (value);
-      break;
-    case PROP_PASSWORD:
-      g_free (srv->password);
-      srv->password = g_value_dup_string (value);
-      break;
-    default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
-  }
-}
-
-static void
-pex_rtmp_server_get_property (GObject * obj, guint prop_id,
-    GValue * value, GParamSpec * pspec)
-{
-  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
-
-  switch (prop_id) {
-    case PROP_APPLICATION_NAME:
-      g_value_set_string (value, srv->application_name);
-      break;
-    case PROP_PORT:
-      g_value_set_int (value, srv->port);
-      break;
-    case PROP_SSL_PORT:
-      g_value_set_int (value, srv->ssl_port);
-      break;
-    case PROP_CERT_FILE:
-      g_value_set_string (value, srv->cert_file);
-      break;
-    case PROP_KEY_FILE:
-      g_value_set_string (value, srv->key_file);
-      break;
-    case PROP_CA_CERT_FILE:
-      g_value_set_string (value, srv->ca_cert_file);
-      break;
-    case PROP_CA_CERT_DIR:
-      g_value_set_string (value, srv->ca_cert_dir);
-      break;
-    case PROP_CIPHERS:
-      g_value_set_string (value, srv->ciphers);
-      break;
-    case PROP_TLS1_ENABLED:
-      g_value_set_boolean (value, srv->tls1_enabled);
-      break;
-    case PROP_IGNORE_LOCALHOST:
-      g_value_set_boolean (value, srv->ignore_localhost);
-      break;
-    case PROP_STREAM_ID:
-      g_value_set_int (value, srv->stream_id);
-      break;
-    case PROP_CHUNK_SIZE:
-      g_value_set_int (value, srv->chunk_size);
-      break;
-    case PROP_TCP_SYNCNT:
-      g_value_set_int (value, srv->tcp_syncnt);
-      break;
-    case PROP_POLL_COUNT:
-      g_value_set_int (value, srv->poll_count);
-      break;
-    case PROP_USERNAME:
-      g_value_set_string (value, srv->username);
-      break;
-    case PROP_PASSWORD:
-      g_value_set_string (value, srv->password);
-      break;
-    default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
-  }
-}
-
-static void
-pex_rtmp_server_class_init (PexRtmpServerClass * klass)
-{
-  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
-
-  gobject_class->set_property = pex_rtmp_server_set_property;
-  gobject_class->get_property = pex_rtmp_server_get_property;
-  gobject_class->dispose = pex_rtmp_server_dispose;
-  gobject_class->finalize = pex_rtmp_server_finalize;
-
-  g_object_class_install_property (gobject_class, PROP_APPLICATION_NAME,
-      g_param_spec_string ("application-name", "Application Name",
-          "The application name for this server", DEFAULT_APPLICATION_NAME,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_PORT,
-      g_param_spec_int ("port", "Port",
-          "The port to listen on", 0, 65535, DEFAULT_PORT,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_SSL_PORT,
-      g_param_spec_int ("ssl-port", "Port",
-          "The port to listen on", 0, 65535, DEFAULT_SSL_PORT,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_CERT_FILE,
-      g_param_spec_string ("cert-file", "Certificate file",
-          "File containing TLS certificate", DEFAULT_CERT_FILE,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_KEY_FILE,
-      g_param_spec_string ("key-file", "Key file",
-          "File containing TLS private key", DEFAULT_KEY_FILE,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_CA_CERT_FILE,
-      g_param_spec_string ("ca-cert-file", "Trusted CA file",
-          "File containing trusted CA certificates", DEFAULT_CA_CERT_FILE,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_CA_CERT_DIR,
-      g_param_spec_string ("ca-cert-dir", "Trusted CA dir",
-          "Directory containing trusted CA certificates", DEFAULT_CA_CERT_DIR,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_CIPHERS,
-      g_param_spec_string ("ciphers", "Cipher specification",
-          "Specification of ciphers to use", DEFAULT_CIPHERS,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_TLS1_ENABLED,
-      g_param_spec_boolean ("tls1-enabled", "TLS1 enabled",
-          "Whether TLS1 is enabled", DEFAULT_TLS1_ENABLED,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_IGNORE_LOCALHOST,
-      g_param_spec_boolean ("ignore-localhost",
-          "Localhost ignored from signal emitting",
-          "Localhost ignored from signal emitting", DEFAULT_IGNORE_LOCALHOST,
-          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_STREAM_ID,
-      g_param_spec_int ("stream-id", "Stream ID",
-          "The ID to use for the RTMP Media stream",
-          0, G_MAXINT, DEFAULT_STREAM_ID,
-          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_CHUNK_SIZE,
-      g_param_spec_int ("chunk-size", "Chunk Size",
-          "The chunk size to advertise for RTMP packets",
-          0, G_MAXINT, DEFAULT_CHUNK_SIZE,
-          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_TCP_SYNCNT,
-      g_param_spec_int ("tcp-syncnt", "TCP SYNCNT",
-          "The maximum number of TCP SYN retransmits",
-          -1, 255, DEFAULT_TCP_SYNCNT,
-          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_POLL_COUNT,
-      g_param_spec_int ("poll-count", "Poll count",
-          "The number of times poll() has been called",
-          0, G_MAXINT, 0, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_USERNAME,
-      g_param_spec_string ("username", "Username",
-          "The username needed to publish to this server", NULL,
-          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_PASSWORD,
-      g_param_spec_string ("password", "Password",
-          "The password needed to publish to this server", NULL,
-          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-
-  pex_rtmp_server_signals[SIGNAL_ON_PLAY] =
-      g_signal_new ("on-play", PEX_TYPE_RTMP_SERVER,
-      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
-
-  pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE] =
-      g_signal_new ("on-play-done", PEX_TYPE_RTMP_SERVER,
-      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_NONE, 1, G_TYPE_STRING);
-
-  pex_rtmp_server_signals[SIGNAL_ON_PUBLISH] =
-      g_signal_new ("on-publish", PEX_TYPE_RTMP_SERVER,
-      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
-
-  pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE] =
-      g_signal_new ("on-publish-done", PEX_TYPE_RTMP_SERVER,
-      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_NONE, 1, G_TYPE_STRING);
-
-  pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW] =
-      g_signal_new ("on-queue-overflow", PEX_TYPE_RTMP_SERVER,
-      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_NONE, 1, G_TYPE_STRING);
-
-  GST_DEBUG_CATEGORY_INIT (pex_rtmp_server_debug, "pexrtmpserver", 0,
-      "pexrtmpserver");
-}
-
 static void
 rtmp_server_add_client_to_poll_table (PexRtmpServer * srv, Client * client)
 {
@@ -958,4 +629,338 @@ void
 pex_rtmp_server_free (PexRtmpServer * srv)
 {
   g_object_unref (srv);
+}
+
+
+PexRtmpServer *
+pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
+    const gchar * cert_file, const gchar * key_file, const gchar * ca_cert_file,
+    const gchar * ca_cert_dir, const gchar * ciphers, gboolean tls1_enabled,
+    gboolean ignore_localhost)
+{
+  return g_object_new (PEX_TYPE_RTMP_SERVER,
+      "application-name", application_name,
+      "port", port,
+      "ssl-port", ssl_port,
+      "cert-file", cert_file,
+      "key-file", key_file,
+      "ca-cert-file", ca_cert_file,
+      "ca-cert-dir", ca_cert_dir,
+      "ciphers", ciphers,
+      "tls1-enabled", tls1_enabled, "ignore-localhost", ignore_localhost, NULL);
+}
+
+static void
+_client_destroy (Client * client)
+{
+  rtmp_server_remove_client (client->server, client);
+}
+
+static void
+pex_rtmp_server_init (PexRtmpServer * srv)
+{
+  srv->application_name = NULL;
+  srv->port = DEFAULT_PORT;
+  srv->ssl_port = DEFAULT_SSL_PORT;
+  srv->cert_file = NULL;
+  srv->key_file = NULL;
+  srv->ca_cert_file = NULL;
+  srv->ca_cert_dir = NULL;
+  srv->ciphers = NULL;
+  srv->tls1_enabled = DEFAULT_TLS1_ENABLED;
+  srv->ignore_localhost = DEFAULT_IGNORE_LOCALHOST;
+
+  srv->thread = NULL;
+
+  srv->fd_set = gst_poll_new (TRUE);
+
+  srv->connections = connections_new ();
+  srv->dialout_clients = gst_atomic_queue_new (0);
+
+  /* FIXME: only need to generate this when username and password is set */
+  guint32 rand_data = g_random_int();
+  srv->opaque = g_base64_encode ((guchar *)&rand_data, sizeof (guint32));
+  rand_data = g_random_int();
+  srv->salt = g_base64_encode ((guchar *)&rand_data, sizeof (guint32));
+
+  srv->direct_publishers = g_hash_table_new_full (
+      g_str_hash, g_str_equal, g_free, (GDestroyNotify)_client_destroy);
+  srv->direct_subscribers = g_hash_table_new_full (
+      g_str_hash, g_str_equal, g_free, (GDestroyNotify)_client_destroy);
+}
+
+static void
+pex_rtmp_server_dispose (GObject * obj)
+{
+  G_OBJECT_CLASS (pex_rtmp_server_parent_class)->dispose (obj);
+}
+
+static void
+pex_rtmp_server_finalize (GObject * obj)
+{
+  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
+
+  g_free (srv->application_name);
+  g_free (srv->cert_file);
+  g_free (srv->key_file);
+  g_free (srv->ca_cert_file);
+  g_free (srv->ca_cert_dir);
+  g_free (srv->ciphers);
+  g_free (srv->opaque);
+  g_free (srv->salt);
+  g_free (srv->username);
+  g_free (srv->password);
+
+  gst_poll_free (srv->fd_set);
+  g_list_free (srv->active_clients);
+
+  connections_free (srv->connections);
+  gst_atomic_queue_unref (srv->dialout_clients);
+  g_hash_table_destroy (srv->direct_publishers);
+  g_hash_table_destroy (srv->direct_subscribers);
+
+  G_OBJECT_CLASS (pex_rtmp_server_parent_class)->finalize (obj);
+}
+
+static void
+pex_rtmp_server_set_property (GObject * obj, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
+
+  switch (prop_id) {
+    case PROP_APPLICATION_NAME:
+      srv->application_name = g_value_dup_string (value);
+      break;
+    case PROP_PORT:
+      srv->port = g_value_get_int (value);
+      break;
+    case PROP_SSL_PORT:
+      srv->ssl_port = g_value_get_int (value);
+      break;
+    case PROP_CERT_FILE:
+      srv->cert_file = g_value_dup_string (value);
+      break;
+    case PROP_KEY_FILE:
+      srv->key_file = g_value_dup_string (value);
+      break;
+    case PROP_CA_CERT_FILE:
+      srv->ca_cert_file = g_value_dup_string (value);
+      break;
+    case PROP_CA_CERT_DIR:
+      srv->ca_cert_dir = g_value_dup_string (value);
+      break;
+    case PROP_CIPHERS:
+      srv->ciphers = g_value_dup_string (value);
+      break;
+    case PROP_TLS1_ENABLED:
+      srv->tls1_enabled = g_value_get_boolean (value);
+      break;
+    case PROP_IGNORE_LOCALHOST:
+      srv->ignore_localhost = g_value_get_boolean (value);
+      break;
+    case PROP_STREAM_ID:
+      srv->stream_id = g_value_get_int (value);
+      break;
+    case PROP_CHUNK_SIZE:
+      srv->chunk_size = g_value_get_int (value);
+      break;
+    case PROP_TCP_SYNCNT:
+      srv->tcp_syncnt = g_value_get_int (value);
+      break;
+    case PROP_USERNAME:
+      g_free (srv->username);
+      srv->username = g_value_dup_string (value);
+      break;
+    case PROP_PASSWORD:
+      g_free (srv->password);
+      srv->password = g_value_dup_string (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
+  }
+}
+
+static void
+pex_rtmp_server_get_property (GObject * obj, guint prop_id,
+    GValue * value, GParamSpec * pspec)
+{
+  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
+
+  switch (prop_id) {
+    case PROP_APPLICATION_NAME:
+      g_value_set_string (value, srv->application_name);
+      break;
+    case PROP_PORT:
+      g_value_set_int (value, srv->port);
+      break;
+    case PROP_SSL_PORT:
+      g_value_set_int (value, srv->ssl_port);
+      break;
+    case PROP_CERT_FILE:
+      g_value_set_string (value, srv->cert_file);
+      break;
+    case PROP_KEY_FILE:
+      g_value_set_string (value, srv->key_file);
+      break;
+    case PROP_CA_CERT_FILE:
+      g_value_set_string (value, srv->ca_cert_file);
+      break;
+    case PROP_CA_CERT_DIR:
+      g_value_set_string (value, srv->ca_cert_dir);
+      break;
+    case PROP_CIPHERS:
+      g_value_set_string (value, srv->ciphers);
+      break;
+    case PROP_TLS1_ENABLED:
+      g_value_set_boolean (value, srv->tls1_enabled);
+      break;
+    case PROP_IGNORE_LOCALHOST:
+      g_value_set_boolean (value, srv->ignore_localhost);
+      break;
+    case PROP_STREAM_ID:
+      g_value_set_int (value, srv->stream_id);
+      break;
+    case PROP_CHUNK_SIZE:
+      g_value_set_int (value, srv->chunk_size);
+      break;
+    case PROP_TCP_SYNCNT:
+      g_value_set_int (value, srv->tcp_syncnt);
+      break;
+    case PROP_POLL_COUNT:
+      g_value_set_int (value, srv->poll_count);
+      break;
+    case PROP_USERNAME:
+      g_value_set_string (value, srv->username);
+      break;
+    case PROP_PASSWORD:
+      g_value_set_string (value, srv->password);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
+  }
+}
+
+static void
+pex_rtmp_server_class_init (PexRtmpServerClass * klass)
+{
+  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+
+  gobject_class->set_property = pex_rtmp_server_set_property;
+  gobject_class->get_property = pex_rtmp_server_get_property;
+  gobject_class->dispose = pex_rtmp_server_dispose;
+  gobject_class->finalize = pex_rtmp_server_finalize;
+
+  g_object_class_install_property (gobject_class, PROP_APPLICATION_NAME,
+      g_param_spec_string ("application-name", "Application Name",
+          "The application name for this server", DEFAULT_APPLICATION_NAME,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_PORT,
+      g_param_spec_int ("port", "Port",
+          "The port to listen on", 0, 65535, DEFAULT_PORT,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_SSL_PORT,
+      g_param_spec_int ("ssl-port", "Port",
+          "The port to listen on", 0, 65535, DEFAULT_SSL_PORT,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_CERT_FILE,
+      g_param_spec_string ("cert-file", "Certificate file",
+          "File containing TLS certificate", DEFAULT_CERT_FILE,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_KEY_FILE,
+      g_param_spec_string ("key-file", "Key file",
+          "File containing TLS private key", DEFAULT_KEY_FILE,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_CA_CERT_FILE,
+      g_param_spec_string ("ca-cert-file", "Trusted CA file",
+          "File containing trusted CA certificates", DEFAULT_CA_CERT_FILE,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_CA_CERT_DIR,
+      g_param_spec_string ("ca-cert-dir", "Trusted CA dir",
+          "Directory containing trusted CA certificates", DEFAULT_CA_CERT_DIR,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_CIPHERS,
+      g_param_spec_string ("ciphers", "Cipher specification",
+          "Specification of ciphers to use", DEFAULT_CIPHERS,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_TLS1_ENABLED,
+      g_param_spec_boolean ("tls1-enabled", "TLS1 enabled",
+          "Whether TLS1 is enabled", DEFAULT_TLS1_ENABLED,
+          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_IGNORE_LOCALHOST,
+      g_param_spec_boolean ("ignore-localhost",
+          "Localhost ignored from signal emitting",
+          "Localhost ignored from signal emitting", DEFAULT_IGNORE_LOCALHOST,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_STREAM_ID,
+      g_param_spec_int ("stream-id", "Stream ID",
+          "The ID to use for the RTMP Media stream",
+          0, G_MAXINT, DEFAULT_STREAM_ID,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_CHUNK_SIZE,
+      g_param_spec_int ("chunk-size", "Chunk Size",
+          "The chunk size to advertise for RTMP packets",
+          0, G_MAXINT, DEFAULT_CHUNK_SIZE,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_TCP_SYNCNT,
+      g_param_spec_int ("tcp-syncnt", "TCP SYNCNT",
+          "The maximum number of TCP SYN retransmits",
+          -1, 255, DEFAULT_TCP_SYNCNT,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_POLL_COUNT,
+      g_param_spec_int ("poll-count", "Poll count",
+          "The number of times poll() has been called",
+          0, G_MAXINT, 0, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_USERNAME,
+      g_param_spec_string ("username", "Username",
+          "The username needed to publish to this server", NULL,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_PASSWORD,
+      g_param_spec_string ("password", "Password",
+          "The password needed to publish to this server", NULL,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+
+  pex_rtmp_server_signals[SIGNAL_ON_PLAY] =
+      g_signal_new ("on-play", PEX_TYPE_RTMP_SERVER,
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
+
+  pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE] =
+      g_signal_new ("on-play-done", PEX_TYPE_RTMP_SERVER,
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_NONE, 1, G_TYPE_STRING);
+
+  pex_rtmp_server_signals[SIGNAL_ON_PUBLISH] =
+      g_signal_new ("on-publish", PEX_TYPE_RTMP_SERVER,
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
+
+  pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE] =
+      g_signal_new ("on-publish-done", PEX_TYPE_RTMP_SERVER,
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_NONE, 1, G_TYPE_STRING);
+
+  pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW] =
+      g_signal_new ("on-queue-overflow", PEX_TYPE_RTMP_SERVER,
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
+      G_TYPE_NONE, 1, G_TYPE_STRING);
+
+  GST_DEBUG_CATEGORY_INIT (pex_rtmp_server_debug, "pexrtmpserver", 0,
+      "pexrtmpserver");
 }
