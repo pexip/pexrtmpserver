@@ -395,10 +395,12 @@ tcp_listen (gint port)
     goto done;
   }
 
+/*
   struct addrinfo *ai_ptr = NULL;
   for (ai_ptr = result; ai_ptr != NULL ; ai_ptr = ai_ptr->ai_next) {
     GST_INFO ("listen result: %s", get_url_from_addrinfo (ai_ptr));
   }
+*/
 
   fd = _create_socket (result);
   if (fd < 0) {

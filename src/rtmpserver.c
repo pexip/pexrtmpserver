@@ -454,7 +454,7 @@ rtmp_server_add_pending_dialout_clients (PexRtmpServer * srv)
     } else {
       GST_WARNING_OBJECT (srv, "Could not establish connection to %s",
           client->url);
-      client_free (client);
+      rtmp_server_remove_client (srv, client);
     }
   }
 }
