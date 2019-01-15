@@ -15,7 +15,7 @@ void set_le32 (void * p, guint32 val);
 void set_be32 (void * p, guint32 val);
 
 guint parse_flv_header (const guint8 * data);
-guint parse_flv_tag (const guint8 * data,
+guint parse_flv_tag (const guint8 * data, guint size,
     guint8 * packet_type, guint * payload_size, guint * timestamp);
 GstBuffer * generate_flv_header ();
 GstBuffer * generate_flv_tag (const guint8 * data,
