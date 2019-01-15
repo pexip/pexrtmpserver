@@ -147,10 +147,8 @@ amf_enc_write_double (AmfEnc * enc, double n)
 {
   amf_enc_add_char (enc, AMF0_NUMBER);
   guint64 encoded = 0;
-#if defined(__i386__) || defined(__x86_64__)
   /* Flash uses same floating point format as x86 */
   memcpy (&encoded, &n, 8);
-#endif
   guint32 val = htonl (encoded >> 32);
   amf_enc_add (enc, (guint8 *) & val, 4);
   val = htonl (encoded);
@@ -389,10 +387,8 @@ amf_dec_load_number (AmfDec * dec, gdouble * val)
   guint64 n = ((guint64) load_be32 (&dec->buf->data[dec->pos]) << 32) |
       load_be32 (&dec->buf->data[dec->pos + 4]);
   *val = 0;
-#if defined(__i386__) || defined(__x86_64__)
   /* Flash uses same floating point format as x86 */
   memcpy (val, &n, 8);
-#endif
   dec->pos += 8;
   return TRUE;
 }
