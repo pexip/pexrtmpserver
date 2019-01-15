@@ -173,10 +173,9 @@ pex_rtmp_server_src_create (GstPushSrc * pushsrc, GstBuffer ** buf)
   flowret = ret ? GST_FLOW_OK : GST_FLOW_EOS;
 
   if (ret) {
-    src->bytes_received = gst_buffer_get_size (*buf);
+    src->bytes_received += gst_buffer_get_size (*buf);
     src->packets_received++;
-    GST_DEBUG_OBJECT (src, "subscribing %" GST_PTR_FORMAT, *buf);
-    //gst_util_dump_buffer (*buf);
+    GST_LOG_OBJECT (src, "subscribing %" GST_PTR_FORMAT, *buf);
   }
 
   return flowret;

@@ -185,10 +185,9 @@ pex_rtmp_server_sink_render (GstBaseSink * basesink, GstBuffer * buf)
 
   gboolean ret = pex_rtmp_server_publish_flv (sink->server, sink->path, buf);
   if (ret) {
-    sink->bytes_sent = gst_buffer_get_size (buf);
+    sink->bytes_sent += gst_buffer_get_size (buf);
     sink->packets_sent++;
-    GST_DEBUG_OBJECT (sink, "publishing %" GST_PTR_FORMAT, buf);
-    //gst_util_dump_buffer (buf);
+    GST_LOG_OBJECT (sink, "publishing %" GST_PTR_FORMAT, buf);
   } else {
     GST_WARNING_OBJECT (sink, "Publish FLV returned FALSE");
   }
