@@ -94,6 +94,7 @@ struct _PexRtmpServer
   gint chunk_size;
   gint tcp_syncnt;
   gint poll_count;
+  GMutex lock;
 
   gchar *username;
   gchar *password;
@@ -314,7 +315,10 @@ pex_rtmp_server_publish_flv (PexRtmpServer * srv, const gchar * path,
     GstBuffer * buf)
 {
   Client *client = g_hash_table_lookup (srv->direct_publishers, path);
-  return client_push_flv (client, buf);
+  g_mutex_lock (&srv->lock);
+  gboolean ret = client_push_flv (client, buf);
+  g_mutex_unlock (&srv->lock);
+  return ret;
 }
 
 gboolean
@@ -479,8 +483,10 @@ rtmp_server_do_poll (PexRtmpServer * srv)
   rtmp_server_update_poll_ctl (srv);
 
   /* waiting for traffic on all connections */
+  g_mutex_unlock (&srv->lock);
   srv->poll_count++;
   gint result = gst_poll_wait (srv->fd_set, 200 * GST_MSECOND);
+  g_mutex_lock (&srv->lock);
 
   if (srv->running == FALSE)
     return FALSE;
@@ -555,11 +561,13 @@ static gpointer
 rtmp_server_func (gpointer data)
 {
   PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (data);
-
   gboolean ret = TRUE;
-#ifndef _MSC_VER
+
+#if !defined(_MSC_VER)
   signal (SIGPIPE, SIG_IGN);
-#endif
+#endif /* _MSC_VER */
+
+  g_mutex_lock (&srv->lock);
 
   while (srv->running && ret) {
     ret = rtmp_server_do_poll (srv);
@@ -574,6 +582,7 @@ rtmp_server_func (gpointer data)
     Client *client = gst_atomic_queue_pop (srv->dialout_clients);
     rtmp_server_remove_client (srv, client);
   }
+  g_mutex_unlock (&srv->lock);
 
   return NULL;
 }
@@ -670,6 +679,7 @@ pex_rtmp_server_init (PexRtmpServer * srv)
   srv->ciphers = NULL;
   srv->tls1_enabled = DEFAULT_TLS1_ENABLED;
   srv->ignore_localhost = DEFAULT_IGNORE_LOCALHOST;
+  g_mutex_init (&srv->lock);
 
   srv->thread = NULL;
 
@@ -688,6 +698,16 @@ pex_rtmp_server_init (PexRtmpServer * srv)
       g_str_hash, g_str_equal, g_free, (GDestroyNotify)_client_destroy);
   srv->direct_subscribers = g_hash_table_new_full (
       g_str_hash, g_str_equal, g_free, (GDestroyNotify)_client_destroy);
+
+#if defined(_MSC_VER)
+  /* Initialize Winsock */
+  WSADATA wsaData;
+  gint iResult = WSAStartup (MAKEWORD (2, 2), &wsaData);
+  if (iResult != 0) {
+    GST_WARNING_OBJECT (srv, "WSAStartup failed with error: %d\n", iResult);
+    g_assert_not_reached ();
+  }
+#endif
 }
 
 static void
@@ -711,6 +731,8 @@ pex_rtmp_server_finalize (GObject * obj)
   g_free (srv->salt);
   g_free (srv->username);
   g_free (srv->password);
+
+  g_mutex_clear (&srv->lock);
 
   gst_poll_free (srv->fd_set);
   g_list_free (srv->active_clients);
