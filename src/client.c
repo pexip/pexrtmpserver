@@ -11,6 +11,7 @@
 
 #include "amf.h"
 #include "rtmp.h"
+#include "rtmpserver.h"
 
 #include <string.h>
 
@@ -1412,7 +1413,7 @@ client_send (Client * client)
       return FALSE;
     }
   } else {
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined (_MSC_VER)
     written = send (client->fd,
         client->send_queue->data, client->send_queue->len, 0);
 #else
@@ -1447,25 +1448,29 @@ client_push_flv (Client * client, GstBuffer * buf)
 
   gst_buffer_map (buf, &map, GST_MAP_READ);
 
+  GST_DEBUG_OBJECT (client->server, "Got flv buffer of size: %u",
+      (guint)map.size);
+
   while (total_parsed < map.size) {
     guint8 *data = &map.data[total_parsed];
     guint parsed = 0;
 
     if ((parsed = parse_flv_header (data))) {
       total_parsed += parsed;
+      GST_DEBUG_OBJECT (client->server, "Found FLV header!");
       continue;
     }
 
     /* ignore if we don't parse */
-    if (!(parsed = parse_flv_tag (data,
+    if (!(parsed = parse_flv_tag (data, map.size - total_parsed,
         &msg.type, &payload_size, &msg.abs_timestamp))) {
       GST_WARNING_OBJECT (client->server, "Could not parse header!");
       goto done;
     }
 
     GST_DEBUG_OBJECT (client->server,
-        "Got flv buffer with type: 0x0%x, size: %u, payload_size: %u",
-        msg.type, (guint)map.size, payload_size);
+        "parsed %u: Got flv buffer with type: 0x0%x, payload_size: %u",
+        total_parsed, msg.type, payload_size);
 
     if (msg.type == MSG_AUDIO || msg.type == MSG_VIDEO) {
       client->buf = g_byte_array_append (client->buf,
