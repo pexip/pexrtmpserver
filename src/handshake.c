@@ -1,9 +1,8 @@
 #include "handshake.h"
-#include <openssl/hmac.h>
-#include <openssl/sha.h>
 #include <string.h>
 
 #define TOTAL_HANDSHAKE_LENGTH 1 + HANDSHAKE_LENGTH + HANDSHAKE_LENGTH
+#define HASH_LENGTH 16 + 20
 #define KEYS_LENGTH 128
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
@@ -32,8 +31,7 @@ const guint8 handshake_header[] = {
 
 struct _PexRtmpHandshake
 {
-  HMAC_CTX hmac;
-  guint8 hash[EVP_MAX_MD_SIZE];
+  guint8 hash[HASH_LENGTH];
   guint8 keys[KEYS_LENGTH];
   guint8 handshake_buffer[TOTAL_HANDSHAKE_LENGTH];
   guint8 *first_half;
@@ -52,18 +50,22 @@ print_data (const guint8 * data, guint len)
 static int
 _get_scheme (PexRtmpHandshake * hs, const guint8 data[HANDSHAKE_LENGTH])
 {
+  GHmac *hmac;
   gint digest_offset = 0;
-  guint hash_len;
+  gsize hash_len;
 
   for (int i = 8; i < 12; i++)
     digest_offset += data[i];
   digest_offset %= 728;
   digest_offset += 12;
-  HMAC_Init_ex (&hs->hmac, &FLASHPLAYER_KEY[0], 30, EVP_sha256 (), NULL);
-  HMAC_Update (&hs->hmac, &data[0], digest_offset);
-  HMAC_Update (&hs->hmac, &data[digest_offset + 32],
+
+  hmac = g_hmac_new (G_CHECKSUM_SHA256, &FLASHPLAYER_KEY[0], 30);
+  g_hmac_update (hmac, &data[0], digest_offset);
+  g_hmac_update (hmac, &data[digest_offset + 32],
       HANDSHAKE_LENGTH - digest_offset - 32);
-  HMAC_Final (&hs->hmac, &hs->hash[0], &hash_len);
+  g_hmac_get_digest (hmac, &hs->hash[0], &hash_len);
+  g_hmac_unref (hmac);
+
   g_assert_cmpint (hash_len, ==, 32);
   if (memcmp (&hs->hash[0], &data[digest_offset], hash_len) == 0) {
     GST_INFO ("Identified scheme 0");
@@ -75,11 +77,13 @@ _get_scheme (PexRtmpHandshake * hs, const guint8 data[HANDSHAKE_LENGTH])
     digest_offset += data[i];
   digest_offset %= 728;
   digest_offset += 776;
-  HMAC_Init_ex (&hs->hmac, &FLASHPLAYER_KEY[0], 30, EVP_sha256 (), NULL);
-  HMAC_Update (&hs->hmac, &data[0], digest_offset);
-  HMAC_Update (&hs->hmac, &data[digest_offset + 32],
+
+  hmac = g_hmac_new (G_CHECKSUM_SHA256, &FLASHPLAYER_KEY[0], 30);
+  g_hmac_update (hmac, &data[0], digest_offset);
+  g_hmac_update (hmac, &data[digest_offset + 32],
       HANDSHAKE_LENGTH - digest_offset - 32);
-  HMAC_Final (&hs->hmac, &hs->hash[0], &hash_len);
+  g_hmac_get_digest (hmac, &hs->hash[0], &hash_len);
+  g_hmac_unref (hmac);
   g_assert_cmpint (hash_len, ==, 32);
 
   if (memcmp (&hs->hash[0], &data[digest_offset], hash_len) == 0) {
@@ -95,7 +99,8 @@ gboolean
 pex_rtmp_handshake_process (PexRtmpHandshake * hs, const guint8 * org_data,
     gint len)
 {
-  guint hash_len;
+  GHmac *hmac;
+  gsize hash_len;
 
   if (len != HANDSHAKE_LENGTH + 1) {
     GST_INFO ("Invalid handshake lenght");
@@ -151,11 +156,13 @@ pex_rtmp_handshake_process (PexRtmpHandshake * hs, const guint8 * org_data,
     hash_offset %= 728;
     hash_offset += 12;
   }
-  HMAC_Init_ex (&hs->hmac, &SERVER_KEY[0], 36, EVP_sha256 (), NULL);
-  HMAC_Update (&hs->hmac, &hs->first_half[0], hash_offset);
-  HMAC_Update (&hs->hmac, &hs->first_half[hash_offset + 32],
+
+  hmac = g_hmac_new (G_CHECKSUM_SHA256, &SERVER_KEY[0], 36);
+  g_hmac_update (hmac, &hs->first_half[0], hash_offset);
+  g_hmac_update (hmac, &hs->first_half[hash_offset + 32],
       HANDSHAKE_LENGTH - hash_offset - 32);
-  HMAC_Final (&hs->hmac, &hs->hash[0], &hash_len);
+  g_hmac_get_digest (hmac, &hs->hash[0], &hash_len);
+  g_hmac_unref (hmac);
   g_assert_cmpint (hash_len, ==, 32);
 
   /* copy in the hash */
@@ -176,9 +183,10 @@ pex_rtmp_handshake_process (PexRtmpHandshake * hs, const guint8 * org_data,
   }
 
   /* hash it */
-  HMAC_Init_ex (&hs->hmac, &SERVER_KEY[0], 68, EVP_sha256 (), NULL);
-  HMAC_Update (&hs->hmac, &data[key_challenge_offset], 32);
-  HMAC_Final (&hs->hmac, &hs->hash[0], &hash_len);
+  hmac = g_hmac_new (G_CHECKSUM_SHA256, &SERVER_KEY[0], 68);
+  g_hmac_update (hmac, &data[key_challenge_offset], 32);
+  g_hmac_get_digest (hmac, &hs->hash[0], &hash_len);
+  g_hmac_unref (hmac);
   g_assert_cmpint (hash_len, ==, 32);
 
   /* SECOND BIT */
@@ -188,9 +196,10 @@ pex_rtmp_handshake_process (PexRtmpHandshake * hs, const guint8 * org_data,
     hs->second_half[i] = 1;     /* FIXME: random */
 
   /* hash it */
-  HMAC_Init_ex (&hs->hmac, &hs->hash[0], 32, EVP_sha256 (), NULL);
-  HMAC_Update (&hs->hmac, &hs->second_half[0], HANDSHAKE_LENGTH - 32);
-  HMAC_Final (&hs->hmac, &hs->hash[0], &hash_len);
+  hmac = g_hmac_new (G_CHECKSUM_SHA256, &hs->hash[0], 32);
+  g_hmac_update (hmac, &hs->second_half[0], HANDSHAKE_LENGTH - 32);
+  g_hmac_get_digest (hmac, &hs->hash[0], &hash_len);
+  g_hmac_unref (hmac);
   g_assert_cmpint (hash_len, ==, 32);
 
   /* copy that hash in last */
@@ -211,7 +220,6 @@ PexRtmpHandshake *
 pex_rtmp_handshake_new ()
 {
   PexRtmpHandshake *hs = g_new0 (PexRtmpHandshake, 1);
-  HMAC_CTX_init (&hs->hmac);
 
   hs->first_half = &hs->handshake_buffer[1];
   hs->second_half = &hs->handshake_buffer[1 + HANDSHAKE_LENGTH];
@@ -225,7 +233,6 @@ pex_rtmp_handshake_new ()
 void
 pex_rtmp_handshake_free (PexRtmpHandshake * hs)
 {
-  HMAC_CTX_cleanup (&hs->hmac);
   g_free (hs);
 }
 
