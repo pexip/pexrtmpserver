@@ -1,6 +1,6 @@
-/*
- * Pexip
- * Copyright (C) 2018 Havard Graff <havard@pexip.com>
+/* PexRTMPServer
+ * Copyright (C) 2019 Pexip
+ *  @author: Havard Graff <havard@pexip.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public

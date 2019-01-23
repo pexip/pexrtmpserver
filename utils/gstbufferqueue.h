@@ -17,18 +17,17 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
-#ifndef __PEX_RTMP_SERVER_SINK_H__
-#define __PEX_RTMP_SERVER_SINK_H__
+#ifndef __GST_BUFFFER_QUEUE_H__
+#define __GST_BUFFFER_QUEUE_H__
 
 #include <gst/gst.h>
-#include <gst/base/gstbasesink.h>
 
-G_BEGIN_DECLS
+typedef struct _GstBufferQueue GstBufferQueue;
 
-G_DECLARE_FINAL_TYPE (PexRTMPServerSink, pex_rtmp_server_sink, PEX, RTMP_SERVER_SINK, GstBaseSink)
-#define PEX_TYPE_RTMP_SERVER_SINK (pex_rtmp_server_sink_get_type())
-#define PEX_RTMP_SERVER_SINK_CAST(obj) ((PexRTMPServerSink *)(obj))
+GstBufferQueue * gst_buffer_queue_new ();
+void gst_buffer_queue_free (GstBufferQueue * queue);
+void gst_buffer_queue_flush (GstBufferQueue * queue);
+void gst_buffer_queue_push (GstBufferQueue * queue, GstBuffer * buf);
+GstBuffer * gst_buffer_queue_pop (GstBufferQueue * queue);
 
-G_END_DECLS
-
-#endif /* __PEX_RTMP_SERVER_SINK_H__ */
+#endif /* __GST_BUFFFER_QUEUE_H__ */

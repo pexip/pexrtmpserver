@@ -2,6 +2,7 @@
 #mesondefine PACKAGE_VERSION
 #mesondefine VERSION
 #mesondefine HAVE_LINUX_SOCKIOS_H
+#mesondefine HAVE_OPENSSL
 
 /* plugin dir for generic plugins */
 #mesondefine PLUGIN_DIR

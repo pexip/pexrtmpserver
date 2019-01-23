@@ -17,18 +17,15 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
-#ifndef __PEX_RTMP_SERVER_SINK_H__
-#define __PEX_RTMP_SERVER_SINK_H__
+#ifndef __AUTH_H__
+#define __AUTH_H__
 
 #include <gst/gst.h>
-#include <gst/base/gstbasesink.h>
 
-G_BEGIN_DECLS
+gchar * auth_get_token (const gchar * server_auth_str,
+    const gchar * username, const gchar * password);
+gboolean auth_verify (const gchar * app, const gchar * username,
+    const gchar * password, const gchar * salt, const gchar * opaque,
+    gchar ** description);
 
-G_DECLARE_FINAL_TYPE (PexRTMPServerSink, pex_rtmp_server_sink, PEX, RTMP_SERVER_SINK, GstBaseSink)
-#define PEX_TYPE_RTMP_SERVER_SINK (pex_rtmp_server_sink_get_type())
-#define PEX_RTMP_SERVER_SINK_CAST(obj) ((PexRTMPServerSink *)(obj))
-
-G_END_DECLS
-
-#endif /* __PEX_RTMP_SERVER_SINK_H__ */
+#endif /* __AUTH_H__ */

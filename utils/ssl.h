@@ -1,6 +1,7 @@
 /* PexRTMPServer
  * Copyright (C) 2019 Pexip
  *  @author: Havard Graff <havard@pexip.com>
+ *  @author: John-Mark Bell <jmb@pexip.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -17,18 +18,21 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
-#ifndef __PEX_RTMP_SERVER_SINK_H__
-#define __PEX_RTMP_SERVER_SINK_H__
+#ifndef __SSL_H__
+#define __SSL_H__
 
 #include <gst/gst.h>
-#include <gst/base/gstbasesink.h>
+#ifdef G_OS_WIN32
+#  include <winsock2.h>
+#endif
+#include <openssl/ssl.h>
 
-G_BEGIN_DECLS
+void ssl_print_errors ();
 
-G_DECLARE_FINAL_TYPE (PexRTMPServerSink, pex_rtmp_server_sink, PEX, RTMP_SERVER_SINK, GstBaseSink)
-#define PEX_TYPE_RTMP_SERVER_SINK (pex_rtmp_server_sink_get_type())
-#define PEX_RTMP_SERVER_SINK_CAST(obj) ((PexRTMPServerSink *)(obj))
+SSL_CTX * ssl_add_outgoing (const gchar * ca_file, const gchar * ca_dir,
+    const gchar * ciphers, gboolean tls1_enabled);
+SSL_CTX * ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
+    const gchar * ca_file, const gchar * ca_dir,
+    const gchar * ciphers, gboolean tls1_enabled);
 
-G_END_DECLS
-
-#endif /* __PEX_RTMP_SERVER_SINK_H__ */
+#endif /* __SSL_H__ */

@@ -3,7 +3,7 @@
 #include <stdarg.h>
 #include <gst/gst.h>
 
-#include "rtmpserver.h"
+#include "pexrtmpserver.h"
 
 /*
 ./gst-launch videotestsrc ! video/x-raw-yuv, width=1280, height=720, pixel-aspect-ratio=1/1 ! \

@@ -12,7 +12,11 @@ gst_base_dep = dependency('gstreamer-base-1.0', version : gst_req)
 
 openssl_dep = dependency('openssl', version : '>= 1.0.1', required : false)
 if not openssl_dep.found()
-    openssl_dep = [cc.find_library('libeay32'), cc.find_library('ssleay32')]
+  libeay32_dep = cc.find_library('libeay32', required : false)
+  ssleay32_dep = cc.find_library('ssleay32', required : false)
+  if libeay32_dep.found() and ssleay32_dep.found()
+    openssl_dep = declare_dependency (dependencies : [libeay32_dep, ssleay32_dep])
+  endif
 endif
 
 winsock2_dep = cc.find_library('ws2_32', required : false)
@@ -42,9 +46,15 @@ foreach h : check_headers
     core_conf.set10(define, 1)
   endif
 endforeach
+
+if openssl_dep.found()
+  core_conf.set10('HAVE_OPENSSL', openssl_dep.found())
+endif
+
 configure_file(output : 'config.h', input: 'config.h.meson',
     configuration : core_conf)
 
 subdir('pkgconfig')
+subdir('utils')
 subdir('src')
 subdir('plugins')

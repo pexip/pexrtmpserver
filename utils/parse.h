@@ -17,18 +17,24 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
-#ifndef __PEX_RTMP_SERVER_SINK_H__
-#define __PEX_RTMP_SERVER_SINK_H__
+#ifndef __PARSE_H__
+#define __PARSE_H__
 
 #include <gst/gst.h>
-#include <gst/base/gstbasesink.h>
 
-G_BEGIN_DECLS
+#ifdef G_OS_WIN32
+#  ifdef PEX_RTMPSERVER_EXPORTS
+#    define PEX_RTMPSERVER_EXPORT __declspec(dllexport)
+#  else
+#    define PEX_RTMPSERVER_EXPORT __declspec(dllimport) extern
+#  endif
+#else
+#  define PEX_RTMPSERVER_EXPORT extern
+#endif
 
-G_DECLARE_FINAL_TYPE (PexRTMPServerSink, pex_rtmp_server_sink, PEX, RTMP_SERVER_SINK, GstBaseSink)
-#define PEX_TYPE_RTMP_SERVER_SINK (pex_rtmp_server_sink_get_type())
-#define PEX_RTMP_SERVER_SINK_CAST(obj) ((PexRTMPServerSink *)(obj))
+PEX_RTMPSERVER_EXPORT
+gboolean parse_rtmp_url (const gchar * url,
+    gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
+    gchar ** path, gchar ** username, gchar ** password);
 
-G_END_DECLS
-
-#endif /* __PEX_RTMP_SERVER_SINK_H__ */
+#endif /* __PARSE_H__ */

@@ -1,6 +1,10 @@
 #ifndef __CLIENT_H__
 #define __CLIENT_H__
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <gst/gst.h>
 
 #ifdef _MSC_VER
@@ -9,10 +13,14 @@
 #  include <windows.h>
 #endif
 
-#include <openssl/ssl.h>
+#ifdef HAVE_OPENSSL
+#  include <openssl/ssl.h>
+#endif
+
 #include "connections.h"
 #include "handshake.h"
-#include "utils.h"
+#include "utils/ssl.h"
+#include "utils/gstbufferqueue.h"
 
 typedef struct _Client Client;
 
@@ -111,9 +119,11 @@ struct _Client
   PexRtmpHandshake *handshake;
   PexRtmpHandshakeState handshake_state;
 
-  /* crypto */
+#ifdef HAVE_OPENSSL
   SSL_CTX *ssl_ctx;
   SSL *ssl;
+#endif /* HAVE_OPENSSL */
+
   gboolean ssl_write_blocked_on_read;
   gboolean ssl_read_blocked_on_write;
   GByteArray *video_codec_data;

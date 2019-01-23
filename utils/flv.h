@@ -17,18 +17,16 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
-#ifndef __PEX_RTMP_SERVER_SINK_H__
-#define __PEX_RTMP_SERVER_SINK_H__
+#ifndef __FLV_H__
+#define __FLV_H__
 
 #include <gst/gst.h>
-#include <gst/base/gstbasesink.h>
 
-G_BEGIN_DECLS
+guint flv_parse_header (const guint8 * data);
+guint flv_parse_tag (const guint8 * data, guint size,
+    guint8 * packet_type, guint * payload_size, guint * timestamp);
+GstBuffer * flv_generate_header ();
+GstBuffer * flv_generate_tag (const guint8 * data,
+    gsize size, guint8 id, guint32 timestamp);
 
-G_DECLARE_FINAL_TYPE (PexRTMPServerSink, pex_rtmp_server_sink, PEX, RTMP_SERVER_SINK, GstBaseSink)
-#define PEX_TYPE_RTMP_SERVER_SINK (pex_rtmp_server_sink_get_type())
-#define PEX_RTMP_SERVER_SINK_CAST(obj) ((PexRTMPServerSink *)(obj))
-
-G_END_DECLS
-
-#endif /* __PEX_RTMP_SERVER_SINK_H__ */
+#endif /* __FLV_H__ */
