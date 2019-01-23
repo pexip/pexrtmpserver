@@ -1,21 +1,35 @@
-/*
- * RTMPServer
+/* PexRTMPServer
+ * Copyright (C) 2011 Janne Kulmala <janne.t.kulmala@iki.fi>
+ * Copyright (C) 2019 Pexip
+ *  @author: Havard Graff <havard@pexip.com>
  *
- * Copyright 2011 Janne Kulmala <janne.t.kulmala@iki.fi>
- * Copyright 2014 Pexip         <pexip.com>
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Library General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
  *
- * Program code is licensed with GNU LGPL 2.1. See COPYING.LGPL file.
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Library General Public License for more details.
+ *
+ * You should have received a copy of the GNU Library General Public
+ * License along with this library; if not, write to the
+ * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
+ * Boston, MA 02110-1301, USA.
  */
-
 #include "client.h"
-
-#include "amf.h"
 #include "rtmp.h"
-#include "rtmpserver.h"
+#include "auth.h"
+
+#include "utils/amf.h"
+#include "utils/flv.h"
+#include "utils/parse.h"
+#include "utils/tcp.h"
 
 #include <string.h>
 
-#ifdef _MSC_VER
+#ifdef G_OS_WIN32
 #  include <Ws2ipdef.h>
 #  include <Ws2tcpip.h>
 #  include <BaseTsd.h>
@@ -25,8 +39,9 @@ typedef SSIZE_T ssize_t;
 #  include <arpa/inet.h>
 #endif
 
-#include <openssl/crypto.h>
-#include <openssl/err.h>
+#ifdef HAVE_OPENSSL
+#  include <openssl/err.h>
+#endif
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
@@ -61,12 +76,12 @@ client_direct_send (Client * client,
     return;
 
   if (client->write_flv_header) {
-    gst_buffer_queue_push (client->flv_queue, generate_flv_header ());
+    gst_buffer_queue_push (client->flv_queue, flv_generate_header ());
     client->write_flv_header = FALSE;
   }
 
   gst_buffer_queue_push (client->flv_queue,
-      generate_flv_tag (buf->data, buf->len, id, timestamp));
+      flv_generate_tag (buf->data, buf->len, id, timestamp));
 }
 
 static void
@@ -117,11 +132,11 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
   header.flags = chunk_stream_id | (fmt << 6);
   header.msg_type_id = msg_type_id;
   if (use_ext_timestamp) {
-    set_be24 (header.timestamp, EXT_TIMESTAMP_LIMIT);
+    GST_WRITE_UINT24_BE (header.timestamp, EXT_TIMESTAMP_LIMIT);
   } else {
-    set_be24 (header.timestamp, timestamp);
+    GST_WRITE_UINT24_BE (header.timestamp, timestamp);
   }
-  set_be24 (header.msg_len, msg_len);
+  GST_WRITE_UINT24_BE (header.msg_len, msg_len);
   header.msg_stream_id = msg_stream_id;
   GST_LOG_OBJECT (client->server, "Sending packet with:\n"
       "format:%d, chunk_stream_id:%u, timestamp:%u, msg_len:%u, msg_type_id:%u, msg_stream_id:%u",
@@ -353,7 +368,7 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
         if (auth_str) {
           g_free (client->auth_token);
           if (client->username && client->password) {
-            client->auth_token = get_auth_token (auth_str,
+            client->auth_token = auth_get_token (auth_str,
                 client->username, client->password);
             client->retry_connection = TRUE;
           }
@@ -486,7 +501,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
 
   if (type && client->username && client->password) {
     gchar *description;
-    gboolean ret = verify_auth (client->app, client->username, client->password,
+    gboolean ret = auth_verify (client->app, client->username, client->password,
         client->salt, client->opaque, &description);
     if (!ret) {
       GstStructure *status = gst_structure_new ("object",
@@ -964,16 +979,16 @@ client_handle_message (Client * client, RTMPMessage * msg)
         GST_DEBUG_OBJECT (client->server, "Not enough data");
         return FALSE;
       }
-      client->recv_chunk_size = load_be32 (&msg->buf->data[pos]);
+      client->recv_chunk_size = GST_READ_UINT32_BE (&msg->buf->data[pos]);
       GST_DEBUG_OBJECT (client->server, "receive chunk size set to %d",
           client->recv_chunk_size);
       break;
 
     case MSG_USER_CONTROL:
     {
-      guint16 method = load_be16 (&msg->buf->data[pos]);
+      guint16 method = GST_READ_UINT16_BE (&msg->buf->data[pos]);
       if (method == 6) {
-        guint32 timestamp = load_be32 (&msg->buf->data[pos + 2]);
+        guint32 timestamp = GST_READ_UINT32_BE (&msg->buf->data[pos + 2]);
         ret = client_handle_user_control (client, timestamp);
       }
       break;
@@ -981,7 +996,7 @@ client_handle_message (Client * client, RTMPMessage * msg)
 
     case MSG_WINDOW_ACK_SIZE:
     {
-      client->window_size = load_be32 (&msg->buf->data[pos]);
+      client->window_size = GST_READ_UINT32_BE (&msg->buf->data[pos]);
       GST_DEBUG_OBJECT (client->server, "%s window size set to %u",
           client->path, client->window_size);
       break;
@@ -989,7 +1004,7 @@ client_handle_message (Client * client, RTMPMessage * msg)
 
     case MSG_SET_PEER_BW:
     {
-      client->window_size = load_be32 (&msg->buf->data[pos]);
+      client->window_size = GST_READ_UINT32_BE (&msg->buf->data[pos]);
       GST_DEBUG_OBJECT (client->server,
           "%s Got Set Peer BW msg, window size set to %u", client->path,
           client->window_size);
@@ -1299,17 +1314,7 @@ client_connected (Client * client)
   return ret;
 }
 
-static void
-print_ssl_errors (Client * client)
-{
-  char tmp[4096];
-  gint error;
-  while ((error = ERR_get_error ()) != 0) {
-    memset (tmp, 0, sizeof (tmp));
-    ERR_error_string_n (error, tmp, sizeof (tmp) - 1);
-    GST_WARNING_OBJECT (client->server, "ssl-error: %s", tmp);
-  }
-}
+#ifdef HAVE_OPENSSL
 
 static gboolean
 client_drive_ssl (Client * client)
@@ -1338,7 +1343,7 @@ client_drive_ssl (Client * client)
       GST_WARNING_OBJECT (client->server,
           "Unable to establish ssl-connection (error=%d, ret=%d, errno=%d)",
           error, ret, errno);
-      print_ssl_errors (client);
+      ssl_print_errors ();
       return FALSE;
     }
   } else {
@@ -1352,13 +1357,35 @@ static gboolean
 client_begin_ssl (Client * client)
 {
   client->ssl = SSL_new (client->ssl_ctx);
-  SSL_set_app_data (client->ssl, client);
+  SSL_set_app_data (client->ssl, client->remote_host);
   SSL_set_fd (client->ssl, client->fd);
 
   client->state = CLIENT_TLS_HANDSHAKE_IN_PROGRESS;
 
   return client_drive_ssl (client);
 }
+
+gboolean
+client_add_incoming_ssl (Client * client,
+    const gchar * cert_file, const gchar * key_file,
+    const gchar * ca_file, const gchar * ca_dir,
+    const gchar * ciphers, gboolean tls1_enabled)
+{
+  client->ssl_ctx = ssl_add_incoming (cert_file, key_file, ca_file, ca_dir,
+      ciphers, tls1_enabled);
+  return client->ssl_ctx != NULL;
+}
+
+gboolean
+client_add_outgoing_ssl (Client * client,
+    const gchar * ca_file, const gchar * ca_dir,
+    const gchar * ciphers, gboolean tls1_enabled)
+{
+  client->ssl_ctx = ssl_add_outgoing (ca_file, ca_dir, ciphers, tls1_enabled);
+  return client->ssl_ctx != NULL;
+}
+
+#endif /* HAVE_OPENSSL */
 
 gboolean
 client_send (Client * client)
@@ -1376,20 +1403,27 @@ client_send (Client * client)
       return FALSE;
     }
 
+#ifdef HAVE_OPENSSL
     if (client->use_ssl) {
       return client_begin_ssl (client);
     }
+#endif /* HAVE_OPENSSL */
 
     return client_connected (client);
-  } else if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS ||
+  }
+
+#ifdef HAVE_OPENSSL
+  if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS ||
       client->state == CLIENT_TLS_HANDSHAKE_WANT_READ ||
       client->state == CLIENT_TLS_HANDSHAKE_WANT_WRITE) {
     return client_drive_ssl (client);
   }
+#endif /* HAVE_OPENSSL */
 
   ssize_t written;
 
    if (client->use_ssl) {
+#ifdef HAVE_OPENSSL
     if (client->ssl_read_blocked_on_write) {
       return client_receive (client);
     } else if (client->send_queue->len == 0) {
@@ -1409,11 +1443,14 @@ client_send (Client * client)
 
       GST_WARNING_OBJECT (client->server, "unable to write to a client (%s)",
           client->path);
-      print_ssl_errors (client);
+      ssl_print_errors ();
       return FALSE;
     }
+#else
+    g_assert_not_reached ();
+#endif /* HAVE_OPENSSL */
   } else {
-#if defined(__APPLE__) || defined (_MSC_VER)
+#if defined(__APPLE__) || defined (G_OS_WIN32)
     written = send (client->fd,
         client->send_queue->data, client->send_queue->len, 0);
 #else
@@ -1455,14 +1492,14 @@ client_push_flv (Client * client, GstBuffer * buf)
     guint8 *data = &map.data[total_parsed];
     guint parsed = 0;
 
-    if ((parsed = parse_flv_header (data))) {
+    if ((parsed = flv_parse_header (data))) {
       total_parsed += parsed;
       GST_DEBUG_OBJECT (client->server, "Found FLV header!");
       continue;
     }
 
     /* ignore if we don't parse */
-    if (!(parsed = parse_flv_tag (data, map.size - total_parsed,
+    if (!(parsed = flv_parse_tag (data, map.size - total_parsed,
         &msg.type, &payload_size, &msg.abs_timestamp))) {
       GST_WARNING_OBJECT (client->server, "Could not parse header!");
       goto done;
@@ -1508,13 +1545,16 @@ client_receive (Client * client)
   guint8 chunk[4096];
   gint got;
 
+#if HAVE_OPENSSL
   if (client->state == CLIENT_TLS_HANDSHAKE_IN_PROGRESS ||
       client->state == CLIENT_TLS_HANDSHAKE_WANT_READ ||
       client->state == CLIENT_TLS_HANDSHAKE_WANT_WRITE) {
     return client_drive_ssl (client);
   }
+#endif /* HAVE_OPENSSL */
 
   if (client->use_ssl) {
+#if HAVE_OPENSSL
     if (client->ssl_write_blocked_on_read) {
       return client_send (client);
     }
@@ -1529,7 +1569,7 @@ client_receive (Client * client)
         return TRUE;
       }
       GST_WARNING_OBJECT (client->server, "unable to read from a client");
-      print_ssl_errors (client);
+      ssl_print_errors ();
       return FALSE;
     }
     client->buf = g_byte_array_append (client->buf, chunk, got);
@@ -1554,6 +1594,9 @@ client_receive (Client * client)
 
       remaining -= got;
     }
+#else
+    g_assert_not_reached ();
+#endif /* HAVE_OPENSSL */
   } else {
     got = recv (client->fd, &chunk[0], sizeof (chunk), 0);
     if (got == 0) {
@@ -1602,7 +1645,7 @@ client_receive (Client * client)
     }
 
     if (header_len >= 8) {
-      msg->len = load_be24 (header->msg_len);
+      msg->len = GST_READ_UINT24_BE (header->msg_len);
       if (msg->len < msg->buf->len) {
         GST_WARNING_OBJECT (client->server, "invalid msg length");
         return FALSE;
@@ -1621,11 +1664,11 @@ client_receive (Client * client)
 
     /* timestamp */
     if (header_len >= 4) {
-      msg->timestamp = load_be24 (header->timestamp);
+      msg->timestamp = GST_READ_UINT24_BE (header->timestamp);
       /* extended timestamps are always absolute */
       if (msg->timestamp == EXT_TIMESTAMP_LIMIT) {
         GST_DEBUG_OBJECT (client->server, "Using extended timestamp");
-        msg->abs_timestamp = load_be32 (&client->buf->data[header_len]);
+        msg->abs_timestamp = GST_READ_UINT32_BE (&client->buf->data[header_len]);
         header_len += 4;
       } else {
         /* for type 0 we receive the absolute timestamp,
@@ -1678,169 +1721,6 @@ client_receive (Client * client)
       msg->buf = g_byte_array_remove_range (msg->buf, 0, msg->buf->len);
     }
   }
-  return TRUE;
-}
-
-static int
-ssl_verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
-{
-  SSL *ssl =
-      X509_STORE_CTX_get_ex_data (ctx, SSL_get_ex_data_X509_STORE_CTX_idx ());
-  Client *client = SSL_get_app_data (ssl);
-  X509 *current_cert = X509_STORE_CTX_get_current_cert (ctx);
-
-  if (preverify_ok == 0 || current_cert == NULL) {
-    return preverify_ok;
-  }
-
-  /* TODO: Perform OCSP check for current certificate */
-
-  if (current_cert == ctx->cert) {
-    /* The current certificate is the peer certificate */
-    if (client->remote_host != NULL) {
-      preverify_ok = verify_hostname (current_cert, client->remote_host);
-    }
-  }
-
-  return preverify_ok;
-}
-
-gboolean
-client_add_incoming_ssl (Client * client,
-    const gchar * cert_file, const gchar * key_file,
-    const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean tls1_enabled)
-{
-  BIO *bio;
-  long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
-      SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE |
-      SSL_OP_CIPHER_SERVER_PREFERENCE;
-
-  client->ssl_ctx = SSL_CTX_new (SSLv23_server_method ());
-
-  if (!tls1_enabled) {
-    ssl_options |= SSL_OP_NO_TLSv1;
-  }
-
-  SSL_CTX_set_cipher_list (client->ssl_ctx, ciphers);
-  SSL_CTX_set_options (client->ssl_ctx, ssl_options);
-  if (file_exists (ca_file)) {
-    SSL_CTX_load_verify_locations (client->ssl_ctx, ca_file, NULL);
-  } else {
-    GST_WARNING ("%s does not exist!", ca_file);
-  }
-  if (file_exists (ca_dir)) {
-    SSL_CTX_load_verify_locations (client->ssl_ctx, NULL, ca_dir);
-  } else {
-    GST_WARNING ("%s does not exist!", ca_dir);
-  }
-  SSL_CTX_set_verify (client->ssl_ctx, SSL_VERIFY_NONE, ssl_verify_callback);
-  SSL_CTX_set_mode (client->ssl_ctx,
-      SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
-
-  if (file_exists (cert_file) && file_exists (key_file)) {
-    if (SSL_CTX_use_certificate_file (client->ssl_ctx, cert_file,
-            SSL_FILETYPE_PEM) <= 0) {
-      GST_WARNING_OBJECT (client->server, "did not like the certificate: %s",
-          cert_file);
-      print_ssl_errors (client);
-      return FALSE;
-    }
-
-    if (SSL_CTX_use_PrivateKey_file (client->ssl_ctx, key_file,
-            SSL_FILETYPE_PEM) <= 0) {
-      GST_WARNING_OBJECT (client->server, "did not like the key: %s", key_file);
-      print_ssl_errors (client);
-      return FALSE;
-    }
-
-    /* Configure DH parameters */
-    bio = BIO_new_file (cert_file, "r");
-    if (bio != NULL) {
-      DH *dh = PEM_read_bio_DHparams (bio, NULL, NULL, NULL);
-      BIO_free (bio);
-
-      if (dh == NULL) {
-        dh = make_dh_params (cert_file);
-      }
-
-      if (dh != NULL) {
-        SSL_CTX_set_tmp_dh (client->ssl_ctx, dh);
-        DH_free (dh);
-      }
-    }
-
-    /* Configure ECDH parameters */
-    bio = BIO_new_file (cert_file, "r");
-    if (bio != NULL) {
-      EC_KEY *key;
-      int nid = NID_X9_62_prime256v1;
-      EC_GROUP *group = PEM_read_bio_ECPKParameters (bio, NULL, NULL, NULL);
-      BIO_free (bio);
-
-      if (group != NULL) {
-        nid = EC_GROUP_get_curve_name (group);
-        if (nid == NID_undef) {
-          nid = NID_X9_62_prime256v1;
-        }
-
-        EC_GROUP_free (group);
-      }
-
-      key = EC_KEY_new_by_curve_name (nid);
-      if (key != NULL) {
-        SSL_CTX_set_tmp_ecdh (client->ssl_ctx, key);
-        EC_KEY_free (key);
-      }
-    }
-
-    ERR_clear_error ();
-  }
-
-  return TRUE;
-}
-
-static void
-outgoing_ssl_info_callback (const SSL * ssl, int where, int ret)
-{
-  Client *client = SSL_get_app_data (ssl);
-
-  if (where & SSL_CB_HANDSHAKE_START) {
-    if (client->remote_host != NULL) {
-      if (SSL_set_tlsext_host_name ((SSL *) ssl, client->remote_host) == 0) {
-        print_ssl_errors (client);
-      }
-    }
-  }
-}
-
-gboolean
-client_add_outgoing_ssl (Client * client,
-    const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean tls1_enabled)
-{
-  long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3;
-
-  client->ssl_ctx = SSL_CTX_new (SSLv23_client_method ());
-
-  if (!tls1_enabled) {
-    ssl_options |= SSL_OP_NO_TLSv1;
-  }
-
-  SSL_CTX_set_cipher_list (client->ssl_ctx, ciphers);
-  SSL_CTX_set_options (client->ssl_ctx, ssl_options);
-  if (file_exists (ca_file)) {
-    SSL_CTX_load_verify_locations (client->ssl_ctx, ca_file, NULL);
-  }
-  if (file_exists (ca_dir)) {
-    SSL_CTX_load_verify_locations (client->ssl_ctx, NULL, ca_dir);
-  }
-  SSL_CTX_set_info_callback (client->ssl_ctx, outgoing_ssl_info_callback);
-  SSL_CTX_set_verify (client->ssl_ctx,
-      SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, ssl_verify_callback);
-  SSL_CTX_set_mode (client->ssl_ctx,
-      SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
-
   return TRUE;
 }
 
@@ -1904,6 +1784,12 @@ client_add_external_connect (Client * client,
   client->tcp_syncnt = tcp_syncnt;
 
   client->use_ssl = (g_strcmp0 (client->protocol, "rtmps") == 0);
+#ifndef HAVE_OPENSSL
+  if (client->use_ssl) {
+    GST_ERROR_OBJECT (client->server, "Can't connect with rtmps without OPENSSL");
+    return FALSE;
+  }
+#endif /* HAVE_OPENSSL */
 
   const gchar *tcUrlFmt = "%s://%s:%d/%s";
   if (strchr (client->remote_host, ':')) {     /* ipv6 */
@@ -2012,11 +1898,13 @@ client_free (Client * client)
     g_timer_destroy (client->last_queue_overflow);
   }
 
+#ifdef HAVE_OPENSSL
   /* ssl */
   if (client->ssl_ctx)
     SSL_CTX_free (client->ssl_ctx);
   if (client->ssl)
     SSL_free (client->ssl);
+#endif /* HAVE_OPENSSL */
 
   g_free (client);
 }

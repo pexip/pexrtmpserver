@@ -17,18 +17,32 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
-#ifndef __PEX_RTMP_SERVER_SINK_H__
-#define __PEX_RTMP_SERVER_SINK_H__
+#ifndef __TCP_H__
+#define __TCP_H__
 
 #include <gst/gst.h>
-#include <gst/base/gstbasesink.h>
 
-G_BEGIN_DECLS
+#ifdef G_OS_WIN32
+#  ifdef PEX_RTMPSERVER_EXPORTS
+#    define PEX_RTMPSERVER_EXPORT __declspec(dllexport)
+#  else
+#    define PEX_RTMPSERVER_EXPORT __declspec(dllimport) extern
+#  endif
+#else
+#  define PEX_RTMPSERVER_EXPORT extern
+#endif
 
-G_DECLARE_FINAL_TYPE (PexRTMPServerSink, pex_rtmp_server_sink, PEX, RTMP_SERVER_SINK, GstBaseSink)
-#define PEX_TYPE_RTMP_SERVER_SINK (pex_rtmp_server_sink_get_type())
-#define PEX_RTMP_SERVER_SINK_CAST(obj) ((PexRTMPServerSink *)(obj))
+#define INVALID_FD -1
 
-G_END_DECLS
+PEX_RTMPSERVER_EXPORT
+gint tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt);
+PEX_RTMPSERVER_EXPORT
+gint tcp_listen (gint port);
+PEX_RTMPSERVER_EXPORT
+void tcp_disconnect (gint fd);
+PEX_RTMPSERVER_EXPORT
+gint tcp_accept (gint listen_fd);
+PEX_RTMPSERVER_EXPORT
+void tcp_set_nonblock (gint fd, gboolean enabled);
 
-#endif /* __PEX_RTMP_SERVER_SINK_H__ */
+#endif /* __TCP_H__ */

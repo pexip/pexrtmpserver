@@ -8,4 +8,4 @@ Description: RTMP server
 Requires:
 Version: @VERSION@
 Libs: -L${libdir} -lpexrtmpserver
-Cflags: -I${includedir}/rtmpserver
+Cflags: -I${includedir}/pexrtmpserver

@@ -1,6 +1,6 @@
-/*
- * Pexip
- * Copyright (C) 2018 Pexip <pexip.com>
+/* PexRTMPServer
+ * Copyright (C) 2019 Pexip
+ *  @author: Havard Graff <havard@pexip.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,7 +25,7 @@
 #include <gst/gst.h>
 
 #include "pexrtmpserversink.h"
-#include "rtmpserver.h"
+#include "pexrtmpserver.h"
 
 GST_DEBUG_CATEGORY_STATIC (pex_rtmp_server_sink_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_sink_debug

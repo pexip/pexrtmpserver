@@ -1,26 +1,36 @@
-/*
- * RTMPServer
+/* PexRTMPServer
+ * Copyright (C) 2019 Pexip
+ *  @author: Havard Graff <havard@pexip.com>
  *
- * Copyright 2011 Janne Kulmala <janne.t.kulmala@iki.fi>
- * Copyright 2014 Pexip         <pexip.com>
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Library General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
  *
- * Program code is licensed with GNU LGPL 2.1. See COPYING.LGPL file.
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Library General Public License for more details.
+ *
+ * You should have received a copy of the GNU Library General Public
+ * License along with this library; if not, write to the
+ * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
+ * Boston, MA 02110-1301, USA.
  */
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
-#include "rtmpserver.h"
-
-#include <gst/gst.h>
+#include "pexrtmpserver.h"
 #include "client.h"
 #include "rtmp.h"
-#include "utils.h"
+
+#include "utils/tcp.h"
+#include "utils/parse.h"
 
 #ifdef HAVE_LINUX_SOCKIOS_H
-#include <linux/sockios.h>
-#include <sys/ioctl.h>
+#  include <linux/sockios.h>
+#  include <sys/ioctl.h>
 #endif
 
 GST_DEBUG_CATEGORY (pex_rtmp_server_debug);
@@ -160,6 +170,7 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   GST_INFO_OBJECT (srv, "Accepted %s connection with client %p",
       use_ssl ? "rtmps" : "rtmp", client);
 
+#ifdef HAVE_OPENSSL
   /* ssl connection */
   if (use_ssl) {
     gchar *cert_file, *key_file, *ca_file, *ca_dir, *ciphers;
@@ -181,6 +192,7 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
     g_free (ca_dir);
     g_free (ciphers);
   }
+#endif /* HAVE_OPENSSL */
 
   rtmp_server_add_client_to_poll_table (srv, client);
 
@@ -344,6 +356,7 @@ _establish_client_tcp_connection (PexRtmpServer * srv, Client * client)
     return FALSE;
   }
 
+#ifdef HAVE_OPENSSL
   if (client->use_ssl) {
     if (!client_add_outgoing_ssl (client, srv->ca_cert_file, srv->ca_cert_dir,
         srv->ciphers, srv->tls1_enabled)) {
@@ -352,6 +365,8 @@ _establish_client_tcp_connection (PexRtmpServer * srv, Client * client)
       return FALSE;
     }
   }
+#endif /* HAVE_OPENSSL */
+
   return TRUE;
 }
 
@@ -397,8 +412,10 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
     client->fd = INVALID_FD;
   }
 
-  if (client->path)
+  if (client->path) {
     connections_remove_client (srv->connections, client, client->path);
+    GST_DEBUG_OBJECT (srv, "removed client %p", client);
+  }
 
   if (client->retry_connection) {
     GST_INFO_OBJECT (srv, "Retrying the connection for client %p", client);
@@ -604,6 +621,7 @@ pex_rtmp_server_start (PexRtmpServer * srv)
   }
 
   if (srv->ssl_port) {
+#ifdef HAVE_OPENSSL
     srv->listen_ssl_fd = tcp_listen (srv->ssl_port);
     if (srv->listen_ssl_fd <= 0) {
       GST_ERROR_OBJECT (srv, "Could not listen on port %d", srv->ssl_port);
@@ -613,6 +631,11 @@ pex_rtmp_server_start (PexRtmpServer * srv)
     srv->listen_ssl_gfd.fd = srv->listen_ssl_fd;
     gst_poll_add_fd (srv->fd_set, &srv->listen_ssl_gfd);
     gst_poll_fd_ctl_read (srv->fd_set, &srv->listen_ssl_gfd, TRUE);
+#else
+    GST_ERROR_OBJECT (srv,
+        "Can't listen on SSL port when compiled without OPENSSL");
+    return FALSE;
+#endif /* HAVE_OPENSSL */
   }
 
   srv->running = TRUE;

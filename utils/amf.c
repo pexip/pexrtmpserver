@@ -1,9 +1,27 @@
+/* PexRTMPServer
+ * Copyright (C) 2019 Pexip
+ *  @author: Havard Graff <havard@pexip.com>
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Library General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Library General Public License for more details.
+ *
+ * You should have received a copy of the GNU Library General Public
+ * License along with this library; if not, write to the
+ * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
+ * Boston, MA 02110-1301, USA.
+ */
 #include "amf.h"
-#include "utils.h"
 #include <string.h>
 #include <stdio.h>
 
-#ifdef _MSC_VER
+#ifdef G_OS_WIN32
 #include <winsock2.h>
 #else
 #include <arpa/inet.h>
@@ -329,7 +347,7 @@ _load_string (AmfDec * dec)
       GST_WARNING ("Not enough data");
       return NULL;
     }
-    str_len = load_be16 (&dec->buf->data[dec->pos]);
+    str_len = GST_READ_UINT16_BE (&dec->buf->data[dec->pos]);
     dec->pos += 2;
   }
   if (dec->pos + str_len > dec->buf->len) {
@@ -384,8 +402,8 @@ amf_dec_load_number (AmfDec * dec, gdouble * val)
     GST_WARNING ("Not enough data");
     return FALSE;
   }
-  guint64 n = ((guint64) load_be32 (&dec->buf->data[dec->pos]) << 32) |
-      load_be32 (&dec->buf->data[dec->pos + 4]);
+  guint64 n = ((guint64) GST_READ_UINT32_BE (&dec->buf->data[dec->pos]) << 32) |
+      GST_READ_UINT32_BE (&dec->buf->data[dec->pos + 4]);
   *val = 0;
   /* Flash uses same floating point format as x86 */
   memcpy (val, &n, 8);

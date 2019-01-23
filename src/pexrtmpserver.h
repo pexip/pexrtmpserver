@@ -1,9 +1,28 @@
-#ifndef __RTMP_SERVER_H__
-#define __RTMP_SERVER_H__
+/* PexRTMPServer
+ * Copyright (C) 2019 Pexip
+ *  @author: Havard Graff <havard@pexip.com>
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Library General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Library General Public License for more details.
+ *
+ * You should have received a copy of the GNU Library General Public
+ * License along with this library; if not, write to the
+ * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
+ * Boston, MA 02110-1301, USA.
+ */
+#ifndef __PEX_RTMP_SERVER_H__
+#define __PEX_RTMP_SERVER_H__
 
 #include <gst/gst.h>
 
-#if defined(_MSC_VER)
+#ifdef G_OS_WIN32
 #  ifdef PEX_RTMPSERVER_EXPORTS
 #    define PEX_RTMPSERVER_EXPORT __declspec(dllexport)
 #  else
@@ -71,16 +90,4 @@ gboolean pex_rtmp_server_subscribe_flv (PexRtmpServer * srv, const gchar * path,
 PEX_RTMPSERVER_EXPORT
 void pex_rtmp_server_flush_subscribe (PexRtmpServer * srv, const gchar * path);
 
-/* For testing */
-PEX_RTMPSERVER_EXPORT
-gboolean parse_rtmp_url (const gchar * url,
-    gchar ** protocol, gint * port, gchar ** ip, gchar ** application_name,
-    gchar ** path, gchar ** username, gchar ** password);
-PEX_RTMPSERVER_EXPORT
-gint tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt);
-PEX_RTMPSERVER_EXPORT
-gint tcp_listen (gint port);
-PEX_RTMPSERVER_EXPORT
-void tcp_disconnect (gint fd);
-
-#endif /* __RTMP_SERVER_H__ */
+#endif /* __PEX_RTMP_SERVER_H__ */
