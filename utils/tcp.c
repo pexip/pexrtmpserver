@@ -116,13 +116,15 @@ tcp_getaddrinfo (const gchar * ip, gint port,
   hints.ai_flags = ai_flags;
 
   gchar *port_str = NULL;
-  if (port > 0)
+  if (port > 0) {
     port_str = g_strdup_printf ("%d", port);
+    hints.ai_flags |= AI_NUMERICSERV;
+  }
   int ret = getaddrinfo (ip, port_str, &hints, result);
   g_free (port_str);
   if (ret != 0) {
     gchar *errmsg = get_error_msg ();
-    GST_WARNING ("getaddrinfo returned: %s", errmsg);
+    GST_WARNING ("getaddrinfo returned: %d (%s)", ret, errmsg);
     g_free (errmsg);
   }
   return ret;
@@ -146,7 +148,7 @@ tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt)
   int fd;
 
   struct addrinfo *result = NULL;
-  int ret = tcp_getaddrinfo (ip, port, AF_UNSPEC, AI_NUMERICHOST, &result);
+  int ret = tcp_getaddrinfo (ip, port, AF_UNSPEC, 0, &result);
   if (ret != 0) {
     fd = INVALID_FD;
     goto done;
@@ -254,7 +256,7 @@ tcp_listen (gint port)
   struct addrinfo *result = NULL;
 
   int ret = tcp_getaddrinfo (NULL, port,
-      AF_INET6, AI_NUMERICHOST | AI_PASSIVE, &result);
+      AF_INET6, AI_PASSIVE, &result);
   if (ret != 0) {
     fd = INVALID_FD;
     goto done;

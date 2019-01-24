@@ -18,6 +18,16 @@
  * Boston, MA 02110-1301, USA.
  */
 
+/*
+  Example for streaming to YouTube:
+
+ ./gst-launch-1.0 v4l2src ! video/x-raw,width=1280,height=720 ! \
+ videoconvert ! pexh264enc intra-period=60 rc-mode=2 ! flvmux name=mux \
+ ! rtmpserversink dialout-url=rtmp://a.rtmp.youtube.com/live2/streamname \
+ alsasrc ! audioconvert ! pexaacenc ! mux.
+
+*/
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
