@@ -1667,6 +1667,10 @@ client_receive (Client * client)
       msg->timestamp = GST_READ_UINT24_BE (header->timestamp);
       /* extended timestamps are always absolute */
       if (msg->timestamp == EXT_TIMESTAMP_LIMIT) {
+        /* check we have enough bytes to read the extended timestamp */
+        if (client->buf->len < header_len + 4)
+          break;
+
         GST_DEBUG_OBJECT (client->server, "Using extended timestamp");
         msg->abs_timestamp = GST_READ_UINT32_BE (&client->buf->data[header_len]);
         header_len += 4;
