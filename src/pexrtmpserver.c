@@ -313,8 +313,8 @@ gboolean
 pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
     const gchar * path)
 {
-  if (g_hash_table_lookup (srv->direct_publishers, path)) {
-    GST_ERROR_OBJECT (srv, "Already a direct publisher for path %s", path);
+  if (g_hash_table_lookup (srv->direct_subscribers, path)) {
+    GST_ERROR_OBJECT (srv, "Already a direct subscriber for path %s", path);
     return FALSE;
   }
 
