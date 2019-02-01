@@ -276,19 +276,27 @@ pex_rtmp_server_dialin (PexRtmpServer * srv,
       src_port);
 }
 
-void
+gboolean
 pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
     const gchar * path)
 {
+  if (g_hash_table_lookup (srv->direct_publishers, path)) {
+    GST_ERROR_OBJECT (srv, "Already a direct publisher for path %s", path);
+    return FALSE;
+  }
+
   GST_DEBUG_OBJECT (srv, "Adding a direct publisher for path %s", path);
 
   Client *client = client_new (G_OBJECT (srv), srv->connections,
       srv->ignore_localhost, srv->stream_id,
       srv->chunk_size);
 
+  g_mutex_lock (&srv->lock);
   client_add_direct_publisher (client, path);
-
   g_hash_table_insert (srv->direct_publishers, g_strdup (path), client);
+  g_mutex_unlock (&srv->lock);
+
+  return TRUE;
 }
 
 void
@@ -296,22 +304,32 @@ pex_rtmp_server_remove_direct_publisher (PexRtmpServer * srv,
     const gchar * path)
 {
   GST_DEBUG_OBJECT (srv, "Removing a direct publisher for path %s", path);
+  g_mutex_lock (&srv->lock);
   g_hash_table_remove (srv->direct_publishers, path);
+  g_mutex_unlock (&srv->lock);
 }
 
-void
+gboolean
 pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
     const gchar * path)
 {
+  if (g_hash_table_lookup (srv->direct_publishers, path)) {
+    GST_ERROR_OBJECT (srv, "Already a direct publisher for path %s", path);
+    return FALSE;
+  }
+
   GST_DEBUG_OBJECT (srv, "Adding a direct subscriber for path %s", path);
 
   Client *client = client_new (G_OBJECT (srv), srv->connections,
       srv->ignore_localhost, srv->stream_id,
       srv->chunk_size);
 
+  g_mutex_lock (&srv->lock);
   client_add_direct_subscriber (client, path);
-
   g_hash_table_insert (srv->direct_subscribers, g_strdup (path), client);
+  g_mutex_unlock (&srv->lock);
+
+  return TRUE;
 }
 
 void
@@ -319,16 +337,20 @@ pex_rtmp_server_remove_direct_subscriber (PexRtmpServer * srv,
     const gchar * path)
 {
   GST_DEBUG_OBJECT (srv, "Removing a direct subscriber for path %s", path);
+  g_mutex_lock (&srv->lock);
   g_hash_table_remove (srv->direct_subscribers, path);
+  g_mutex_unlock (&srv->lock);
 }
 
 gboolean
 pex_rtmp_server_publish_flv (PexRtmpServer * srv, const gchar * path,
     GstBuffer * buf)
 {
-  Client *client = g_hash_table_lookup (srv->direct_publishers, path);
+  gboolean ret = FALSE;
   g_mutex_lock (&srv->lock);
-  gboolean ret = client_push_flv (client, buf);
+  Client *client = g_hash_table_lookup (srv->direct_publishers, path);
+  if (client)
+    ret = client_push_flv (client, buf);
   g_mutex_unlock (&srv->lock);
   return ret;
 }
@@ -337,15 +359,19 @@ gboolean
 pex_rtmp_server_subscribe_flv (PexRtmpServer * srv, const gchar * path,
     GstBuffer ** buf)
 {
+  gboolean ret = FALSE;
   Client *client = g_hash_table_lookup (srv->direct_subscribers, path);
-  return client_pull_flv (client, buf);
+  if (client)
+    ret = client_pull_flv (client, buf);
+  return ret;
 }
 
 void
 pex_rtmp_server_flush_subscribe (PexRtmpServer * srv, const gchar * path)
 {
   Client *client = g_hash_table_lookup (srv->direct_subscribers, path);
-  client_unlock_flv_pull (client);
+  if (client)
+    client_unlock_flv_pull (client);
 }
 
 static gboolean

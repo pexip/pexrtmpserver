@@ -69,7 +69,7 @@ gboolean pex_rtmp_server_external_connect (PexRtmpServer * self,
     const gboolean is_publisher, gint src_port);
 
 PEX_RTMPSERVER_EXPORT
-void pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
+gboolean pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
     const gchar * path);
 PEX_RTMPSERVER_EXPORT
 void pex_rtmp_server_remove_direct_publisher (PexRtmpServer * srv,
@@ -79,7 +79,7 @@ gboolean pex_rtmp_server_publish_flv (PexRtmpServer * srv, const gchar * path,
     GstBuffer * buf);
 
 PEX_RTMPSERVER_EXPORT
-void pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
+gboolean pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
     const gchar * path);
 PEX_RTMPSERVER_EXPORT
 void pex_rtmp_server_remove_direct_subscriber (PexRtmpServer * srv,
