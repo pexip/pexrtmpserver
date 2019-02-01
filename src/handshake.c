@@ -71,7 +71,7 @@ _get_scheme (PexRtmpHandshake * hs, const guint8 data[HANDSHAKE_LENGTH])
 {
   GHmac *hmac;
   gint digest_offset = 0;
-  gsize hash_len;
+  gsize hash_len = 32;
 
   for (int i = 8; i < 12; i++)
     digest_offset += data[i];
@@ -119,7 +119,7 @@ pex_rtmp_handshake_process (PexRtmpHandshake * hs, const guint8 * org_data,
     gint len)
 {
   GHmac *hmac;
-  gsize hash_len;
+  gsize hash_len = 32;
 
   if (len != HANDSHAKE_LENGTH + 1) {
     GST_INFO ("Invalid handshake lenght");
