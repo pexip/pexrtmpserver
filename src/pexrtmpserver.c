@@ -141,6 +141,14 @@ rtmp_server_add_client_to_poll_table (PexRtmpServer * srv, Client * client)
   client->added_to_fd_table = TRUE;
 }
 
+static Client *
+rtmp_server_client_new (PexRtmpServer * srv)
+{
+  return client_new (G_OBJECT (srv), srv->connections,
+      srv->ignore_localhost, srv->stream_id,
+      srv->chunk_size);
+}
+
 static void
 rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 {
@@ -155,9 +163,7 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
   tcp_set_nonblock (fd, TRUE);
 
   gboolean use_ssl = listen_fd == srv->listen_ssl_fd;
-  Client *client = client_new (G_OBJECT (srv), srv->connections,
-      srv->ignore_localhost, srv->stream_id,
-      srv->chunk_size);
+  Client *client = rtmp_server_client_new (srv);
 
   /* FIXME: pass with functions instead */
   client->fd = fd;
@@ -287,9 +293,7 @@ pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
 
   GST_DEBUG_OBJECT (srv, "Adding a direct publisher for path %s", path);
 
-  Client *client = client_new (G_OBJECT (srv), srv->connections,
-      srv->ignore_localhost, srv->stream_id,
-      srv->chunk_size);
+  Client *client = rtmp_server_client_new (srv);
 
   g_mutex_lock (&srv->lock);
   client_add_direct_publisher (client, path);
@@ -320,9 +324,7 @@ pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
 
   GST_DEBUG_OBJECT (srv, "Adding a direct subscriber for path %s", path);
 
-  Client *client = client_new (G_OBJECT (srv), srv->connections,
-      srv->ignore_localhost, srv->stream_id,
-      srv->chunk_size);
+  Client *client = rtmp_server_client_new (srv);
 
   g_mutex_lock (&srv->lock);
   client_add_direct_subscriber (client, path);
@@ -405,9 +407,7 @@ pex_rtmp_server_external_connect (PexRtmpServer * srv,
 
   GST_DEBUG_OBJECT (srv, "Initiating an outgoing connection");
 
-  Client *client = client_new (G_OBJECT (srv), srv->connections,
-      srv->ignore_localhost, srv->stream_id,
-      srv->chunk_size);
+  Client *client = rtmp_server_client_new (srv);
 
   if (!client_add_external_connect (client, is_publisher,
       src_path, url, addresses, src_port, srv->tcp_syncnt)) {
