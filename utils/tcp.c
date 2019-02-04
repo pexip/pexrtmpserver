@@ -82,7 +82,7 @@ gchar *
 get_url_from_sockaddr_storage (const struct sockaddr_storage * addr)
 {
   gchar *ret = NULL;
-  gchar ip[256];
+  gchar ip[INET6_ADDRSTRLEN];
 
   if (addr->ss_family == AF_INET) {
     struct sockaddr_in *addr_in = (struct sockaddr_in *)addr;
@@ -333,4 +333,30 @@ tcp_disconnect (gint fd)
   setsockopt (fd, SOL_SOCKET, SO_LINGER, (char *)&linger, sizeof (linger));
 
   _close_socket (fd);
+}
+
+gboolean
+tcp_is_localhost (gint fd)
+{
+  struct sockaddr_storage addr;
+  struct sockaddr_in6 *sin6;
+  struct sockaddr_in *sin;
+  socklen_t len = sizeof (addr);
+  gchar ipstr[INET6_ADDRSTRLEN];
+  gboolean is_localhost = FALSE;
+
+  if (getpeername (fd, (struct sockaddr *) &addr, &len) == 0) {
+    if (addr.ss_family == AF_INET) {
+      sin = (struct sockaddr_in *) &addr;
+      inet_ntop (AF_INET, &sin->sin_addr, ipstr, sizeof (ipstr));
+    } else {
+      sin6 = (struct sockaddr_in6 *) &addr;
+      inet_ntop (AF_INET6, &sin6->sin6_addr, ipstr, sizeof ipstr);
+    }
+    is_localhost = g_strcmp0 (ipstr, "::1") == 0 ||
+        g_strcmp0 (ipstr, "::ffff:127.0.0.1") == 0 ||
+        g_strcmp0 (ipstr, "127.0.0.1") == 0;
+  }
+
+  return is_localhost;
 }

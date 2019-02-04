@@ -7,7 +7,7 @@
 
 #include <gst/gst.h>
 
-#ifdef _MSC_VER
+#ifdef G_OS_WIN32
 #  define WIN32_LEAN_AND_MEAN
 #  include <winsock2.h>
 #  include <windows.h>
@@ -21,6 +21,9 @@
 #include "handshake.h"
 #include "utils/ssl.h"
 #include "utils/gstbufferqueue.h"
+
+typedef gboolean (*NotifyConnectionFunc) (GObject * server,
+    gint fd, const gchar * path, gboolean publish);
 
 typedef struct _Client Client;
 
@@ -58,6 +61,12 @@ typedef enum
 
 struct _Client
 {
+  GObject *server;
+  Connections *connections;
+  guint msg_stream_id;
+  guint chunk_size;
+  NotifyConnectionFunc notify_connection;
+
   gint fd;
   GstPollFD gfd;
 
@@ -65,14 +74,9 @@ struct _Client
   gboolean disconnect;
 
   ClientConnectionState state;
-  Connections *connections;
-  GObject *server;
   gboolean use_ssl;
-  gboolean ignore_localhost;
-  guint msg_stream_id;
 
   RTMPHeaderData prev_header;
-  guint chunk_size;
   guint recv_chunk_size;
   guint send_chunk_size;
 
@@ -135,9 +139,9 @@ struct _Client
 
 Client * client_new (GObject * server,
     Connections * connections,
-    gboolean ignore_localhost,
     gint stream_id,
-    guint chunk_size);
+    guint chunk_size,
+    NotifyConnectionFunc notify_connection);
 
 gboolean client_add_external_connect (Client * client,
     gboolean publisher,

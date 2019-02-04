@@ -44,5 +44,7 @@ PEX_RTMPSERVER_EXPORT
 gint tcp_accept (gint listen_fd);
 PEX_RTMPSERVER_EXPORT
 void tcp_set_nonblock (gint fd, gboolean enabled);
+PEX_RTMPSERVER_EXPORT
+gboolean tcp_is_localhost (gint fd);
 
 #endif /* __TCP_H__ */

@@ -128,6 +128,45 @@ struct _PexRtmpServer
 
 G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 
+static gboolean
+rtmp_server_should_emit_signal (PexRtmpServer * srv, gint fd)
+{
+  gboolean should_emit = TRUE;
+
+  /* if asked to ignore localhost, don't emit signals
+     if the connection originates from localhost */
+  if (srv->ignore_localhost)
+    should_emit = !tcp_is_localhost (fd);
+  return should_emit;
+}
+
+static gboolean
+rtmp_server_notify_connection (GObject * server, gint fd, const gchar * path, gboolean publish)
+{
+  PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (server);
+  if (!rtmp_server_should_emit_signal (srv, fd))
+    return FALSE;
+
+  gboolean reject = FALSE;
+
+  g_mutex_unlock (&srv->lock);
+  if (publish) {
+    g_signal_emit_by_name (server, "on-publish", path, &reject);
+  } else {
+    g_signal_emit_by_name (server, "on-play", path, &reject);
+  }
+  g_mutex_lock (&srv->lock);
+
+  return reject;
+}
+
+static Client *
+rtmp_server_client_new (PexRtmpServer * srv)
+{
+  return client_new (G_OBJECT (srv), srv->connections,
+      srv->stream_id, srv->chunk_size, rtmp_server_notify_connection);
+}
+
 static void
 rtmp_server_add_client_to_poll_table (PexRtmpServer * srv, Client * client)
 {
@@ -139,14 +178,6 @@ rtmp_server_add_client_to_poll_table (PexRtmpServer * srv, Client * client)
   gst_poll_fd_ctl_read (srv->fd_set, &client->gfd, TRUE);
   srv->active_clients = g_list_append (srv->active_clients, client);
   client->added_to_fd_table = TRUE;
-}
-
-static Client *
-rtmp_server_client_new (PexRtmpServer * srv)
-{
-  return client_new (G_OBJECT (srv), srv->connections,
-      srv->ignore_localhost, srv->stream_id,
-      srv->chunk_size);
 }
 
 static void
@@ -236,8 +267,10 @@ rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
       GST_DEBUG_OBJECT (srv,
           "(%s) Emitting signal on-queue-overflow due to %d bytes in queue",
           client->path, val);
+      g_mutex_unlock (&srv->lock);
       g_signal_emit (srv, pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW],
           0, client->path);
+      g_mutex_lock (&srv->lock);
       g_timer_start (client->last_queue_overflow);
     }
   }
@@ -458,6 +491,7 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
   client_free (client);
 
   if (srv->running && !direct) {
+    g_mutex_unlock (&srv->lock);
     if (publisher) {
       g_signal_emit (srv,
           pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE], 0, path);
@@ -465,6 +499,7 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
       g_signal_emit (srv,
           pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE], 0, path);
     }
+    g_mutex_lock (&srv->lock);
   }
 
   if (publisher) {
@@ -770,6 +805,11 @@ pex_rtmp_server_finalize (GObject * obj)
 {
   PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
 
+  g_mutex_lock (&srv->lock);
+  g_hash_table_destroy (srv->direct_publishers);
+  g_hash_table_destroy (srv->direct_subscribers);
+  g_mutex_unlock (&srv->lock);
+
   g_free (srv->application_name);
   g_free (srv->cert_file);
   g_free (srv->key_file);
@@ -781,15 +821,13 @@ pex_rtmp_server_finalize (GObject * obj)
   g_free (srv->username);
   g_free (srv->password);
 
-  g_mutex_clear (&srv->lock);
-
   gst_poll_free (srv->fd_set);
   g_list_free (srv->active_clients);
 
   connections_free (srv->connections);
   gst_atomic_queue_unref (srv->dialout_clients);
-  g_hash_table_destroy (srv->direct_publishers);
-  g_hash_table_destroy (srv->direct_subscribers);
+
+  g_mutex_clear (&srv->lock);
 
   G_OBJECT_CLASS (pex_rtmp_server_parent_class)->finalize (obj);
 }

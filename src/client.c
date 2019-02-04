@@ -381,6 +381,13 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
 }
 
 static gboolean
+client_notify_connection (Client * client, gboolean publish)
+{
+  return client->notify_connection (client->server,
+      client->fd, client->path, publish);
+}
+
+static gboolean
 client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
 {
   /* we won't handle this unless we are dialing out to a path */
@@ -396,9 +403,7 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
     /* make the client a subscriber on the local server */
     if (!connections_add_publisher (client->connections, client, client->path))
       return FALSE;
-    gboolean reject_play = FALSE;
-    g_signal_emit_by_name (client->server, "on-publish", client->path,
-        &reject_play);
+    client_notify_connection (client, TRUE);
   }
   if (code && g_strcmp0 (code, "NetStream.Publish.Start") == 0) {
     /* make the client a subscriber on the local server */
@@ -426,9 +431,7 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
         invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
     amf_enc_free (invoke);
     gst_structure_free (meta);
-    gboolean reject_play = FALSE;
-    g_signal_emit_by_name (client->server, "on-play", client->path,
-        &reject_play);
+    client_notify_connection (client, FALSE);
   }
 
 
@@ -611,34 +614,6 @@ client_handle_createstream (Client * client, double txid)
 }
 
 static gboolean
-client_should_emit_signal (Client * client)
-{
-  struct sockaddr_storage addr;
-  struct sockaddr_in6 *sin6;
-  struct sockaddr_in *sin;
-  socklen_t len = sizeof addr;
-  gchar ipstr[INET6_ADDRSTRLEN];
-  gboolean should_emit = TRUE;
-
-  if (client->ignore_localhost) {
-    if (getpeername (client->fd, (struct sockaddr *) &addr, &len) == 0) {
-      if (addr.ss_family == AF_INET) {
-        sin = (struct sockaddr_in *) &addr;
-        inet_ntop (AF_INET, &sin->sin_addr, ipstr, sizeof (ipstr));
-      } else {
-        sin6 = (struct sockaddr_in6 *) &addr;
-        inet_ntop (AF_INET6, &sin6->sin6_addr, ipstr, sizeof ipstr);
-      }
-      should_emit = g_strcmp0 (ipstr, "::1") != 0
-          && g_strcmp0 (ipstr, "::ffff:127.0.0.1") != 0
-          && g_strcmp0 (ipstr, "127.0.0.1") != 0;
-    }
-  }
-
-  return should_emit;
-}
-
-static gboolean
 client_handle_publish (Client * client, double txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec));  /* NULL */
@@ -651,14 +626,10 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   g_free (client->path);
   client->path = path;
 
-  gboolean reject_publish = FALSE;
-  if (client_should_emit_signal (client)) {
-    GST_DEBUG_OBJECT (client->server, "emit on-publish: %s", path);
-    g_signal_emit_by_name (client->server, "on-publish", path, &reject_publish);
-  }
+  gboolean reject_publish = client_notify_connection (client, TRUE);
   if (reject_publish) {
     GST_DEBUG_OBJECT (client->server,
-        "Not publishing due to signal rejecting publish");
+        "Not publishing due to being rejected");
     return FALSE;
   }
   if (!connections_add_publisher (client->connections, client, path)) {
@@ -778,15 +749,11 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
 
   g_free (client->path);
   client->path = path;
-  gboolean reject_play = FALSE;
 
-  if (client_should_emit_signal (client)) {
-    GST_DEBUG_OBJECT (client->server, "emit on-play: %s", path);
-    g_signal_emit_by_name (client->server, "on-play", path, &reject_play);
-  }
+  gboolean reject_play = client_notify_connection (client, FALSE);
   if (reject_play) {
     GST_DEBUG_OBJECT (client->server,
-        "%p Not playing due to signal returning 0", client);
+        "%p Not playing due to being rejecte", client);
     return FALSE;
   }
   GST_DEBUG_OBJECT (client->server, "client %p got play for path: %s", client,
@@ -1833,22 +1800,22 @@ client_add_direct_subscriber (Client * client, const gchar * path)
 Client *
 client_new (GObject * server,
     Connections * connections,
-    gboolean ignore_localhost,
-    gint stream_id,
-    guint chunk_size)
+    gint msg_stream_id,
+    guint chunk_size,
+    NotifyConnectionFunc notify_connection)
 {
   Client *client = g_new0 (Client, 1);
 
-  client->fd = INVALID_FD;
   client->server = server;
   client->connections = connections;
-  client->ignore_localhost = ignore_localhost;
-  client->msg_stream_id = stream_id;
+  client->msg_stream_id = msg_stream_id;
   client->chunk_size = chunk_size;
+  client->notify_connection = notify_connection;
 
-  GST_DEBUG_OBJECT (client->server, "Chunk Size: %d, Stream ID:%d\n",
-      chunk_size, stream_id);
+  GST_DEBUG_OBJECT (client->server, "Chunk Size: %d, MSG Stream ID:%d\n",
+      chunk_size, msg_stream_id);
 
+  client->fd = INVALID_FD;
   client->state = CLIENT_TCP_HANDSHAKE_IN_PROGRESS;
   client->recv_chunk_size = DEFAULT_CHUNK_SIZE;
   client->send_chunk_size = DEFAULT_CHUNK_SIZE;
