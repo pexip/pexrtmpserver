@@ -60,6 +60,18 @@ typedef struct
 
 #pragma pack(pop)   /* restore original alignment from stack */
 
+gboolean
+client_add_connection (Client * client, gboolean publisher)
+{
+  gboolean ret = TRUE;
+  if (publisher) {
+    ret = connections_add_publisher (client->connections, client, client->path);
+  } else {
+    connections_add_subscriber (client->connections, client, client->path);
+  }
+  return ret;
+}
+
 static void
 client_write_extended_timestamp (Client * client, guint32 timestamp)
 {
@@ -400,14 +412,14 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
   const gchar *code = gst_structure_get_string (object, "code");
   GST_DEBUG_OBJECT (client->server, "onStatus - code: %s", code);
   if (code && g_strcmp0 (code, "NetStream.Play.Start") == 0) {
-    /* make the client a subscriber on the local server */
-    if (!connections_add_publisher (client->connections, client, client->path))
+    /* make the client a publisher on the local server */
+    if (!client_add_connection (client, TRUE))
       return FALSE;
     client_notify_connection (client, TRUE);
   }
   if (code && g_strcmp0 (code, "NetStream.Publish.Start") == 0) {
     /* make the client a subscriber on the local server */
-    connections_add_subscriber (client->connections, client, client->path);
+    client_add_connection (client, FALSE);
 
     GstStructure *meta = gst_structure_new ("object",
         "framerate", G_TYPE_DOUBLE, 30.0,
@@ -632,7 +644,7 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
         "Not publishing due to being rejected");
     return FALSE;
   }
-  if (!connections_add_publisher (client->connections, client, path)) {
+  if (!client_add_connection (client, TRUE)) {
     return FALSE;
   }
   GST_DEBUG_OBJECT (client->server, "publisher connected.");
@@ -723,7 +735,7 @@ client_start_playback (Client * client)
   client->playing = TRUE;
   client->ready = FALSE;
 
-  connections_add_subscriber (client->connections, client, client->path);
+  client_add_connection (client, FALSE);
 
   /* send pexip metadata to the client */
   GstStructure *metadata = gst_structure_new ("metadata",
@@ -1441,8 +1453,8 @@ client_send (Client * client)
   return TRUE;
 }
 
-gboolean
-client_push_flv (Client * client, GstBuffer * buf)
+static gboolean
+client_handle_flv_buffer (Client * client, GstBuffer * buf)
 {
   RTMPMessage msg;
   GstMapInfo map;
@@ -1473,7 +1485,7 @@ client_push_flv (Client * client, GstBuffer * buf)
     }
 
     GST_DEBUG_OBJECT (client->server,
-        "parsed %u: Got flv buffer with type: 0x0%x, payload_size: %u",
+        "parsed %u: Got flv buffer with type: 0x%x, payload_size: %u",
         total_parsed, msg.type, payload_size);
 
     if (msg.type == MSG_AUDIO || msg.type == MSG_VIDEO) {
@@ -1491,6 +1503,24 @@ client_push_flv (Client * client, GstBuffer * buf)
 done:
   gst_buffer_unmap (buf, &map);
   return ret;
+}
+
+gboolean
+client_handle_flv (Client * client)
+{
+  gboolean ret = TRUE;
+  GstBuffer *buf;
+  while (ret && (buf = gst_buffer_queue_try_pop (client->flv_queue))) {
+    ret = client_handle_flv_buffer (client, buf);
+    gst_buffer_unref (buf);
+  }
+  return ret;
+}
+
+gboolean
+client_push_flv (Client * client, GstBuffer * buf)
+{
+  return gst_buffer_queue_push (client->flv_queue, buf);
 }
 
 gboolean
@@ -1771,30 +1801,21 @@ client_add_external_connect (Client * client,
 
   return TRUE;
 }
-void
-client_add_direct_publisher (Client * client, const gchar * path)
-{
-  client->direct = TRUE;
-  client->publisher = TRUE;
-  client->path = g_strdup (path);
-
-  client->recv_chunk_size = G_MAXUINT;
-
-  connections_add_publisher (client->connections, client, client->path);
-}
 
 void
-client_add_direct_subscriber (Client * client, const gchar * path)
+client_configure_direct (Client * client, const gchar * path, gboolean publisher)
 {
   client->direct = TRUE;
-  client->publisher = FALSE;
+  client->publisher = publisher;
   client->path = g_strdup (path);
   client->flv_queue = gst_buffer_queue_new ();
-  client->write_flv_header = TRUE;
 
-  client->send_chunk_size = G_MAXUINT;
-
-  connections_add_subscriber (client->connections, client, client->path);
+  if (publisher) {
+    client->recv_chunk_size = G_MAXUINT;
+  } else {
+    client->write_flv_header = TRUE;
+    client->send_chunk_size = G_MAXUINT;
+  }
 }
 
 Client *

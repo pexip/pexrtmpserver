@@ -71,6 +71,7 @@ struct _Client
   GstPollFD gfd;
 
   gboolean added_to_fd_table;
+  gboolean active;
   gboolean disconnect;
 
   ClientConnectionState state;
@@ -151,10 +152,12 @@ gboolean client_add_external_connect (Client * client,
     gint src_port,
     gint tcp_syncnt);
 
-void client_add_direct_publisher (Client * client, const gchar * path);
-void client_add_direct_subscriber (Client * client, const gchar * path);
+gboolean client_add_connection (Client * client, gboolean publisher);
+
+void client_configure_direct (Client * client, const gchar * path, gboolean publisher);
 
 gboolean client_push_flv (Client * client, GstBuffer * buf);
+gboolean client_handle_flv (Client * client);
 gboolean client_pull_flv (Client * client, GstBuffer ** buf);
 void client_unlock_flv_pull (Client * client);
 

@@ -329,7 +329,9 @@ pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
   Client *client = rtmp_server_client_new (srv);
 
   g_mutex_lock (&srv->lock);
-  client_add_direct_publisher (client, path);
+  client_configure_direct (client, path, TRUE);
+  client_add_connection (client, TRUE);
+
   g_hash_table_insert (srv->direct_publishers, g_strdup (path), client);
   g_mutex_unlock (&srv->lock);
 
@@ -360,7 +362,9 @@ pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
   Client *client = rtmp_server_client_new (srv);
 
   g_mutex_lock (&srv->lock);
-  client_add_direct_subscriber (client, path);
+  client_configure_direct (client, path, FALSE);
+  client_add_connection (client, FALSE);
+
   g_hash_table_insert (srv->direct_subscribers, g_strdup (path), client);
   g_mutex_unlock (&srv->lock);
 
@@ -384,8 +388,10 @@ pex_rtmp_server_publish_flv (PexRtmpServer * srv, const gchar * path,
   gboolean ret = FALSE;
   g_mutex_lock (&srv->lock);
   Client *client = g_hash_table_lookup (srv->direct_publishers, path);
-  if (client)
+  if (client) {
     ret = client_push_flv (client, buf);
+    ret = client_handle_flv (client);
+  }
   g_mutex_unlock (&srv->lock);
   return ret;
 }

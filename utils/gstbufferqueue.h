@@ -27,7 +27,8 @@ typedef struct _GstBufferQueue GstBufferQueue;
 GstBufferQueue * gst_buffer_queue_new ();
 void gst_buffer_queue_free (GstBufferQueue * queue);
 void gst_buffer_queue_flush (GstBufferQueue * queue);
-void gst_buffer_queue_push (GstBufferQueue * queue, GstBuffer * buf);
+gboolean gst_buffer_queue_push (GstBufferQueue * queue, GstBuffer * buf);
 GstBuffer * gst_buffer_queue_pop (GstBufferQueue * queue);
+GstBuffer * gst_buffer_queue_try_pop (GstBufferQueue * queue);
 
 #endif /* __GST_BUFFFER_QUEUE_H__ */

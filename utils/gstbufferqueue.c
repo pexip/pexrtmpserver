@@ -60,18 +60,19 @@ gst_buffer_queue_free (GstBufferQueue * queue)
   g_free (queue);
 }
 
-void
+gboolean
 gst_buffer_queue_push (GstBufferQueue * queue, GstBuffer * buf)
 {
   g_mutex_lock (&queue->lock);
   if (!queue->running) {
     g_mutex_unlock (&queue->lock);
     gst_buffer_unref (buf);
-    return;
+    return FALSE;
   }
   g_queue_push_head (queue->queue, buf);
   g_cond_signal (&queue->cond);
   g_mutex_unlock (&queue->lock);
+  return TRUE;
 }
 
 GstBuffer *
@@ -82,6 +83,17 @@ gst_buffer_queue_pop (GstBufferQueue * queue)
   while (queue->running && g_queue_get_length (queue->queue) == 0)
     g_cond_wait (&queue->cond, &queue->lock);
 
+  if (queue->running)
+    buf = g_queue_pop_tail (queue->queue);
+  g_mutex_unlock (&queue->lock);
+  return buf;
+}
+
+GstBuffer *
+gst_buffer_queue_try_pop (GstBufferQueue * queue)
+{
+  GstBuffer *buf = NULL;
+  g_mutex_lock (&queue->lock);
   if (queue->running)
     buf = g_queue_pop_tail (queue->queue);
   g_mutex_unlock (&queue->lock);
