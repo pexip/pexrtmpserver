@@ -104,7 +104,7 @@ struct _PexRtmpServer
   gint chunk_size;
   gint tcp_syncnt;
   gint poll_count;
-  GMutex lock;
+  GMutex direct_lock;
 
   gchar *username;
   gchar *password;
@@ -120,7 +120,7 @@ struct _PexRtmpServer
   GThread *thread;
 
   Connections *connections;
-  GstAtomicQueue *dialout_clients;
+  GstAtomicQueue *pending_clients;
 
   GHashTable *direct_publishers;
   GHashTable *direct_subscribers;
@@ -129,33 +129,36 @@ struct _PexRtmpServer
 G_DEFINE_TYPE (PexRtmpServer, pex_rtmp_server, G_TYPE_OBJECT)
 
 static gboolean
-rtmp_server_should_emit_signal (PexRtmpServer * srv, gint fd)
+rtmp_server_should_emit_signal (PexRtmpServer * srv, gint fd, gboolean direct)
 {
-  gboolean should_emit = TRUE;
-
   /* if asked to ignore localhost, don't emit signals
-     if the connection originates from localhost */
-  if (srv->ignore_localhost)
-    should_emit = !tcp_is_localhost (fd);
-  return should_emit;
+     if the connection originates from localhost or direct*/
+  if (srv->ignore_localhost) {
+    if (direct)
+      return FALSE;
+    if (fd != INVALID_FD && tcp_is_localhost (fd))
+      return FALSE;
+  }
+
+  return TRUE;
 }
 
 static gboolean
-rtmp_server_notify_connection (GObject * server, gint fd, const gchar * path, gboolean publish)
+rtmp_server_notify_connection (GObject * server, Client * client)
 {
   PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (server);
-  if (!rtmp_server_should_emit_signal (srv, fd))
+  if (!rtmp_server_should_emit_signal (srv, client->fd, client->direct)) {
+    client->not_notified = TRUE;
     return FALSE;
+  }
 
   gboolean reject = FALSE;
 
-  g_mutex_unlock (&srv->lock);
-  if (publish) {
-    g_signal_emit_by_name (server, "on-publish", path, &reject);
+  if (client->publisher) {
+    g_signal_emit_by_name (server, "on-publish", client->path, &reject);
   } else {
-    g_signal_emit_by_name (server, "on-play", path, &reject);
+    g_signal_emit_by_name (server, "on-play", client->path, &reject);
   }
-  g_mutex_lock (&srv->lock);
 
   return reject;
 }
@@ -168,6 +171,13 @@ rtmp_server_client_new (PexRtmpServer * srv)
 }
 
 static void
+rtmp_server_activate_client (PexRtmpServer * srv, Client * client)
+{
+  srv->active_clients = g_list_append (srv->active_clients, client);
+  client->active = TRUE;
+}
+
+static void
 rtmp_server_add_client_to_poll_table (PexRtmpServer * srv, Client * client)
 {
   GST_DEBUG_OBJECT (srv, "Appending client %p to poll-list", client);
@@ -176,8 +186,9 @@ rtmp_server_add_client_to_poll_table (PexRtmpServer * srv, Client * client)
   client->gfd.fd = client->fd;
   gst_poll_add_fd (srv->fd_set, &client->gfd);
   gst_poll_fd_ctl_read (srv->fd_set, &client->gfd, TRUE);
-  srv->active_clients = g_list_append (srv->active_clients, client);
   client->added_to_fd_table = TRUE;
+
+  rtmp_server_activate_client (srv, client);
 }
 
 static void
@@ -267,10 +278,8 @@ rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
       GST_DEBUG_OBJECT (srv,
           "(%s) Emitting signal on-queue-overflow due to %d bytes in queue",
           client->path, val);
-      g_mutex_unlock (&srv->lock);
       g_signal_emit (srv, pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW],
           0, client->path);
-      g_mutex_lock (&srv->lock);
       g_timer_start (client->last_queue_overflow);
     }
   }
@@ -327,13 +336,13 @@ pex_rtmp_server_add_direct_publisher (PexRtmpServer * srv,
   GST_DEBUG_OBJECT (srv, "Adding a direct publisher for path %s", path);
 
   Client *client = rtmp_server_client_new (srv);
-
-  g_mutex_lock (&srv->lock);
   client_configure_direct (client, path, TRUE);
-  client_add_connection (client, TRUE);
+  client_ref (client);
+  gst_atomic_queue_push (srv->pending_clients, client);
 
+  g_mutex_lock (&srv->direct_lock);
   g_hash_table_insert (srv->direct_publishers, g_strdup (path), client);
-  g_mutex_unlock (&srv->lock);
+  g_mutex_unlock (&srv->direct_lock);
 
   return TRUE;
 }
@@ -343,9 +352,9 @@ pex_rtmp_server_remove_direct_publisher (PexRtmpServer * srv,
     const gchar * path)
 {
   GST_DEBUG_OBJECT (srv, "Removing a direct publisher for path %s", path);
-  g_mutex_lock (&srv->lock);
+  g_mutex_lock (&srv->direct_lock);
   g_hash_table_remove (srv->direct_publishers, path);
-  g_mutex_unlock (&srv->lock);
+  g_mutex_unlock (&srv->direct_lock);
 }
 
 gboolean
@@ -360,13 +369,13 @@ pex_rtmp_server_add_direct_subscriber (PexRtmpServer * srv,
   GST_DEBUG_OBJECT (srv, "Adding a direct subscriber for path %s", path);
 
   Client *client = rtmp_server_client_new (srv);
-
-  g_mutex_lock (&srv->lock);
   client_configure_direct (client, path, FALSE);
-  client_add_connection (client, FALSE);
+  client_ref (client);
+  gst_atomic_queue_push (srv->pending_clients, client);
 
+  g_mutex_lock (&srv->direct_lock);
   g_hash_table_insert (srv->direct_subscribers, g_strdup (path), client);
-  g_mutex_unlock (&srv->lock);
+  g_mutex_unlock (&srv->direct_lock);
 
   return TRUE;
 }
@@ -376,9 +385,9 @@ pex_rtmp_server_remove_direct_subscriber (PexRtmpServer * srv,
     const gchar * path)
 {
   GST_DEBUG_OBJECT (srv, "Removing a direct subscriber for path %s", path);
-  g_mutex_lock (&srv->lock);
+  g_mutex_lock (&srv->direct_lock);
   g_hash_table_remove (srv->direct_subscribers, path);
-  g_mutex_unlock (&srv->lock);
+  g_mutex_unlock (&srv->direct_lock);
 }
 
 gboolean
@@ -386,13 +395,16 @@ pex_rtmp_server_publish_flv (PexRtmpServer * srv, const gchar * path,
     GstBuffer * buf)
 {
   gboolean ret = FALSE;
-  g_mutex_lock (&srv->lock);
+  g_mutex_lock (&srv->direct_lock);
   Client *client = g_hash_table_lookup (srv->direct_publishers, path);
+  g_mutex_unlock (&srv->direct_lock);
+
   if (client) {
     ret = client_push_flv (client, buf);
-    ret = client_handle_flv (client);
+    /* FIXME this does not seem to work: gst_poll_restart (srv->fd_set); */
+  } else {
+    gst_buffer_unref (buf);
   }
-  g_mutex_unlock (&srv->lock);
   return ret;
 }
 
@@ -401,7 +413,10 @@ pex_rtmp_server_subscribe_flv (PexRtmpServer * srv, const gchar * path,
     GstBuffer ** buf)
 {
   gboolean ret = FALSE;
+  g_mutex_lock (&srv->direct_lock);
   Client *client = g_hash_table_lookup (srv->direct_subscribers, path);
+  g_mutex_unlock (&srv->direct_lock);
+
   if (client)
     ret = client_pull_flv (client, buf);
   return ret;
@@ -451,12 +466,12 @@ pex_rtmp_server_external_connect (PexRtmpServer * srv,
   if (!client_add_external_connect (client, is_publisher,
       src_path, url, addresses, src_port, srv->tcp_syncnt)) {
     GST_WARNING_OBJECT (srv, "Could not parse");
-    client_free (client);
+    client_unref (client);
     goto done;
   }
 
   /* add the client to the queue, waiting to be added */
-  gst_atomic_queue_push (srv->dialout_clients, client);
+  gst_atomic_queue_push (srv->pending_clients, client);
   ret = TRUE;
 
 done:
@@ -468,13 +483,17 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
 {
   GST_DEBUG_OBJECT (srv, "removing client %p with fd %d", client, client->fd);
 
-  if (client->added_to_fd_table) {
-    gst_poll_remove_fd (srv->fd_set, &client->gfd);
+  if (client->active) {
     srv->active_clients = g_list_remove (srv->active_clients, client);
+    client->active = FALSE;
+  }
 
+  if (client->added_to_fd_table) {
     g_assert (client->fd != INVALID_FD);
+    gst_poll_remove_fd (srv->fd_set, &client->gfd);
     tcp_disconnect (client->fd);
     client->fd = INVALID_FD;
+    client->added_to_fd_table = FALSE;
   }
 
   if (client->path) {
@@ -487,17 +506,16 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
     client->handshake_state = HANDSHAKE_START;
     client->state = CLIENT_TCP_HANDSHAKE_IN_PROGRESS;
     client->retry_connection = FALSE;
-    gst_atomic_queue_push (srv->dialout_clients, client);
+    gst_atomic_queue_push (srv->pending_clients, client);
     return;
   }
 
   gchar *path = g_strdup (client->path);
   gboolean publisher = client->publisher;
-  gboolean direct = client->direct;
-  client_free (client);
+  gboolean not_notified = client->not_notified;
+  client_unref (client);
 
-  if (srv->running && !direct) {
-    g_mutex_unlock (&srv->lock);
+  if (srv->running && !not_notified) {
     if (publisher) {
       g_signal_emit (srv,
           pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE], 0, path);
@@ -505,7 +523,6 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
       g_signal_emit (srv,
           pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE], 0, path);
     }
-    g_mutex_lock (&srv->lock);
   }
 
   if (publisher) {
@@ -524,53 +541,85 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
 }
 
 static void
-rtmp_server_add_pending_dialout_clients (PexRtmpServer * srv)
+rtmp_server_add_pending_dialout_client (PexRtmpServer * srv, Client * client)
 {
-  while (gst_atomic_queue_length (srv->dialout_clients) > 0) {
-    Client *client = gst_atomic_queue_pop (srv->dialout_clients);
-    gboolean add = TRUE;
-    if (client->fd == INVALID_FD) {
-      add = _establish_client_tcp_connection (srv, client);
-    }
-    if (add) {
-      GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, client->fd);
-      rtmp_server_add_client_to_poll_table (srv, client);
-    } else {
-      GST_WARNING_OBJECT (srv, "Could not establish connection to %s",
-          client->url);
-      rtmp_server_remove_client (srv, client);
-    }
+  gboolean add = TRUE;
+  if (client->fd == INVALID_FD) {
+    add = _establish_client_tcp_connection (srv, client);
+  }
+  if (add) {
+    GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, client->fd);
+    rtmp_server_add_client_to_poll_table (srv, client);
+  } else {
+    GST_WARNING_OBJECT (srv, "Could not establish connection to %s",
+        client->url);
+    rtmp_server_remove_client (srv, client);
   }
 }
 
 static void
+rtmp_server_add_pending_direct_client (PexRtmpServer * srv, Client * client)
+{
+  if (client->publisher) {
+    if (!client_add_connection (client, TRUE)) {
+      GST_ERROR_OBJECT (srv, "Adding multiple connection for path");
+      g_assert_not_reached ();
+    }
+  } else {
+    client_add_connection (client, FALSE);
+  }
+  rtmp_server_activate_client (srv, client);
+  rtmp_server_notify_connection (G_OBJECT (srv), client);
+}
+
+static void
+rtmp_server_add_pending_clients (PexRtmpServer * srv)
+{
+  while (gst_atomic_queue_length (srv->pending_clients) > 0) {
+    Client *client = gst_atomic_queue_pop (srv->pending_clients);
+    if (client->direct) {
+      rtmp_server_add_pending_direct_client (srv, client);
+    } else {
+      rtmp_server_add_pending_dialout_client (srv, client);
+    }
+  }
+}
+
+static gboolean
 rtmp_server_update_poll_ctl (PexRtmpServer * srv)
 {
+  gboolean skip_poll = FALSE;
+
   for (GList *walk = srv->active_clients; walk; walk = walk->next) {
     Client *client = walk->data;
+    if (client->direct) {
+      if (client->publisher) {
+        skip_poll |= client_has_flv_data (client);
+      }
+    } else {
 #ifdef HAVE_LINUX_SOCKIOS_H
-    if (!client->publisher)
-      rtmp_server_update_send_queues (srv, client);
+      if (!client->publisher)
+        rtmp_server_update_send_queues (srv, client);
 #endif
-    gboolean read, write;
-    client_get_poll_ctl (client, &read, &write);
-    gst_poll_fd_ctl_read (srv->fd_set, &client->gfd, read);
-    gst_poll_fd_ctl_write (srv->fd_set, &client->gfd, write);
+      gboolean read, write;
+      client_get_poll_ctl (client, &read, &write);
+      gst_poll_fd_ctl_read (srv->fd_set, &client->gfd, read);
+      gst_poll_fd_ctl_write (srv->fd_set, &client->gfd, write);
+    }
   }
+  return skip_poll;
 }
 
 gboolean
 rtmp_server_do_poll (PexRtmpServer * srv)
 {
-  rtmp_server_add_pending_dialout_clients (srv);
+  rtmp_server_add_pending_clients (srv);
 
   rtmp_server_update_poll_ctl (srv);
 
   /* waiting for traffic on all connections */
-  g_mutex_unlock (&srv->lock);
   srv->poll_count++;
   gint result = gst_poll_wait (srv->fd_set, 200 * GST_MSECOND);
-  g_mutex_lock (&srv->lock);
 
   if (srv->running == FALSE)
     return FALSE;
@@ -601,6 +650,20 @@ rtmp_server_do_poll (PexRtmpServer * srv)
           client->path);
       rtmp_server_remove_client (srv, client);
       break;
+    }
+
+    if (client->direct) {
+      if (client->publisher) {
+        gboolean ret = client_handle_flv (client);
+        if (!ret) {
+          GST_WARNING_OBJECT (srv,
+              "client error, handle_flv failed (client=%p, path=%s, publisher=%d)",
+              client, client->path, client->publisher);
+          rtmp_server_remove_client (srv, client);
+          break;
+        }
+      }
+      continue;
     }
 
     /* ready to send */
@@ -651,8 +714,6 @@ rtmp_server_func (gpointer data)
   signal (SIGPIPE, SIG_IGN);
 #endif /* _MSC_VER */
 
-  g_mutex_lock (&srv->lock);
-
   while (srv->running && ret) {
     ret = rtmp_server_do_poll (srv);
   }
@@ -662,11 +723,10 @@ rtmp_server_func (gpointer data)
     rtmp_server_remove_client (srv, client);
   }
 
-  while (gst_atomic_queue_length (srv->dialout_clients) > 0) {
-    Client *client = gst_atomic_queue_pop (srv->dialout_clients);
+  while (gst_atomic_queue_length (srv->pending_clients) > 0) {
+    Client *client = gst_atomic_queue_pop (srv->pending_clients);
     rtmp_server_remove_client (srv, client);
   }
-  g_mutex_unlock (&srv->lock);
 
   return NULL;
 }
@@ -716,6 +776,7 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
 {
   GST_DEBUG_OBJECT (srv, "Stopping...");
   srv->running = FALSE;
+  gst_poll_set_flushing (srv->fd_set, TRUE);
   if (srv->thread)
     g_thread_join (srv->thread);
 
@@ -751,9 +812,10 @@ pex_rtmp_server_new (const gchar * application_name, gint port, gint ssl_port,
 }
 
 static void
-_client_destroy (Client * client)
+_client_disconnect (Client * client)
 {
-  rtmp_server_remove_client (PEX_RTMP_SERVER_CAST (client->server), client);
+  client->disconnect = TRUE;
+  client_unref (client);
 }
 
 static void
@@ -769,14 +831,14 @@ pex_rtmp_server_init (PexRtmpServer * srv)
   srv->ciphers = NULL;
   srv->tls1_enabled = DEFAULT_TLS1_ENABLED;
   srv->ignore_localhost = DEFAULT_IGNORE_LOCALHOST;
-  g_mutex_init (&srv->lock);
+  g_mutex_init (&srv->direct_lock);
 
   srv->thread = NULL;
 
   srv->fd_set = gst_poll_new (TRUE);
 
   srv->connections = connections_new ();
-  srv->dialout_clients = gst_atomic_queue_new (0);
+  srv->pending_clients = gst_atomic_queue_new (0);
 
   /* FIXME: only need to generate this when username and password is set */
   guint32 rand_data = g_random_int();
@@ -785,11 +847,11 @@ pex_rtmp_server_init (PexRtmpServer * srv)
   srv->salt = g_base64_encode ((guchar *)&rand_data, sizeof (guint32));
 
   srv->direct_publishers = g_hash_table_new_full (
-      g_str_hash, g_str_equal, g_free, (GDestroyNotify)_client_destroy);
+      g_str_hash, g_str_equal, g_free, (GDestroyNotify)_client_disconnect);
   srv->direct_subscribers = g_hash_table_new_full (
-      g_str_hash, g_str_equal, g_free, (GDestroyNotify)_client_destroy);
+      g_str_hash, g_str_equal, g_free, (GDestroyNotify)_client_disconnect);
 
-#if defined(_MSC_VER)
+#if defined(G_OS_WIN32)
   /* Initialize Winsock */
   WSADATA wsaData;
   gint iResult = WSAStartup (MAKEWORD (2, 2), &wsaData);
@@ -811,10 +873,8 @@ pex_rtmp_server_finalize (GObject * obj)
 {
   PexRtmpServer *srv = PEX_RTMP_SERVER_CAST (obj);
 
-  g_mutex_lock (&srv->lock);
   g_hash_table_destroy (srv->direct_publishers);
   g_hash_table_destroy (srv->direct_subscribers);
-  g_mutex_unlock (&srv->lock);
 
   g_free (srv->application_name);
   g_free (srv->cert_file);
@@ -831,9 +891,9 @@ pex_rtmp_server_finalize (GObject * obj)
   g_list_free (srv->active_clients);
 
   connections_free (srv->connections);
-  gst_atomic_queue_unref (srv->dialout_clients);
+  gst_atomic_queue_unref (srv->pending_clients);
 
-  g_mutex_clear (&srv->lock);
+  g_mutex_clear (&srv->direct_lock);
 
   G_OBJECT_CLASS (pex_rtmp_server_parent_class)->finalize (obj);
 }

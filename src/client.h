@@ -22,10 +22,9 @@
 #include "utils/ssl.h"
 #include "utils/gstbufferqueue.h"
 
-typedef gboolean (*NotifyConnectionFunc) (GObject * server,
-    gint fd, const gchar * path, gboolean publish);
-
 typedef struct _Client Client;
+
+typedef gboolean (*NotifyConnectionFunc) (GObject * server, Client * client);
 
 /* 5.4.1.2.1 */
 #define DEFAULT_FMT 0
@@ -61,6 +60,7 @@ typedef enum
 
 struct _Client
 {
+  volatile gint ref_count;
   GObject *server;
   Connections *connections;
   guint msg_stream_id;
@@ -73,6 +73,7 @@ struct _Client
   gboolean added_to_fd_table;
   gboolean active;
   gboolean disconnect;
+  gboolean not_notified;
 
   ClientConnectionState state;
   gboolean use_ssl;
@@ -160,10 +161,12 @@ gboolean client_push_flv (Client * client, GstBuffer * buf);
 gboolean client_handle_flv (Client * client);
 gboolean client_pull_flv (Client * client, GstBuffer ** buf);
 void client_unlock_flv_pull (Client * client);
+gboolean client_has_flv_data (Client * client);
 
 gboolean client_handle_message (Client * client, RTMPMessage * msg);
 
-void client_free (Client * client);
+void client_ref (Client * client);
+void client_unref (Client * client);
 
 gboolean client_tcp_connect (Client * client);
 

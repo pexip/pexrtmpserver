@@ -99,3 +99,14 @@ gst_buffer_queue_try_pop (GstBufferQueue * queue)
   g_mutex_unlock (&queue->lock);
   return buf;
 }
+
+guint
+gst_buffer_queue_length (GstBufferQueue * queue)
+{
+  guint length = 0;
+  g_mutex_lock (&queue->lock);
+  if (queue->running)
+    length = queue->queue->length;
+  g_mutex_unlock (&queue->lock);
+  return length;
+}

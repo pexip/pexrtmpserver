@@ -72,6 +72,12 @@ client_add_connection (Client * client, gboolean publisher)
   return ret;
 }
 
+static gboolean
+client_notify_connection (Client * client)
+{
+  return client->notify_connection (client->server, client);
+}
+
 static void
 client_write_extended_timestamp (Client * client, guint32 timestamp)
 {
@@ -393,13 +399,6 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
 }
 
 static gboolean
-client_notify_connection (Client * client, gboolean publish)
-{
-  return client->notify_connection (client->server,
-      client->fd, client->path, publish);
-}
-
-static gboolean
 client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
 {
   /* we won't handle this unless we are dialing out to a path */
@@ -415,7 +414,7 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
     /* make the client a publisher on the local server */
     if (!client_add_connection (client, TRUE))
       return FALSE;
-    client_notify_connection (client, TRUE);
+    client_notify_connection (client);
   }
   if (code && g_strcmp0 (code, "NetStream.Publish.Start") == 0) {
     /* make the client a subscriber on the local server */
@@ -443,7 +442,7 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
         invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
     amf_enc_free (invoke);
     gst_structure_free (meta);
-    client_notify_connection (client, FALSE);
+    client_notify_connection (client);
   }
 
 
@@ -638,7 +637,7 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   g_free (client->path);
   client->path = path;
 
-  gboolean reject_publish = client_notify_connection (client, TRUE);
+  gboolean reject_publish = client_notify_connection (client);
   if (reject_publish) {
     GST_DEBUG_OBJECT (client->server,
         "Not publishing due to being rejected");
@@ -734,7 +733,6 @@ client_start_playback (Client * client)
 
   client->playing = TRUE;
   client->ready = FALSE;
-
   client_add_connection (client, FALSE);
 
   /* send pexip metadata to the client */
@@ -762,7 +760,7 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   g_free (client->path);
   client->path = path;
 
-  gboolean reject_play = client_notify_connection (client, FALSE);
+  gboolean reject_play = client_notify_connection (client);
   if (reject_play) {
     GST_DEBUG_OBJECT (client->server,
         "%p Not playing due to being rejecte", client);
@@ -1537,6 +1535,12 @@ client_unlock_flv_pull (Client * client)
 }
 
 gboolean
+client_has_flv_data (Client * client)
+{
+  return gst_buffer_queue_length (client->flv_queue) > 0;
+}
+
+gboolean
 client_receive (Client * client)
 {
   guint8 chunk[4096];
@@ -1827,6 +1831,7 @@ client_new (GObject * server,
 {
   Client *client = g_new0 (Client, 1);
 
+  client->ref_count = 1;
   client->server = server;
   client->connections = connections;
   client->msg_stream_id = msg_stream_id;
@@ -1854,7 +1859,7 @@ client_new (GObject * server,
   return client;
 }
 
-void
+static void
 client_free (Client * client)
 {
   g_free (client->path);
@@ -1899,4 +1904,19 @@ client_free (Client * client)
 #endif /* HAVE_OPENSSL */
 
   g_free (client);
+}
+
+void
+client_ref (Client * client)
+{
+  g_atomic_int_add (&client->ref_count, 1);
+}
+
+void
+client_unref (Client * client)
+{
+  gint old_ref = g_atomic_int_add (&client->ref_count, -1);
+  if (old_ref == 1) {
+    client_free (client);
+  }
 }

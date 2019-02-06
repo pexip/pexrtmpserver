@@ -193,7 +193,8 @@ pex_rtmp_server_sink_render (GstBaseSink * basesink, GstBuffer * buf)
     sink->first = FALSE;
   }
 
-  gboolean ret = pex_rtmp_server_publish_flv (sink->server, sink->path, gst_buffer_ref (buf));
+  gboolean ret = pex_rtmp_server_publish_flv (sink->server,
+      sink->path, gst_buffer_ref (buf));
   if (ret) {
     sink->bytes_sent += gst_buffer_get_size (buf);
     sink->packets_sent++;
