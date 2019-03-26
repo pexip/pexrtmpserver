@@ -120,7 +120,9 @@ struct _PexRtmpServer
   GThread *thread;
 
   Connections *connections;
+
   GstAtomicQueue *pending_clients;
+  GstAtomicQueue *connecting_clients;
 
   GHashTable *direct_publishers;
   GHashTable *direct_subscribers;
@@ -580,7 +582,9 @@ rtmp_server_add_pending_clients (PexRtmpServer * srv)
     if (client->direct) {
       rtmp_server_add_pending_direct_client (srv, client);
     } else {
+      gst_atomic_queue_push (srv->connecting_clients, client);
       rtmp_server_add_pending_dialout_client (srv, client);
+      gst_atomic_queue_pop (srv->connecting_clients);
     }
   }
 }
@@ -777,6 +781,15 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
   GST_DEBUG_OBJECT (srv, "Stopping...");
   srv->running = FALSE;
   gst_poll_set_flushing (srv->fd_set, TRUE);
+
+  /* disconnect any clients currently trying to connect */
+  while (gst_atomic_queue_length (srv->connecting_clients) > 0) {
+    Client *client = gst_atomic_queue_pop (srv->connecting_clients);
+    if (client->fd != INVALID_FD) {
+      tcp_disconnect (client->fd);
+    }
+  }
+
   if (srv->thread)
     g_thread_join (srv->thread);
 
@@ -839,6 +852,7 @@ pex_rtmp_server_init (PexRtmpServer * srv)
 
   srv->connections = connections_new ();
   srv->pending_clients = gst_atomic_queue_new (0);
+  srv->connecting_clients = gst_atomic_queue_new (0);
 
   /* FIXME: only need to generate this when username and password is set */
   guint32 rand_data = g_random_int();
@@ -892,6 +906,7 @@ pex_rtmp_server_finalize (GObject * obj)
 
   connections_free (srv->connections);
   gst_atomic_queue_unref (srv->pending_clients);
+  gst_atomic_queue_unref (srv->connecting_clients);
 
   g_mutex_clear (&srv->direct_lock);
 

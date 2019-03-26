@@ -142,20 +142,19 @@ _create_socket (const struct addrinfo * ai)
   return fd;
 }
 
-gint
-tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt)
+gboolean
+tcp_connect (gint * fd, const gchar * ip,
+    gint port, gint src_port, gint tcp_syncnt)
 {
-  int fd;
-
   struct addrinfo *result = NULL;
   int ret = tcp_getaddrinfo (ip, port, AF_UNSPEC, 0, &result);
   if (ret != 0) {
-    fd = INVALID_FD;
+    *fd = INVALID_FD;
     goto done;
   }
   if (result == NULL) {
     GST_WARNING ("getaddrinfo result was NULL");
-    fd = INVALID_FD;
+    *fd = INVALID_FD;
     goto done;
   }
 
@@ -163,33 +162,33 @@ tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt)
 //  for (ai_ptr = result; ai_ptr != NULL ; ai_ptr = ai_ptr->ai_next)
 //    GST_INFO ("connect result: %s", get_url_from_addrinfo (ai_ptr));
 
-  fd = _create_socket (result);
-  if (fd < 0) {
-    fd = INVALID_FD;
+  *fd = _create_socket (result);
+  if (*fd < 0) {
+    *fd = INVALID_FD;
     goto done;
   }
 
   /* set timeout */
   struct timeval tv = { 30, 0 };
-  if (setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, (char *) &tv, sizeof (tv))) {
+  if (setsockopt (*fd, SOL_SOCKET, SO_RCVTIMEO, (char *) &tv, sizeof (tv))) {
     GST_WARNING ("Could not set timeout");
   }
   /* Disable packet-accumulation delay (Nagle's algorithm) */
   int value = 1;
-  if (setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof (value)))
+  if (setsockopt (*fd, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof (value)))
     GST_WARNING ("Could not set TCP_NODELAY: %s", get_error_msg ());
 
 #if !defined (_MSC_VER)
   /* Allow reuse of the local address */
   value = 1;
-  if (setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &value, sizeof (value)))
+  if (setsockopt (*fd, SOL_SOCKET, SO_REUSEADDR, &value, sizeof (value)))
     GST_WARNING ("Could not set SO_REUSEADDR: %s", get_error_msg ());
 
   /* Configure TCP_SYNCNT */
   if (tcp_syncnt >= 0) {
 #ifdef TCP_SYNCNT
     value = tcp_syncnt;
-    setsockopt (fd, IPPROTO_TCP, TCP_SYNCNT, (char *) &value, sizeof (value));
+    setsockopt (*fd, IPPROTO_TCP, TCP_SYNCNT, (char *) &value, sizeof (value));
 #endif /* TCP_SYNCNT */
   }
 #endif /* _MSC_VER */
@@ -201,51 +200,39 @@ tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt)
     ret = tcp_getaddrinfo (NULL, src_port,
         result->ai_family, AI_NUMERICHOST | AI_PASSIVE, &src_res);
     if (ret < 0) {
-      fd = INVALID_FD;
+      *fd = INVALID_FD;
       goto done;
     }
 
     //for (ai_ptr = src_res; ai_ptr != NULL ; ai_ptr = ai_ptr->ai_next)
     //  GST_INFO ("bind result: %s", get_url_from_addrinfo (ai_ptr));
 
-    ret = bind (fd, src_res->ai_addr, (int)src_res->ai_addrlen);
+    ret = bind (*fd, src_res->ai_addr, (int)src_res->ai_addrlen);
     freeaddrinfo (src_res);
 
     if (ret < 0) {
       GST_WARNING ("Unable to bind to port %d: %s", src_port, strerror (errno));
-      _close_socket (fd);
-      fd = INVALID_FD;
+      _close_socket (*fd);
+      *fd = INVALID_FD;
       goto done;
     }
   }
 
-#if 1
-  ret = connect (fd, result->ai_addr, (int)result->ai_addrlen);
-#else
-  if (result->ai_family == AF_INET) {
-     struct sockaddr_in *a_in = (struct sockaddr_in *)result->ai_addr;
-     a_in->sin_port = htons (port);
-     ret = connect (fd, (struct sockaddr *)a_in, sizeof (struct sockaddr_in));
-   } else {
-     struct sockaddr_in6 *a_in = (struct sockaddr_in6 *)result->ai_addr;
-     a_in->sin6_port = htons (port);
-     ret = connect (fd, (struct sockaddr *)a_in, sizeof (struct sockaddr_in6));
-   }
-#endif
+  ret = connect (*fd, result->ai_addr, (int)result->ai_addrlen);
 
   if (ret != 0 && errno != EINPROGRESS) {
     GST_WARNING ("could not connect on port %d: %s", port, g_strerror (errno));
-    _close_socket (fd);
-    fd = INVALID_FD;
+    _close_socket (*fd);
+    *fd = INVALID_FD;
     goto done;
   }
 
   /* make the connection non-blocking */
-  tcp_set_nonblock (fd, TRUE);
+  tcp_set_nonblock (*fd, TRUE);
 
 done:
   freeaddrinfo (result);
-  return fd;
+  return *fd != INVALID_FD;
 }
 
 gint

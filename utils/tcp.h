@@ -35,7 +35,8 @@
 #define INVALID_FD -1
 
 PEX_RTMPSERVER_EXPORT
-gint tcp_connect (const gchar * ip, gint port, gint src_port, gint tcp_syncnt);
+gboolean tcp_connect (gint * fd, const gchar * ip,
+    gint port, gint src_port, gint tcp_syncnt);
 PEX_RTMPSERVER_EXPORT
 gint tcp_listen (gint port);
 PEX_RTMPSERVER_EXPORT

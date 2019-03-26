@@ -1733,7 +1733,6 @@ gboolean
 client_tcp_connect (Client * client)
 {
   gboolean ret = FALSE;
-  gint fd = INVALID_FD;
   gchar **address;
 
   gchar **addressv = g_strsplit (client->addresses, ",", 1024);
@@ -1742,13 +1741,13 @@ client_tcp_connect (Client * client)
     goto done;
   }
 
+  g_assert (client->fd == INVALID_FD);
   for (address = addressv; *address; address++) {
     GST_INFO_OBJECT (client->server, "Trying to connect to %s:%d, from port %d",
         *address, client->port, client->src_port);
-    fd = tcp_connect (*address, client->port, client->src_port,
+    tcp_connect (&client->fd, *address, client->port, client->src_port,
         client->tcp_syncnt);
-    if (fd != INVALID_FD) {
-      client->fd = fd;
+    if (client->fd != INVALID_FD) {
       GST_INFO_OBJECT (client->server,
           "Connected to %s:%d from port %d with fd %d", *address,
           client->port, client->src_port, client->fd);
