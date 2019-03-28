@@ -927,12 +927,12 @@ client_send_ack (Client * client)
   amf_enc_free (enc);
 }
 
-gboolean
+PexRtmpServerStatus
 client_handle_message (Client * client, RTMPMessage * msg)
 {
   GST_LOG_OBJECT (client->server, "RTMP message %02x, len %u, abs-timestamp %u",
       msg->type, msg->len, msg->abs_timestamp);
-  gboolean ret = TRUE;
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
 
   /* send window-size ACK if we have reached it */
   client->total_bytes_received += msg->len;
@@ -947,14 +947,14 @@ client_handle_message (Client * client, RTMPMessage * msg)
     case MSG_ACK:
       if (pos + 4 > msg->buf->len) {
         GST_DEBUG_OBJECT (client->server, "Not enough data");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
       break;
 
     case MSG_SET_CHUNK:
       if (pos + 4 > msg->buf->len) {
         GST_DEBUG_OBJECT (client->server, "Not enough data");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
       client->recv_chunk_size = GST_READ_UINT32_BE (&msg->buf->data[pos]);
       GST_DEBUG_OBJECT (client->server, "receive chunk size set to %d",
@@ -1044,7 +1044,7 @@ client_handle_message (Client * client, RTMPMessage * msg)
     case MSG_AUDIO:
       if (!client->publisher) {
         GST_DEBUG_OBJECT (client->server, "not a publisher");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
       GSList *subscribers =
           connections_get_subscribers (client->connections, client->path);
@@ -1065,7 +1065,7 @@ client_handle_message (Client * client, RTMPMessage * msg)
     {
       if (!client->publisher) {
         GST_DEBUG_OBJECT (client->server, "not a publisher");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
       guint8 flags = msg->buf->data[0];
       GSList *subscribers =
@@ -1102,7 +1102,7 @@ client_handle_message (Client * client, RTMPMessage * msg)
 
     case MSG_FLASH_VIDEO:
       GST_WARNING_OBJECT (client->server, "streaming FLV not supported");
-      ret = FALSE;
+      ret = PEX_RTMP_SERVER_STATUS_BAD;
       break;
 
     default:
@@ -1142,7 +1142,7 @@ client_get_rtmp_message (Client * client, guint8 chunk_stream_id)
   return msg;
 }
 
-static gboolean
+static PexRtmpServerStatus
 client_incoming_handshake (Client * client)
 {
   if (client->handshake_state == HANDSHAKE_START) {
@@ -1152,7 +1152,7 @@ client_incoming_handshake (Client * client)
       if (!pex_rtmp_handshake_process (client->handshake, client->buf->data,
               len)) {
         GST_WARNING_OBJECT (client->server, "Unable to process handshake");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
       client->buf = g_byte_array_remove_range (client->buf, 0, len);
 
@@ -1162,7 +1162,7 @@ client_incoming_handshake (Client * client)
           pex_rtmp_handshake_get_length (client->handshake));
       if (!client_send (client)) {
         GST_WARNING_OBJECT (client->server, "Unable to send handshake reply");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
 
       client->handshake_state = HANDSHAKE_STAGE1;
@@ -1174,17 +1174,17 @@ client_incoming_handshake (Client * client)
       if (!pex_rtmp_handshake_verify_reply (client->handshake,
               client->buf->data)) {
         GST_WARNING_OBJECT (client->server, "Could not verify handshake reply");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
       client->buf = g_byte_array_remove_range (client->buf, 0, len);
 
       client->handshake_state = HANDSHAKE_DONE;
     }
   }
-  return TRUE;
+  return PEX_RTMP_SERVER_STATUS_OK;
 }
 
-static gboolean
+static PexRtmpServerStatus
 client_outgoing_handshake (Client * client)
 {
   if (client->handshake_state == HANDSHAKE_START) {
@@ -1203,7 +1203,7 @@ client_outgoing_handshake (Client * client)
     if (!client_send (client)) {
       GST_WARNING_OBJECT (client->server,
           "Unable to send outgoing handshake (1)");
-      return FALSE;
+      return PEX_RTMP_SERVER_STATUS_BAD;
     }
 
     client->handshake_state = HANDSHAKE_STAGE1;
@@ -1213,7 +1213,7 @@ client_outgoing_handshake (Client * client)
       /* check that the first byte says PLAINTEXT */
       if (client->buf->data[0] != HANDSHAKE_PLAINTEXT) {
         GST_WARNING_OBJECT (client->server, "Handshake is not plaintext");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
       client->buf = g_byte_array_remove_range (client->buf, 0, 1);
 
@@ -1231,7 +1231,7 @@ client_outgoing_handshake (Client * client)
       if (!client_send (client)) {
         GST_WARNING_OBJECT (client->server,
             "Unable to send outgoing handshake (2)");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
       client->buf =
           g_byte_array_remove_range (client->buf, 0, HANDSHAKE_LENGTH);
@@ -1246,7 +1246,7 @@ client_outgoing_handshake (Client * client)
     client->handshake_state = HANDSHAKE_DONE;
   }
 
-  return TRUE;
+  return PEX_RTMP_SERVER_STATUS_OK;
 }
 
 
@@ -1278,10 +1278,10 @@ client_get_poll_ctl (Client * client, gboolean * read, gboolean * write)
   }
 }
 
-static gboolean
+static PexRtmpServerStatus
 client_connected (Client * client)
 {
-  gboolean ret = TRUE;
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
   client->state = CLIENT_CONNECTED;
 
   if (client->dialout_path) {
@@ -1293,7 +1293,7 @@ client_connected (Client * client)
 
 #ifdef HAVE_OPENSSL
 
-static gboolean
+static PexRtmpServerStatus
 client_drive_ssl (Client * client)
 {
   int ret;
@@ -1321,16 +1321,16 @@ client_drive_ssl (Client * client)
           "Unable to establish ssl-connection (error=%d, ret=%d, errno=%d)",
           error, ret, errno);
       ssl_print_errors ();
-      return FALSE;
+      return PEX_RTMP_SERVER_STATUS_BAD;
     }
   } else {
     return client_connected (client);
   }
 
-  return TRUE;
+  return PEX_RTMP_SERVER_STATUS_OK;
 }
 
-static gboolean
+static PexRtmpServerStatus
 client_begin_ssl (Client * client)
 {
   client->ssl = SSL_new (client->ssl_ctx);
@@ -1364,7 +1364,7 @@ client_add_outgoing_ssl (Client * client,
 
 #endif /* HAVE_OPENSSL */
 
-gboolean
+PexRtmpServerStatus
 client_send (Client * client)
 {
   if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS) {
@@ -1377,7 +1377,7 @@ client_send (Client * client)
       GST_WARNING_OBJECT (client->server,
           "error in client TCP handshake (%s): %s", client->path,
           strerror (error));
-      return FALSE;
+      return PEX_RTMP_SERVER_STATUS_BAD;
     }
 
 #ifdef HAVE_OPENSSL
@@ -1404,7 +1404,7 @@ client_send (Client * client)
     if (client->ssl_read_blocked_on_write) {
       return client_receive (client);
     } else if (client->send_queue->len == 0) {
-      return TRUE;
+      return PEX_RTMP_SERVER_STATUS_OK;
     }
     client->ssl_write_blocked_on_read = FALSE;
     written = SSL_write (client->ssl,
@@ -1413,15 +1413,15 @@ client_send (Client * client)
       int error = SSL_get_error (client->ssl, written);
       if (error == SSL_ERROR_WANT_READ) {
         client->ssl_write_blocked_on_read = TRUE;
-        return TRUE;
+        return PEX_RTMP_SERVER_STATUS_OK;
       } else if (error == SSL_ERROR_WANT_WRITE) {
-        return TRUE;
+        return PEX_RTMP_SERVER_STATUS_OK;
       }
 
       GST_WARNING_OBJECT (client->server, "unable to write to a client (%s)",
           client->path);
       ssl_print_errors ();
-      return FALSE;
+      return PEX_RTMP_SERVER_STATUS_BAD;
     }
 #else
     g_assert_not_reached ();
@@ -1436,11 +1436,11 @@ client_send (Client * client)
 #endif
     if (written < 0) {
       if (errno == EAGAIN || errno == EINTR)
-        return TRUE;
+        return PEX_RTMP_SERVER_STATUS_OK;
       GST_WARNING_OBJECT (client->server,
           "unable to write to a client (%s): %s", client->path,
           strerror (errno));
-      return FALSE;
+      return PEX_RTMP_SERVER_STATUS_BAD;
     }
   }
 
@@ -1448,16 +1448,16 @@ client_send (Client * client)
     client->send_queue =
         g_byte_array_remove_range (client->send_queue, 0, written);
   }
-  return TRUE;
+  return PEX_RTMP_SERVER_STATUS_OK;
 }
 
-static gboolean
+static PexRtmpServerStatus
 client_handle_flv_buffer (Client * client, GstBuffer * buf)
 {
   RTMPMessage msg;
   GstMapInfo map;
   guint payload_size;
-  gboolean ret = FALSE;
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_BAD;
   guint total_parsed = 0;
 
   gst_buffer_map (buf, &map, GST_MAP_READ);
@@ -1503,12 +1503,13 @@ done:
   return ret;
 }
 
-gboolean
+PexRtmpServerStatus
 client_handle_flv (Client * client)
 {
-  gboolean ret = TRUE;
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
   GstBuffer *buf;
-  while (ret && (buf = gst_buffer_queue_try_pop (client->flv_queue))) {
+  while (ret == PEX_RTMP_SERVER_STATUS_OK &&
+      (buf = gst_buffer_queue_try_pop (client->flv_queue))) {
     ret = client_handle_flv_buffer (client, buf);
     gst_buffer_unref (buf);
   }
@@ -1540,7 +1541,7 @@ client_has_flv_data (Client * client)
   return gst_buffer_queue_length (client->flv_queue) > 0;
 }
 
-gboolean
+PexRtmpServerStatus
 client_receive (Client * client)
 {
   guint8 chunk[4096];
@@ -1564,14 +1565,14 @@ client_receive (Client * client)
     if (got <= 0) {
       int error = SSL_get_error (client->ssl, got);
       if (error == SSL_ERROR_WANT_READ) {
-        return TRUE;
+        return PEX_RTMP_SERVER_STATUS_OK;
       } else if (error == SSL_ERROR_WANT_WRITE) {
         client->ssl_read_blocked_on_write = TRUE;
-        return TRUE;
+        return PEX_RTMP_SERVER_STATUS_OK;
       }
       GST_WARNING_OBJECT (client->server, "unable to read from a client");
       ssl_print_errors ();
-      return FALSE;
+      return PEX_RTMP_SERVER_STATUS_BAD;
     }
     client->buf = g_byte_array_append (client->buf, chunk, got);
     GST_LOG_OBJECT (client->server, "Read %d bytes", got);
@@ -1586,7 +1587,7 @@ client_receive (Client * client)
       got = SSL_read (client->ssl, &chunk[0], len);
       if (got <= 0) {
         GST_WARNING_OBJECT (client->server, "unable to read from ssl buffer");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
 
       client->buf = g_byte_array_append (client->buf, chunk, got);
@@ -1602,13 +1603,13 @@ client_receive (Client * client)
     got = recv (client->fd, &chunk[0], sizeof (chunk), 0);
     if (got == 0) {
       GST_DEBUG_OBJECT (client->server, "EOF from a client");
-      return FALSE;
+      return PEX_RTMP_SERVER_STATUS_BAD;
     } else if (got < 0) {
       if (errno == EAGAIN || errno == EINTR)
-        return TRUE;
+        return PEX_RTMP_SERVER_STATUS_OK;
       GST_DEBUG_OBJECT (client->server, "unable to read from a client: %s",
           strerror (errno));
-      return FALSE;
+      return PEX_RTMP_SERVER_STATUS_BAD;
     }
     client->buf = g_byte_array_append (client->buf, chunk, got);
     GST_LOG_OBJECT (client->server, "Read %d bytes", got);
@@ -1649,14 +1650,14 @@ client_receive (Client * client)
       msg->len = GST_READ_UINT24_BE (header->msg_len);
       if (msg->len < msg->buf->len) {
         GST_WARNING_OBJECT (client->server, "invalid msg length");
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       }
       msg->type = header->msg_type_id;
     }
 
     if (msg->len == 0) {
       GST_WARNING_OBJECT (client->server, "message with 0 length");
-      return FALSE;
+      return PEX_RTMP_SERVER_STATUS_BAD;
     }
 
     if (header_len >= 12) {
@@ -1722,11 +1723,11 @@ client_receive (Client * client)
 
     if (msg->buf->len == msg->len) {
       if (!client_handle_message (client, msg))
-        return FALSE;
+        return PEX_RTMP_SERVER_STATUS_BAD;
       msg->buf = g_byte_array_remove_range (msg->buf, 0, msg->buf->len);
     }
   }
-  return TRUE;
+  return PEX_RTMP_SERVER_STATUS_OK;
 }
 
 gboolean

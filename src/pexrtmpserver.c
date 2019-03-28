@@ -658,8 +658,8 @@ rtmp_server_do_poll (PexRtmpServer * srv)
 
     if (client->direct) {
       if (client->publisher) {
-        gboolean ret = client_handle_flv (client);
-        if (!ret) {
+        PexRtmpServerStatus ret = client_handle_flv (client);
+        if (ret != PEX_RTMP_SERVER_STATUS_OK) {
           GST_WARNING_OBJECT (srv,
               "client error, handle_flv failed (client=%p, path=%s, publisher=%d)",
               client, client->path, client->publisher);
@@ -672,8 +672,8 @@ rtmp_server_do_poll (PexRtmpServer * srv)
 
     /* ready to send */
     if (gst_poll_fd_can_write (srv->fd_set, &client->gfd)) {
-      gboolean ret = client_send (client);
-      if (!ret) {
+      PexRtmpServerStatus ret = client_send (client);
+      if (ret != PEX_RTMP_SERVER_STATUS_OK) {
         GST_WARNING_OBJECT (srv,
             "client error, send failed (client=%p, path=%s, publisher=%d)",
             client, client->path, client->publisher);
@@ -684,8 +684,8 @@ rtmp_server_do_poll (PexRtmpServer * srv)
 
     /* data to receive */
     if (gst_poll_fd_can_read (srv->fd_set, &client->gfd)) {
-      gboolean ret = client_receive (client);
-      if (!ret) {
+      PexRtmpServerStatus ret = client_receive (client);
+      if (ret != PEX_RTMP_SERVER_STATUS_OK) {
         GST_WARNING_OBJECT (srv,
             "client error: recv failed (client=%p, path=%s, publisher=%d)",
             client, client->path, client->publisher);

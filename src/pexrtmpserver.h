@@ -20,17 +20,7 @@
 #ifndef __PEX_RTMP_SERVER_H__
 #define __PEX_RTMP_SERVER_H__
 
-#include <gst/gst.h>
-
-#ifdef G_OS_WIN32
-#  ifdef PEX_RTMPSERVER_EXPORTS
-#    define PEX_RTMPSERVER_EXPORT __declspec(dllexport)
-#  else
-#    define PEX_RTMPSERVER_EXPORT __declspec(dllimport) extern
-#  endif
-#else
-#  define PEX_RTMPSERVER_EXPORT extern
-#endif
+#include "pexrtmpserver-types.h"
 
 PEX_RTMPSERVER_EXPORT
 G_DECLARE_FINAL_TYPE (PexRtmpServer, pex_rtmp_server, PEX, RTMP_SERVER, GObject)

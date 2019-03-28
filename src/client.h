@@ -5,7 +5,7 @@
 #include "config.h"
 #endif
 
-#include <gst/gst.h>
+#include "pexrtmpserver-types.h"
 
 #ifdef G_OS_WIN32
 #  define WIN32_LEAN_AND_MEAN
@@ -158,12 +158,12 @@ gboolean client_add_connection (Client * client, gboolean publisher);
 void client_configure_direct (Client * client, const gchar * path, gboolean publisher);
 
 gboolean client_push_flv (Client * client, GstBuffer * buf);
-gboolean client_handle_flv (Client * client);
+PexRtmpServerStatus client_handle_flv (Client * client);
 gboolean client_pull_flv (Client * client, GstBuffer ** buf);
 void client_unlock_flv_pull (Client * client);
 gboolean client_has_flv_data (Client * client);
 
-gboolean client_handle_message (Client * client, RTMPMessage * msg);
+PexRtmpServerStatus client_handle_message (Client * client, RTMPMessage * msg);
 
 void client_ref (Client * client);
 void client_unref (Client * client);
@@ -172,8 +172,8 @@ gboolean client_tcp_connect (Client * client);
 
 void client_get_poll_ctl (Client * client, gboolean * read, gboolean * write);
 
-gboolean client_send (Client * client);
-gboolean client_receive (Client * client);
+PexRtmpServerStatus client_send (Client * client);
+PexRtmpServerStatus client_receive (Client * client);
 gboolean client_window_size_reached (Client *client);
 
 gboolean client_add_incoming_ssl (Client * client,
