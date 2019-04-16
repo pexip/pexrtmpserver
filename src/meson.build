@@ -1,4 +1,6 @@
-install_headers('pexrtmpserver.h', subdir : 'pexrtmpserver')
+install_headers(
+  ['pexrtmpserver.h', 'pexrtmpserver-types.h'],
+  subdir : 'pexrtmpserver')
 
 rtmpserver_sources = [
   'auth.c',
