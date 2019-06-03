@@ -232,6 +232,11 @@ amf_enc_write_null (AmfEnc * enc)
 void
 amf_enc_write_value (AmfEnc * enc, const GValue * value)
 {
+  if (value == NULL) {
+    amf_enc_write_null (enc);
+    return;
+  }
+
   switch (G_VALUE_TYPE (value)) {
     case G_TYPE_STRING:
       amf_enc_write_string (enc, g_value_get_string (value));

@@ -432,12 +432,12 @@ pex_rtmp_server_flush_subscribe (PexRtmpServer * srv, const gchar * path)
     client_unlock_flv_pull (client);
 }
 
-static gboolean
+static PexRtmpServerStatus
 _establish_client_tcp_connection (PexRtmpServer * srv, Client * client)
 {
   if (!client_tcp_connect (client)) {
     GST_WARNING_OBJECT (srv, "Not able to connect");
-    return FALSE;
+    return PEX_RTMP_SERVER_STATUS_TCP_CONNECT_FAILED;
   }
 
 #ifdef HAVE_OPENSSL
@@ -446,12 +446,12 @@ _establish_client_tcp_connection (PexRtmpServer * srv, Client * client)
         srv->ciphers, srv->tls1_enabled)) {
       /* Client logs warnings for us, so no need to do that here */
       GST_WARNING_OBJECT (srv, "Outgoing SSL failed");
-      return FALSE;
+      return PEX_RTMP_SERVER_STATUS_SSL_CONNECT_FAILED;
     }
   }
 #endif /* HAVE_OPENSSL */
 
-  return TRUE;
+  return PEX_RTMP_SERVER_STATUS_OK;
 }
 
 gboolean
@@ -481,9 +481,13 @@ done:
 }
 
 static void
-rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
+rtmp_server_remove_client (PexRtmpServer * srv,
+    Client * client, PexRtmpServerStatus reason)
 {
-  GST_DEBUG_OBJECT (srv, "removing client %p with fd %d", client, client->fd);
+  if (reason != PEX_RTMP_SERVER_STATUS_OK) {
+    GST_WARNING_OBJECT (srv, "removing client %p with fd %d for reason: %d",
+        client, client->fd, reason);
+  }
 
   if (client->active) {
     srv->active_clients = g_list_remove (srv->active_clients, client);
@@ -545,17 +549,17 @@ rtmp_server_remove_client (PexRtmpServer * srv, Client * client)
 static void
 rtmp_server_add_pending_dialout_client (PexRtmpServer * srv, Client * client)
 {
-  gboolean add = TRUE;
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
   if (client->fd == INVALID_FD) {
-    add = _establish_client_tcp_connection (srv, client);
+    ret = _establish_client_tcp_connection (srv, client);
   }
-  if (add) {
+  if (ret == PEX_RTMP_SERVER_STATUS_OK) {
     GST_DEBUG_OBJECT (srv, "adding client %p to fd %d", client, client->fd);
     rtmp_server_add_client_to_poll_table (srv, client);
   } else {
     GST_WARNING_OBJECT (srv, "Could not establish connection to %s",
         client->url);
-    rtmp_server_remove_client (srv, client);
+    rtmp_server_remove_client (srv, client, ret);
   }
 }
 
@@ -652,18 +656,18 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     if (client->disconnect) {
       GST_INFO_OBJECT (srv, "Disconnecting client for path=%s on request",
           client->path);
-      rtmp_server_remove_client (srv, client);
+      rtmp_server_remove_client (srv, client, PEX_RTMP_SERVER_STATUS_OK);
       break;
     }
 
     if (client->direct) {
       if (client->publisher) {
-        gboolean ret = client_handle_flv (client);
-        if (!ret) {
+        PexRtmpServerStatus ret = client_handle_flv (client);
+        if (ret != PEX_RTMP_SERVER_STATUS_OK) {
           GST_WARNING_OBJECT (srv,
               "client error, handle_flv failed (client=%p, path=%s, publisher=%d)",
               client, client->path, client->publisher);
-          rtmp_server_remove_client (srv, client);
+          rtmp_server_remove_client (srv, client, ret);
           break;
         }
       }
@@ -672,24 +676,24 @@ rtmp_server_do_poll (PexRtmpServer * srv)
 
     /* ready to send */
     if (gst_poll_fd_can_write (srv->fd_set, &client->gfd)) {
-      gboolean ret = client_send (client);
-      if (!ret) {
+      PexRtmpServerStatus ret = client_send (client);
+      if (ret != PEX_RTMP_SERVER_STATUS_OK) {
         GST_WARNING_OBJECT (srv,
             "client error, send failed (client=%p, path=%s, publisher=%d)",
             client, client->path, client->publisher);
-        rtmp_server_remove_client (srv, client);
+        rtmp_server_remove_client (srv, client, ret);
         break;
       }
     }
 
     /* data to receive */
     if (gst_poll_fd_can_read (srv->fd_set, &client->gfd)) {
-      gboolean ret = client_receive (client);
-      if (!ret) {
+      PexRtmpServerStatus ret = client_receive (client);
+      if (ret != PEX_RTMP_SERVER_STATUS_OK) {
         GST_WARNING_OBJECT (srv,
             "client error: recv failed (client=%p, path=%s, publisher=%d)",
             client, client->path, client->publisher);
-        rtmp_server_remove_client (srv, client);
+        rtmp_server_remove_client (srv, client, ret);
         break;
       }
     }
@@ -700,7 +704,7 @@ rtmp_server_do_poll (PexRtmpServer * srv)
       GST_WARNING_OBJECT (srv,
           "poll error - removing client (client=%p, path=%s, publisher=%d)",
            client, client->path, client->publisher);
-      rtmp_server_remove_client (srv, client);
+      rtmp_server_remove_client (srv, client, PEX_RTMP_SERVER_STATUS_FD_ERROR);
       break;
     }
   }
@@ -724,12 +728,12 @@ rtmp_server_func (gpointer data)
 
   while (srv->active_clients) {
     Client *client = srv->active_clients->data;
-    rtmp_server_remove_client (srv, client);
+    rtmp_server_remove_client (srv, client, PEX_RTMP_SERVER_STATUS_OK);
   }
 
   while (gst_atomic_queue_length (srv->pending_clients) > 0) {
     Client *client = gst_atomic_queue_pop (srv->pending_clients);
-    rtmp_server_remove_client (srv, client);
+    rtmp_server_remove_client (srv, client, PEX_RTMP_SERVER_STATUS_OK);
   }
 
   return NULL;
