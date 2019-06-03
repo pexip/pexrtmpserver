@@ -524,10 +524,10 @@ rtmp_server_remove_client (PexRtmpServer * srv,
   if (srv->running && !not_notified) {
     if (publisher) {
       g_signal_emit (srv,
-          pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE], 0, path);
+          pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE], 0, path, reason);
     } else {
       g_signal_emit (srv,
-          pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE], 0, path);
+          pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE], 0, path, reason);
     }
   }
 
@@ -1139,7 +1139,7 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
   pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE] =
       g_signal_new ("on-play-done", PEX_TYPE_RTMP_SERVER,
       G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_NONE, 1, G_TYPE_STRING);
+      G_TYPE_NONE, 2, G_TYPE_STRING, G_TYPE_UINT);
 
   pex_rtmp_server_signals[SIGNAL_ON_PUBLISH] =
       g_signal_new ("on-publish", PEX_TYPE_RTMP_SERVER,
@@ -1149,7 +1149,7 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
   pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE] =
       g_signal_new ("on-publish-done", PEX_TYPE_RTMP_SERVER,
       G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_NONE, 1, G_TYPE_STRING);
+      G_TYPE_NONE, 2, G_TYPE_STRING, G_TYPE_UINT);
 
   pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW] =
       g_signal_new ("on-queue-overflow", PEX_TYPE_RTMP_SERVER,

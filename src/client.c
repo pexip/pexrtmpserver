@@ -377,12 +377,14 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
 }
 
 
-static void
+static PexRtmpServerStatus
 client_handle_error (Client * client, gint txid, AmfDec * dec)
 {
   /* we won't handle this unless we are dialing out to a path */
   if (client->dialout_path == NULL)
-    return;
+    return PEX_RTMP_SERVER_STATUS_OK;
+
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_ERROR;
 
   g_free (amf_dec_load (dec));  /* NULL */
   GstStructure *object = amf_dec_load_object (dec);
@@ -395,6 +397,7 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
 
   if (g_strcmp0 (code, "NetConnection.Connect.Rejected") == 0) {
     const gchar *description = gst_structure_get_string (object, "description");
+    ret = PEX_RTMP_SERVER_STATUS_NEED_AUTH;
 
     if (g_strrstr (description, "authmod=adobe")) {
       if (g_strrstr (description, "code=403 need auth")) {
@@ -403,6 +406,7 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
           client->auth_token = g_strdup_printf ("?authmod=adobe&user=%s",
               client->username);
           client->retry_connection = TRUE;
+          ret = PEX_RTMP_SERVER_STATUS_OK;
         }
       } else {
         gchar *auth_str = g_strrstr (description, "?reason=needauth");
@@ -412,6 +416,7 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
             client->auth_token = auth_get_token (auth_str,
                 client->username, client->password);
             client->retry_connection = TRUE;
+            ret = PEX_RTMP_SERVER_STATUS_OK;
           }
         }
       }
@@ -419,6 +424,7 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
   }
 
   gst_structure_free (object);
+  return ret;
 }
 
 static PexRtmpServerStatus
@@ -938,7 +944,7 @@ client_handle_invoke (Client * client, const RTMPMessage * msg, AmfDec * dec)
     } else if (strcmp (method, "_result") == 0) {
       ret = client_handle_result (client, (gint) txid, dec);
     } else if (strcmp (method, "_error") == 0) {
-      client_handle_error (client, (gint) txid, dec);
+      ret = client_handle_error (client, (gint) txid, dec);
     }
   } else if (msg->msg_stream_id == client->msg_stream_id) {
     if (strcmp (method, "publish") == 0) {
