@@ -30,7 +30,7 @@ gir_scanner = find_program('g-ir-scanner', required : false)
 if gir_scanner.found()
   gnome = import('gnome')
   gnome.generate_gir(rtmpserver_lib,
-    sources : ['pexrtmpserver.c', 'pexrtmpserver.h'],
+    sources : ['pexrtmpserver.c', 'pexrtmpserver.h', 'pexrtmpserver-types.h'],
     namespace : 'PexRtmp',
     nsversion : '0.1',
     includes : ['GObject-2.0', 'Gio-2.0', 'Gst-1.0'],
