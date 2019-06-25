@@ -14,12 +14,11 @@
 #endif
 
 #ifdef HAVE_OPENSSL
-#  include <openssl/ssl.h>
+#  include "utils/ssl.h"
 #endif
 
 #include "connections.h"
 #include "handshake.h"
-#include "utils/ssl.h"
 #include "utils/gstbufferqueue.h"
 
 typedef struct _Client Client;
