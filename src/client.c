@@ -81,9 +81,10 @@ client_notify_connection (Client * client)
 static void
 client_write_extended_timestamp (Client * client, guint32 timestamp)
 {
-  guint32 ext_timestamp = GUINT32_FROM_BE (timestamp);
+  guint8 ext_timestamp[4];
+  GST_WRITE_UINT32_BE (ext_timestamp, timestamp);
   client->send_queue = g_byte_array_append (client->send_queue,
-      (guint8 *) & ext_timestamp, 4);
+      ext_timestamp, 4);
 }
 
 static void

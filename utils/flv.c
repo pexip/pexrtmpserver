@@ -51,7 +51,7 @@ flv_parse_header (const guint8 * data)
 
 guint
 flv_parse_tag (const guint8 * data, guint size,
-    guint8 * packet_type, guint * payload_size, guint * timestamp)
+    guint8 * packet_type, guint * payload_size, guint32 * timestamp)
 {
   if (size < flv_tag_header_size)
     return 0;
@@ -77,12 +77,9 @@ flv_write_tag (guint8 * data,
   data[0] = packet_type;
   GST_WRITE_UINT24_BE (&data[1], payload_size);
 
-  if (timestamp > EXT_TIMESTAMP_LIMIT) {
-    GST_WRITE_UINT32_BE (&data[4], timestamp);
-  } else {
-    GST_WRITE_UINT24_BE (&data[4], timestamp);
-    data[7] = 0;
-  }
+  GST_WRITE_UINT24_BE (&data[4], timestamp);
+  data[7] = (((guint) timestamp) >> 24) & 0xff;
+
   GST_WRITE_UINT24_BE (&data[8], 0);
 }
 
