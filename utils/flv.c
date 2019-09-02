@@ -29,7 +29,6 @@ typedef struct
 } FLVPacketHeader;
 */
 
-static const guint32 EXT_TIMESTAMP_LIMIT = 0xffffff;
 static const guint flv_tag_header_size = 11;
 static const gchar flv_header[] = {
     'F', 'L', 'V',
