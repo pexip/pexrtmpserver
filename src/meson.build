@@ -24,7 +24,7 @@ rtmpserver_dep = declare_dependency(
   include_directories : include_directories('.'))
 
 rtmpsrv = executable('rtmpsrv', 'main.c',
-  dependencies : [rtmpserver_dep],
+  dependencies : [rtmpserver_dep, glib_dep],
   install : true)
 
 gir_scanner = find_program('g-ir-scanner', required : false)

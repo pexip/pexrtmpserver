@@ -6,7 +6,9 @@ project('pexrtmpserver', 'c',
 cc = meson.get_compiler('c')
 version = meson.project_version()
 gst_req = '>= 1.0.0'
+glib_req = '>= 2.40.0'
 
+glib_dep = dependency('glib-2.0', version : glib_req)
 gstreamer_dep = dependency('gstreamer-1.0', version : gst_req)
 gst_base_dep = dependency('gstreamer-base-1.0', version : gst_req)
 
