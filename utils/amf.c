@@ -427,7 +427,8 @@ amf_dec_load_integer (AmfDec * dec, gint * val)
   } else {
     gdouble val_d;
     gboolean ret = amf_dec_load_number (dec, &val_d);
-    *val = (gint) val_d;
+    if (ret)
+      *val = (gint) val_d;
     return ret;
   }
 }
