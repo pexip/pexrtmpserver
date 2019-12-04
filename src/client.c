@@ -1402,6 +1402,12 @@ static PexRtmpServerStatus
 client_begin_ssl (Client * client)
 {
   client->ssl = SSL_new (client->ssl_ctx);
+  if (client->ssl == NULL) {
+    GST_WARNING_OBJECT (client->server, "SSL_new failed");
+    ssl_print_errors ();
+    return PEX_RTMP_SERVER_STATUS_SSL_NEW_FAILED;
+  }
+
   SSL_set_app_data (client->ssl, client->remote_host);
   SSL_set_fd (client->ssl, client->fd);
 
