@@ -320,7 +320,7 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
   SSL_CTX *ssl_ctx = SSL_CTX_new (SSLv23_server_method ());
 
   if (!tls1_enabled)
-    ssl_options |= SSL_OP_NO_TLSv1;
+    ssl_options |= SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1;
 
   SSL_CTX_set_cipher_list (ssl_ctx, ciphers);
   SSL_CTX_set_options (ssl_ctx, ssl_options);
@@ -422,7 +422,7 @@ ssl_add_outgoing (const gchar * ca_file, const gchar * ca_dir,
   SSL_CTX *ssl_ctx = SSL_CTX_new (SSLv23_client_method ());
 
   if (!tls1_enabled)
-    ssl_options |= SSL_OP_NO_TLSv1;
+    ssl_options |= SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1;
 
   SSL_CTX_set_cipher_list (ssl_ctx, ciphers);
   SSL_CTX_set_options (ssl_ctx, ssl_options);
