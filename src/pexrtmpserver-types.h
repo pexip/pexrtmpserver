@@ -32,6 +32,8 @@
 #  define PEX_RTMPSERVER_EXPORT extern
 #endif
 
+typedef gint PexRtmpClientID;
+
 typedef enum
 {
   PEX_RTMP_SERVER_STATUS_OK = 0,

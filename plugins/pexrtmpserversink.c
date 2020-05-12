@@ -81,18 +81,24 @@ G_DEFINE_TYPE (PexRTMPServerSink, pex_rtmp_server_sink, GST_TYPE_BASE_SINK);
 
 
 static gboolean
-_on_play (PexRTMPServerSink * sink, const gchar * path)
+_on_play (PexRTMPServerSink * sink, PexRtmpClientID client_id,
+    const gchar * path, G_GNUC_UNUSED GObject * server)
 {
-  GST_INFO_OBJECT (sink, "on-play called for path %s", path);
+  GST_INFO_OBJECT (sink,
+      "on-play called for client_id: %d with path %s", client_id, path);
   if (g_strcmp0 (path, sink->path) == 0)
     sink->on_play = TRUE;
   return FALSE;
 }
 
 static void
-_on_play_done (PexRTMPServerSink * sink, const gchar * path)
+_on_play_done (PexRTMPServerSink * sink, PexRtmpClientID client_id,
+    const gchar * path, PexRtmpServerStatus reason,
+    G_GNUC_UNUSED GObject * server)
 {
-  GST_INFO_OBJECT (sink, "on-play-done called for path %s", path);
+  GST_INFO_OBJECT (sink,
+      "on-play-done called for client_id: %d with path %s and reason: %u",
+      client_id, path, reason);
   if (g_strcmp0 (path, sink->path) == 0)
     sink->on_play_done = TRUE;
 }

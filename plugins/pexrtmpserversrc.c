@@ -68,18 +68,24 @@ struct _PexRTMPServerSrc
 G_DEFINE_TYPE (PexRTMPServerSrc, pex_rtmp_server_src, GST_TYPE_PUSH_SRC);
 
 static gboolean
-_on_publish (PexRTMPServerSrc * src, const gchar * path)
+_on_publish (PexRTMPServerSrc * src, PexRtmpClientID client_id,
+    const gchar * path, G_GNUC_UNUSED GObject * server)
 {
-  GST_INFO_OBJECT (src, "on-publish called for path %s", path);
+  GST_INFO_OBJECT (src,
+      "on-publish called for client_id: %d with path %s", client_id, path);
   if (g_strcmp0 (path, src->path) == 0)
     src->on_publish = TRUE;
   return FALSE;
 }
 
 static void
-_on_publish_done (PexRTMPServerSrc * src, const gchar * path)
+_on_publish_done (PexRTMPServerSrc * src, PexRtmpClientID client_id,
+    const gchar * path, PexRtmpServerStatus reason,
+    G_GNUC_UNUSED GObject * server)
 {
-  GST_INFO_OBJECT (src, "on-publish-done called for path %s", path);
+  GST_INFO_OBJECT (src,
+      "on-publish-done called for client_id: %d with path %s and reason: %u",
+      client_id, path, reason);
   if (g_strcmp0 (path, src->path) == 0)
     src->on_publish_done = TRUE;
 }

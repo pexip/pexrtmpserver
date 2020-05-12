@@ -1901,6 +1901,7 @@ client_configure_direct (Client * client, const gchar * path, gboolean publisher
 
 Client *
 client_new (GObject * server,
+    PexRtmpClientID client_id,
     Connections * connections,
     gint msg_stream_id,
     guint chunk_size,
@@ -1910,6 +1911,7 @@ client_new (GObject * server,
 
   client->ref_count = 1;
   client->server = server;
+  client->id = client_id;
   client->connections = connections;
   client->msg_stream_id = msg_stream_id;
   client->chunk_size = chunk_size;

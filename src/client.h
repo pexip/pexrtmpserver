@@ -61,6 +61,7 @@ struct _Client
 {
   volatile gint ref_count;
   GObject *server;
+  PexRtmpClientID id;
   Connections *connections;
   guint msg_stream_id;
   guint chunk_size;
@@ -139,6 +140,7 @@ struct _Client
 };
 
 Client * client_new (GObject * server,
+    PexRtmpClientID client_id,
     Connections * connections,
     gint stream_id,
     guint chunk_size,
