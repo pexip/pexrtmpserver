@@ -454,32 +454,6 @@ _establish_client_tcp_connection (PexRtmpServer * srv, Client * client)
   return PEX_RTMP_SERVER_STATUS_OK;
 }
 
-gboolean
-pex_rtmp_server_external_connect (PexRtmpServer * srv,
-    const gchar * src_path, const gchar * url, const gchar * addresses,
-    const gboolean is_publisher, gint src_port)
-{
-  gboolean ret = FALSE;
-
-  GST_DEBUG_OBJECT (srv, "Initiating an outgoing connection");
-
-  Client *client = rtmp_server_client_new (srv);
-
-  if (!client_add_external_connect (client, is_publisher,
-      src_path, url, addresses, src_port, srv->tcp_syncnt)) {
-    GST_WARNING_OBJECT (srv, "Could not parse");
-    client_unref (client);
-    goto done;
-  }
-
-  /* add the client to the queue, waiting to be added */
-  gst_atomic_queue_push (srv->pending_clients, client);
-  ret = TRUE;
-
-done:
-  return ret;
-}
-
 static void
 rtmp_server_remove_client (PexRtmpServer * srv,
     Client * client, PexRtmpServerStatus reason)
@@ -544,6 +518,33 @@ rtmp_server_remove_client (PexRtmpServer * srv,
   }
 
   g_free (path);
+}
+
+gboolean
+pex_rtmp_server_external_connect (PexRtmpServer * srv,
+    const gchar * src_path, const gchar * url, const gchar * addresses,
+    const gboolean is_publisher, gint src_port)
+{
+  gboolean ret = FALSE;
+
+  GST_DEBUG_OBJECT (srv, "Initiating an outgoing connection");
+
+  Client *client = rtmp_server_client_new (srv);
+
+  if (!client_add_external_connect (client, is_publisher,
+      src_path, url, addresses, src_port, srv->tcp_syncnt)) {
+    GST_WARNING_OBJECT (srv, "Could not parse");
+    rtmp_server_remove_client (srv,
+        client, PEX_RTMP_SERVER_STATUS_PARSE_FAILED);
+    goto done;
+  }
+
+  /* add the client to the queue, waiting to be added */
+  gst_atomic_queue_push (srv->pending_clients, client);
+  ret = TRUE;
+
+done:
+  return ret;
 }
 
 static void
