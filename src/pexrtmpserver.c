@@ -322,7 +322,7 @@ rtmp_server_update_send_queues (PexRtmpServer * srv, Client * client)
           "(%s) Emitting signal on-queue-overflow due to %d bytes in queue",
           client->path, val);
       g_signal_emit (srv, pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW],
-          0, client->path);
+          0, client->id, client->path);
       g_timer_start (client->last_queue_overflow);
     }
   }
@@ -1203,7 +1203,7 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
   pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW] =
       g_signal_new ("on-queue-overflow", PEX_TYPE_RTMP_SERVER,
       G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_NONE, 1, G_TYPE_STRING);
+      G_TYPE_NONE, 2, G_TYPE_INT, G_TYPE_STRING);
 
   GST_DEBUG_CATEGORY_INIT (pex_rtmp_server_debug, "pexrtmpserver", 0,
       "pexrtmpserver");
