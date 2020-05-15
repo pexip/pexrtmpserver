@@ -598,12 +598,13 @@ rtmp_harness_restart_rtmpsrc (RTMPHarness * h, gint s_id)
 }
 
 static gboolean
-rtmp_harness_on_publish (RTMPHarness * h, const gchar * path, GObject * server)
+rtmp_harness_on_publish (RTMPHarness * h, PexRtmpClientID client_id,
+    const gchar * path, GObject * server)
 {
   LOCK (h);
   h->notified_publishers++;
-  g_debug ("got publisher (%d) on server %p for path %s\n",
-      h->notified_publishers, server, path);
+  g_debug ("got publisher (%d) on server %p for path %s with client-id %d\n",
+      h->notified_publishers, server, path, client_id);
 
   UNLOCK (h);
 
@@ -614,22 +615,24 @@ rtmp_harness_on_publish (RTMPHarness * h, const gchar * path, GObject * server)
 }
 
 static void
-rtmp_harness_on_publish_done (RTMPHarness * h, const gchar * path, GObject * server)
+rtmp_harness_on_publish_done (RTMPHarness * h, PexRtmpClientID client_id,
+    const gchar * path, GObject * server)
 {
   LOCK (h);
   h->notified_publishers--;
-  g_debug ("lost publisher (%d) on server %p for path %s\n",
-      h->notified_publishers, server, path);
+  g_debug ("lost publisher (%d) on server %p for path %s with client-id %d\n",
+      h->notified_publishers, server, path, client_id);
   UNLOCK (h);
 }
 
 static gboolean
-rtmp_harness_on_play (RTMPHarness * h, const gchar * path, GObject * server)
+rtmp_harness_on_play (RTMPHarness * h, PexRtmpClientID client_id,
+    const gchar * path, GObject * server)
 {
   LOCK (h);
   h->notified_subscribers++;
-  g_debug ("got subscriber (%d) on server %p for path %s\n",
-      h->notified_subscribers, server, path);
+  g_debug ("got subscriber (%d) on server %p for path %s with client-id %d\n",
+      h->notified_subscribers, server, path, client_id);
   UNLOCK (h);
 
   while (h->block_on_play)
@@ -639,12 +642,13 @@ rtmp_harness_on_play (RTMPHarness * h, const gchar * path, GObject * server)
 }
 
 static void
-rtmp_harness_on_play_done (RTMPHarness * h, const gchar * path, GObject * server)
+rtmp_harness_on_play_done (RTMPHarness * h, PexRtmpClientID client_id,
+    const gchar * path, GObject * server)
 {
   LOCK (h);
   h->notified_subscribers--;
-  g_debug ("lost subscriber (%d) on server %p for path %s\n",
-      h->notified_subscribers, server, path);
+  g_debug ("lost subscriber (%d) on server %p for path %s with client-id %d\n",
+      h->notified_subscribers, server, path, client_id);
   UNLOCK (h);
 }
 
