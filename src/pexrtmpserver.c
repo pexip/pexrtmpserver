@@ -189,7 +189,7 @@ rtmp_server_remove_client_by_id (PexRtmpServer * srv, Client * client)
 }
 
 gboolean
-pmx_rtmp_server_disconnect_client (PexRtmpServer * srv,
+pex_rtmp_server_disconnect_client (PexRtmpServer * srv,
     PexRtmpClientID client_id)
 {
   gboolean ret = FALSE;

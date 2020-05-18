@@ -59,7 +59,7 @@ gboolean pex_rtmp_server_external_connect (PexRtmpServer * self,
     const gboolean is_publisher, gint src_port);
 
 PEX_RTMPSERVER_EXPORT
-gboolean pmx_rtmp_server_disconnect_client (PexRtmpServer * srv,
+gboolean pex_rtmp_server_disconnect_client (PexRtmpServer * srv,
     PexRtmpClientID client_id);
 
 PEX_RTMPSERVER_EXPORT
