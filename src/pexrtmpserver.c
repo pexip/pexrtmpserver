@@ -199,6 +199,8 @@ pex_rtmp_server_disconnect_client (PexRtmpServer * srv,
   if (client) {
     client->disconnect = TRUE;
     ret = TRUE;
+  } else {
+    GST_WARNING_OBJECT (srv, "Failed to disconnect client-id=%d", client_id);
   }
   g_mutex_unlock (&srv->client_by_id_lock);
   return ret;
