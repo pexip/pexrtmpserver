@@ -7,7 +7,8 @@ rtmpserver_sources = [
   'client.c',
   'connections.c',
   'handshake.c',
-  'pexrtmpserver.c'
+  'pexrtmpserver.c',
+  'pexrtmpserver-priv.c',
 ]
 
 rtmpserver_lib = shared_library('pexrtmpserver',

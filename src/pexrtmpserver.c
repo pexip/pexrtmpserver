@@ -502,8 +502,8 @@ rtmp_server_remove_client (PexRtmpServer * srv,
     Client * client, PexRtmpServerStatus reason)
 {
   if (reason != PEX_RTMP_SERVER_STATUS_OK) {
-    GST_WARNING_OBJECT (srv, "removing client %p with fd %d for reason: %d",
-        client, client->fd, reason);
+    GST_WARNING_OBJECT (srv, "removing client=%p with fd=%d for reason='%s'",
+        client, client->fd, pex_rtmp_server_status_name (reason));
   }
 
   rtmp_server_remove_client_by_id (srv, client);
