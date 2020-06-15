@@ -1442,7 +1442,7 @@ PexRtmpServerStatus
 client_send (Client * client)
 {
   if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS) {
-    int error;
+    int error = -1;
     socklen_t error_len = sizeof (error);
 
     getsockopt (client->fd, SOL_SOCKET, SO_ERROR, (void *) &error, &error_len);
