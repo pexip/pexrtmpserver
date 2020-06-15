@@ -144,6 +144,8 @@ amf_enc_write_key (AmfEnc * enc, const gchar * str)
 void
 amf_enc_write_string (AmfEnc * enc, const gchar * str)
 {
+  if (str == NULL)
+    return;
   amf_enc_add_char (enc,
       enc->version == AMF3_VERSION ? AMF3_STRING : AMF0_STRING);
   _write_string (enc, str);

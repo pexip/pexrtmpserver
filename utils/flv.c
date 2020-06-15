@@ -39,13 +39,17 @@ static const gchar flv_header[] = {
 };
 
 guint
-flv_parse_header (const guint8 * data)
+flv_parse_header (const guint8 * data,
+    gboolean * have_audio, gboolean * have_video)
 {
   /* could use this to "turn on" publishing ? */
-  if (data[0] == 'F' && data[1] == 'L' && data[2] == 'V' && data[3] == 0x01)
-    return sizeof (flv_header);
+  if (data[0] != 'F' || data[1] != 'L' || data[2] != 'V' || data[3] != 0x01)
+    return 0;
 
-  return 0;
+  *have_video = data[4] & 1;
+  *have_audio = data[4] & 4;
+
+  return sizeof (flv_header);
 }
 
 guint
@@ -62,10 +66,11 @@ flv_parse_tag (const guint8 * data, guint size,
 }
 
 GstBuffer *
-flv_generate_header ()
+flv_generate_header (gboolean have_audio, gboolean have_video)
 {
   guint8 *data = g_malloc (sizeof (flv_header));
   memcpy (data, flv_header, sizeof (flv_header));
+  data[4] = (have_audio << 2) | have_video;
   return gst_buffer_new_wrapped (data, sizeof (flv_header));
 }
 
