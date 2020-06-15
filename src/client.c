@@ -60,6 +60,20 @@ typedef struct
 
 #pragma pack(pop)   /* restore original alignment from stack */
 
+typedef enum
+{
+  PUB_TXID_CONNECT = 1,
+  PUB_TXID_RELEASE_STREAM = 2,
+  PUB_TXID_FC_PUBLISH = 3,
+  PUB_TXID_CREATE_STREAM = 4,
+} PublisherTransactionID;
+
+typedef enum
+{
+  SUB_TXID_CONNECT = 11,
+  SUB_TXID_CREATE_STREAM = 12,
+} SubscriberTransactionID;
+
 gboolean
 client_add_connection (Client * client, gboolean publisher)
 {
@@ -95,7 +109,7 @@ client_direct_send (Client * client,
     return;
 
   if (client->write_flv_header) {
-    gst_buffer_queue_push (client->flv_queue, flv_generate_header ());
+    gst_buffer_queue_push (client->flv_queue, flv_generate_header (TRUE, TRUE));
     client->write_flv_header = FALSE;
   }
 
@@ -105,7 +119,7 @@ client_direct_send (Client * client,
 
 static PexRtmpServerStatus
 client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
-    GByteArray * buf, guint32 abs_timestamp, guint8 chunk_stream_id)
+    GByteArray * buf, guint32 abs_timestamp, ChunkStreamID chunk_stream_id)
 {
   if (client->direct) {
     client_direct_send (client, msg_type_id, buf, abs_timestamp);
@@ -197,40 +211,105 @@ client_rtmp_send (Client * client, guint8 msg_type_id, guint32 msg_stream_id,
 }
 
 static PexRtmpServerStatus
-client_send_reply (Client * client, double txid, const GValue * reply,
-    const GValue * status)
+client_send_ctrl_msg (Client * client,
+    const gchar * command_name, gint txid,
+    const GValue * reply, const GValue * status)
 {
-  if (txid <= 0.0)
-    return PEX_RTMP_SERVER_STATUS_OK; /* FIXME: OK? */
-
+  PexRtmpServerStatus ret;
   AmfEnc *invoke = amf_enc_new ();
-  amf_enc_write_string (invoke, "_result");
-  amf_enc_write_double (invoke, txid);
+  amf_enc_write_string (invoke, command_name);
+  amf_enc_write_double (invoke, (double)txid);
   amf_enc_write_value (invoke, reply);
   amf_enc_write_value (invoke, status);
-
-  PexRtmpServerStatus ret = client_rtmp_send (client, MSG_INVOKE,
-      MSG_STREAM_ID_CONTROL, invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
+  ret = client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
+      invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
   amf_enc_free (invoke);
   return ret;
 }
 
 static PexRtmpServerStatus
-client_send_error (Client * client, double txid, const GstStructure * status)
+client_send_ctrl_msg_null_str (Client * client,
+  const gchar * command_name, gint txid,
+  const gchar * str)
 {
-  if (txid <= 0.0)
-    return PEX_RTMP_SERVER_STATUS_OK; /* FIXME: OK? */
+  PexRtmpServerStatus ret;
+  GValue val = G_VALUE_INIT;
+  g_value_init (&val, G_TYPE_STRING);
+  g_value_set_string (&val, str);
+  ret = client_send_ctrl_msg (client, command_name, txid, NULL, &val);
+  g_value_unset (&val);
+  return ret;
+}
 
+static PexRtmpServerStatus
+client_send_ctrl_msg_null_obj (Client * client,
+  const gchar * command_name, gint txid,
+  const GstStructure * obj)
+{
+  PexRtmpServerStatus ret;
+  GValue val = G_VALUE_INIT;
+  g_value_init (&val, GST_TYPE_STRUCTURE);
+  gst_value_set_structure (&val, obj);
+  ret = client_send_ctrl_msg (client, command_name, txid, NULL, &val);
+  g_value_unset (&val);
+  return ret;
+}
+
+static PexRtmpServerStatus
+client_send_ctrl_msg_obj_null (Client * client,
+  const gchar * command_name, gint txid,
+  const GstStructure * obj)
+{
+  PexRtmpServerStatus ret;
+  GValue val = G_VALUE_INIT;
+  g_value_init (&val, GST_TYPE_STRUCTURE);
+  gst_value_set_structure (&val, obj);
+  ret = client_send_ctrl_msg (client, command_name, txid, &val, NULL);
+  g_value_unset (&val);
+  return ret;
+}
+
+static PexRtmpServerStatus
+client_send_result (Client * client, gint txid, const GValue * reply,
+    const GValue * status)
+{
+  if (txid <= 0)
+    return PEX_RTMP_SERVER_STATUS_OK; /* FIXME: OK? */
+  return client_send_ctrl_msg (client, "_result", txid, reply, status);
+}
+
+static PexRtmpServerStatus
+client_send_error (Client * client, gint txid, const GstStructure * status)
+{
+  if (txid <= 0)
+    return PEX_RTMP_SERVER_STATUS_OK; /* FIXME: OK? */
+  return client_send_ctrl_msg_null_obj (client, "_error", txid, status);
+}
+
+static PexRtmpServerStatus
+client_send_netstream_status_message (Client * client,
+    const gchar * command_name, GstStructure * info_object,
+    ChunkStreamID chunk_stream_id)
+{
   AmfEnc *invoke = amf_enc_new ();
-  amf_enc_write_string (invoke, "_error");
-  amf_enc_write_double (invoke, txid);
-  amf_enc_write_null (invoke);
-  amf_enc_write_object (invoke, status);
+  amf_enc_write_string (invoke, command_name);  /* Command Name */
+  amf_enc_write_double (invoke, 0.0);           /* Transaction ID */
+  amf_enc_write_null (invoke);                  /* Command Object */
+  amf_enc_write_object (invoke, info_object);   /* Info Object */
 
   PexRtmpServerStatus ret = client_rtmp_send (client, MSG_INVOKE,
-      MSG_STREAM_ID_CONTROL, invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
+      client->msg_stream_id, invoke->buf, 0, chunk_stream_id);
   amf_enc_free (invoke);
+  gst_structure_free (info_object);
   return ret;
+}
+
+static PexRtmpServerStatus
+client_send_onstatus_message (Client * client,
+    GstStructure * info_object, ChunkStreamID chunk_stream_id)
+{
+  return client_send_netstream_status_message (client,
+      "onStatus", info_object, chunk_stream_id);
 }
 
 static PexRtmpServerStatus
@@ -248,115 +327,129 @@ client_set_chunk_size (Client * client, gint chunk_size)
   return ret;
 }
 
-/* Result messages come from a server to the client,
-   but in the dial-out case we are both! */
-static PexRtmpServerStatus
-client_handle_subscribe_result (Client * client, gint txid, AmfDec * dec)
+static void
+client_get_stream_id_from_create_stream_result (Client * client, AmfDec * dec)
 {
-  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
+  GValue *reply = amf_dec_load (dec);
+  GValue *status = amf_dec_load (dec);
+  client->msg_stream_id = (guint) g_value_get_double (status);
+  GST_DEBUG_OBJECT (client->server, "Got message stream id %d",
+      client->msg_stream_id);
+  g_value_unset (reply);
+  g_value_unset (status);
+  g_free (reply);
+  g_free (status);
+}
 
-  if (txid == 1) {
-    GST_DEBUG_OBJECT (client->server,
-        "Sending releaseStream + FCPublish + createStream");
-    AmfEnc *invoke;
-    invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "releaseStream");
-    amf_enc_write_double (invoke, 2.0);
-    amf_enc_write_null (invoke);
-    amf_enc_write_string (invoke, client->dialout_path);
-    ret = client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
-        invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
-    amf_enc_free (invoke);
-    if (ret != PEX_RTMP_SERVER_STATUS_OK)
-      goto done;
-
-    invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "FCPublish");
-    amf_enc_write_double (invoke, 3.0);
-    amf_enc_write_null (invoke);
-    amf_enc_write_string (invoke, client->dialout_path);
-    ret = client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
-        invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
-    amf_enc_free (invoke);
-    if (ret != PEX_RTMP_SERVER_STATUS_OK)
-      goto done;
-
-    invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "createStream");
-    amf_enc_write_double (invoke, 4.0);
-    amf_enc_write_null (invoke);
-    ret = client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
-        invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
-    amf_enc_free (invoke);
-    if (ret != PEX_RTMP_SERVER_STATUS_OK)
-      goto done;
-
-  } else if (txid == 4) {
-    GValue *reply = amf_dec_load (dec);
-    GValue *status = amf_dec_load (dec);
-    client->msg_stream_id = (guint) g_value_get_double (status);
-    GST_DEBUG_OBJECT (client->server, "Got message stream id %d",
-        client->msg_stream_id);
-    g_value_unset (reply);
-    g_value_unset (status);
-    g_free (reply);
-    g_free (status);
-
-    GST_DEBUG_OBJECT (client->server, "Sending publish to %s",
-        client->dialout_path);
-    AmfEnc *invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "publish");
-    amf_enc_write_double (invoke, 0.0);
-    amf_enc_write_null (invoke);
-    amf_enc_write_string (invoke, client->dialout_path);
-    amf_enc_write_string (invoke, "live");
-    ret = client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
-        invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
-    amf_enc_free (invoke);
-  }
-
-done:
+static PexRtmpServerStatus
+client_send_publish (Client * client)
+{
+  PexRtmpServerStatus ret;
+  GST_DEBUG_OBJECT (client->server, "Sending publish to %s",
+      client->dialout_path);
+  AmfEnc *invoke = amf_enc_new ();
+  amf_enc_write_string (invoke, "publish");
+  amf_enc_write_double (invoke, 0.0);
+  amf_enc_write_null (invoke);
+  amf_enc_write_string (invoke, client->dialout_path);
+  amf_enc_write_string (invoke, "live");
+  ret = client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
+      invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
+  amf_enc_free (invoke);
   return ret;
 }
 
 static PexRtmpServerStatus
-client_handle_publish_result (Client * client, gint txid, AmfDec * dec)
+client_handle_publishing_result (Client * client, gint txid, AmfDec * dec)
 {
   PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
 
-  if (txid == 1) {
-    client_set_chunk_size (client, client->chunk_size);
+  switch (txid) {
+    case PUB_TXID_CONNECT: {
+      GST_DEBUG_OBJECT (client->server, "Received result for connect");
 
-    GST_DEBUG_OBJECT (client->server, "Sending createStream");
-    AmfEnc *invoke;
-    invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "createStream");
-    amf_enc_write_double (invoke, 2.0);
-    amf_enc_write_null (invoke);
-    ret = client_rtmp_send (client, MSG_INVOKE, MSG_STREAM_ID_CONTROL,
-        invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
-    amf_enc_free (invoke);
-  } else if (txid == 2) {
-    GValue *reply = amf_dec_load (dec);
-    GValue *status = amf_dec_load (dec);
-    client->msg_stream_id = (guint) g_value_get_double (status);
-    GST_DEBUG_OBJECT (client->server, "Got message stream id %d",
-        client->msg_stream_id);
-    g_value_unset (reply);
-    g_value_unset (status);
-    g_free (reply);
-    g_free (status);
+      GST_DEBUG_OBJECT (client->server, "Sending releaseStream");
+      ret = client_send_ctrl_msg_null_str (client,
+          "releaseStream", PUB_TXID_RELEASE_STREAM, client->dialout_path);
+      if (ret != PEX_RTMP_SERVER_STATUS_OK)
+        break;
 
-    GST_DEBUG_OBJECT (client->server, "Sending play to %s",
-        client->dialout_path);
-    AmfEnc *invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "play");
-    amf_enc_write_double (invoke, 0.0);
-    amf_enc_write_null (invoke);
-    amf_enc_write_string (invoke, client->dialout_path);
-    ret = client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
-        invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
-    amf_enc_free (invoke);
+      GST_DEBUG_OBJECT (client->server, "Sending FCPublish");
+      ret = client_send_ctrl_msg_null_str (client,
+          "FCPublish", PUB_TXID_FC_PUBLISH, client->dialout_path);
+      if (ret != PEX_RTMP_SERVER_STATUS_OK)
+        break;
+
+      GST_DEBUG_OBJECT (client->server, "Sending createStream");
+      ret = client_send_ctrl_msg_null_str (client,
+          "createStream", PUB_TXID_CREATE_STREAM, NULL);
+      if (ret != PEX_RTMP_SERVER_STATUS_OK)
+        break;
+
+      break;
+    }
+    case PUB_TXID_RELEASE_STREAM:
+      GST_DEBUG_OBJECT (client->server, "Received result for releaseStream");
+      break;
+    case PUB_TXID_FC_PUBLISH:
+      GST_DEBUG_OBJECT (client->server, "Received result for FCPublish");
+      break;
+    case PUB_TXID_CREATE_STREAM: {
+      GST_DEBUG_OBJECT (client->server, "Received result for createStream");
+      client_get_stream_id_from_create_stream_result (client, dec);
+      ret = client_send_publish (client);
+      break;
+    }
+    default:
+      GST_WARNING_OBJECT (client->server, "Recevied unknown txid: %d", txid);
+      break;
+  }
+
+  return ret;
+}
+
+static PexRtmpServerStatus
+client_send_play (Client * client)
+{
+  PexRtmpServerStatus ret;
+  GST_DEBUG_OBJECT (client->server, "Sending play to %s",
+      client->dialout_path);
+  AmfEnc *invoke = amf_enc_new ();
+  amf_enc_write_string (invoke, "play");
+  amf_enc_write_double (invoke, 0.0);
+  amf_enc_write_null (invoke);
+  amf_enc_write_string (invoke, client->dialout_path);
+  ret = client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
+      invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
+  amf_enc_free (invoke);
+  return ret;
+}
+
+static PexRtmpServerStatus
+client_handle_subscribing_result (Client * client, gint txid, AmfDec * dec)
+{
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
+
+  switch (txid) {
+    case SUB_TXID_CONNECT: {
+      GST_DEBUG_OBJECT (client->server, "Received result for connect");
+
+      client_set_chunk_size (client, client->chunk_size);
+
+      GST_DEBUG_OBJECT (client->server, "Sending createStream");
+      ret = client_send_ctrl_msg_null_str (client,
+          "createStream", SUB_TXID_CREATE_STREAM, NULL);
+      break;
+    }
+    case SUB_TXID_CREATE_STREAM: {
+      GST_DEBUG_OBJECT (client->server, "Received result for createStream");
+      client_get_stream_id_from_create_stream_result (client, dec);
+      ret = client_send_play (client);
+      break;
+    }
+    default:
+      GST_WARNING_OBJECT (client->server, "Recevied unknown txid: %d", txid);
+      break;
   }
 
   return ret;
@@ -369,14 +462,13 @@ client_handle_result (Client * client, gint txid, AmfDec * dec)
   if (client->dialout_path == NULL)
     return PEX_RTMP_SERVER_STATUS_OK;
 
-  GST_DEBUG_OBJECT (client->server, "Handling result for txid %d", txid);
+  /* for explanation of this opposite, see client_send_connect () */
   if (!client->publisher) {
-    return client_handle_subscribe_result (client, txid, dec);
+    return client_handle_publishing_result (client, txid, dec);
   } else {
-    return client_handle_publish_result (client, txid, dec);
+    return client_handle_subscribing_result (client, txid, dec);
   }
 }
-
 
 static PexRtmpServerStatus
 client_handle_error (Client * client, gint txid, AmfDec * dec)
@@ -429,7 +521,23 @@ client_handle_error (Client * client, gint txid, AmfDec * dec)
 }
 
 static PexRtmpServerStatus
-client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
+client_send_metadata (Client * client, const GstStructure * metadata)
+{
+  PexRtmpServerStatus ret;
+  AmfEnc *invoke = amf_enc_new ();
+  amf_enc_write_string (invoke, "@setDataFrame");
+  amf_enc_write_string (invoke, "onMetaData");
+  amf_enc_write_object (invoke, metadata);
+  GST_DEBUG_OBJECT (client->server,
+      "Sending MetaData: %"GST_PTR_FORMAT, metadata);
+  ret = client_rtmp_send (client, MSG_NOTIFY, client->msg_stream_id,
+      invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
+  amf_enc_free (invoke);
+  return ret;
+}
+
+static PexRtmpServerStatus
+client_handle_onstatus (Client * client, AmfDec * dec)
 {
   PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
 
@@ -452,33 +560,10 @@ client_handle_onstatus (Client * client, AmfDec * dec, gint stream_id)
   } else if (code && g_strcmp0 (code, "NetStream.Publish.Start") == 0) {
     /* make the client a subscriber on the local server */
     client_add_connection (client, FALSE);
-
-    GstStructure *meta = gst_structure_new ("object",
-        "framerate", G_TYPE_DOUBLE, 30.0,
-        "width", G_TYPE_DOUBLE, 1280.0,
-        "height", G_TYPE_DOUBLE, 720.0,
-        "videocodecid", G_TYPE_STRING, "avc1",
-        "videodatarate", G_TYPE_DOUBLE, 2000.0,
-        "avclevel", G_TYPE_DOUBLE, 31.0,
-        "avcprofile", G_TYPE_DOUBLE, 66.0,
-        "videokeyframe_frequency", G_TYPE_DOUBLE, 2.0,
-        "audiosamplerate", G_TYPE_DOUBLE, 48000.0,
-        "audiochannels", G_TYPE_DOUBLE, 1.0,
-        "audiocodecid", G_TYPE_STRING, "mp4a",
-        "audiodatarate", G_TYPE_DOUBLE, 64.0,
-        NULL);
-    AmfEnc *invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "@setDataFrame");
-    amf_enc_write_string (invoke, "onMetaData");
-    amf_enc_write_object (invoke, meta);
-    ret = client_rtmp_send (client, MSG_NOTIFY, stream_id,
-        invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
-    amf_enc_free (invoke);
-    gst_structure_free (meta);
-    if (ret != PEX_RTMP_SERVER_STATUS_OK)
-      goto done;
-
     client_notify_connection (client);
+
+    /* needs metadata before media */
+    client->need_metadata = TRUE;
   }
 
 done:
@@ -487,9 +572,10 @@ done:
 }
 
 static PexRtmpServerStatus
-client_do_connect (Client * client)
+client_send_connect (Client * client)
 {
-  GST_DEBUG_OBJECT (client->server, "connecting to: %s with path: %s",
+  PexRtmpServerStatus ret;
+  GST_INFO_OBJECT (client->server, "connecting to: %s with path: %s",
       client->tcUrl, client->path);
 
   gchar *app;
@@ -513,30 +599,45 @@ client_do_connect (Client * client)
       "swfUrl", G_TYPE_STRING, client->tcUrl,
       NULL);
 
+  /* The negative here is not intuitive, (Publishing when we are a
+     subscriber and v.v.). The explanation lies in the fact that we are
+     dialling out to another server, and for that purpose, our internal
+     client is actually a subscriber to a stream being published by
+     someone external:
+
+                             SERVER
+                      +-------------------+
+                      |                   |
+  Dialin (Subscribing)|   +------------+  |
++------------------------>+ Publisher  |  |
+                      |   +-----+------+  |
+                      |         |         |
+                      |         |         |
+                      |         |         |
+                      |   +-----v------+  | Dialout (Publishing)
+                      |   | Subscriber +------------------------->
+                      |   +------------+  |
+                      |                   |
+                      +-------------------+
+
+    Similar in the opposite case, where we want to dial someone to get published
+    to, our internal representation will be a publisher, even though we
+    are actually subscribing to that stream from another server-
+*/
+
+  gint txid = client->publisher ? SUB_TXID_CONNECT : PUB_TXID_CONNECT;
+
+  /* FIXME: check if youtube etc. accepts the new NULL after obj */
+  ret = client_send_ctrl_msg_obj_null (client, "connect", txid, status);
+
   g_free (app);
   g_free (tcUrl);
-
-//      "fpad", G_TYPE_BOOLEAN, TRUE, /* we are doing proxying */
-//      "audioCodecs", G_TYPE_DOUBLE, (gdouble)(SUPPORT_SND_AAC | SUPPORT_SND_SPEEX),
-//      "videoCodecs", G_TYPE_DOUBLE, (gdouble)SUPPORT_VID_H264,
-//      "videoFunctions", G_TYPE_DOUBLE, 0.0, /* We can't do seek */
-//      "objectEncoding", G_TYPE_DOUBLE, 0.0, /* AMF0 */
-
-  AmfEnc *invoke = amf_enc_new ();
-  amf_enc_write_string (invoke, "connect");
-  amf_enc_write_double (invoke, 1.0);
-  amf_enc_write_object (invoke, status);
-
-  PexRtmpServerStatus ret = client_rtmp_send (client, MSG_INVOKE,
-      MSG_STREAM_ID_CONTROL, invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
-  amf_enc_free (invoke);
   gst_structure_free (status);
-
   return ret;
 }
 
 static PexRtmpServerStatus
-client_handle_connect (Client * client, double txid, AmfDec * dec)
+client_handle_connect (Client * client, gint txid, AmfDec * dec)
 {
   AmfEnc *invoke;
   PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
@@ -612,7 +713,7 @@ client_handle_connect (Client * client, double txid, AmfDec * dec)
   gst_value_set_structure (&status, status_s);
   gst_structure_free (status_s);
 
-  ret = client_send_reply (client, txid, &version, &status);
+  ret = client_send_result (client, txid, &version, &status);
   g_value_unset (&version);
   g_value_unset (&status);
 
@@ -625,6 +726,7 @@ done:
 static PexRtmpServerStatus
 client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
 {
+  PexRtmpServerStatus ret;
   g_free (amf_dec_load (dec));  /* NULL */
 
   gchar *path = amf_dec_load_string (dec);
@@ -637,34 +739,44 @@ client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
       "description", G_TYPE_STRING, path,
       NULL);
   g_free (path);
-
-  AmfEnc *invoke = amf_enc_new ();
-  amf_enc_write_string (invoke, "onFCPublish");
-  amf_enc_write_double (invoke, 0.0);
-  amf_enc_write_null (invoke);
-  amf_enc_write_object (invoke, status);
-
-  PexRtmpServerStatus ret = client_rtmp_send (client, MSG_INVOKE,
-      MSG_STREAM_ID_CONTROL, invoke->buf, 0, CHUNK_STREAM_ID_CONTROL);
-  amf_enc_free (invoke);
-  gst_structure_free (status);
+  ret = client_send_netstream_status_message (client,
+      "onFCPublish", status, CHUNK_STREAM_ID_CONTROL);
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
     return ret;
 
-  return client_send_reply (client, txid, NULL, NULL);
+  return client_send_result (client, txid, NULL, NULL);
 }
 
 static PexRtmpServerStatus
-client_handle_createstream (Client * client, double txid)
+client_handle_releasestream (Client * client, gint txid)
+{
+  return client_send_result (client, txid, NULL, NULL);
+}
+
+static PexRtmpServerStatus
+client_handle_createstream (Client * client, gint txid)
 {
   GValue stream_id = G_VALUE_INIT;
   g_value_init (&stream_id, G_TYPE_DOUBLE);
   g_value_set_double (&stream_id, (gdouble) client->msg_stream_id);
-  return client_send_reply (client, txid, NULL, &stream_id);
+  return client_send_result (client, txid, NULL, &stream_id);
 }
 
 static PexRtmpServerStatus
-client_handle_publish (Client * client, double txid, AmfDec * dec)
+client_send_stream_begin (Client * client)
+{
+  PexRtmpServerStatus ret;
+  AmfEnc *control = amf_enc_new ();
+  amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
+  amf_enc_add_int (control, htonl (client->msg_stream_id));
+  ret = client_rtmp_send (client, MSG_USER_CONTROL, MSG_STREAM_ID_CONTROL,
+      control->buf, 0, CHUNK_STREAM_ID_CONTROL);
+  amf_enc_free (control);
+  return ret;
+}
+
+static PexRtmpServerStatus
+client_handle_publish (Client * client, gint txid, AmfDec * dec)
 {
   PexRtmpServerStatus ret;
 
@@ -690,12 +802,7 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
   GST_DEBUG_OBJECT (client->server, "publisher connected.");
 
   /* StreamBegin */
-  AmfEnc *control = amf_enc_new ();
-  amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
-  amf_enc_add_int (control, htonl (client->msg_stream_id));
-  ret = client_rtmp_send (client, MSG_USER_CONTROL, MSG_STREAM_ID_CONTROL,
-      control->buf, 0, CHUNK_STREAM_ID_CONTROL);
-  amf_enc_free (control);
+  ret = client_send_stream_begin (client);
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
     return ret;
 
@@ -706,20 +813,11 @@ client_handle_publish (Client * client, double txid, AmfDec * dec)
       "description", G_TYPE_STRING, "Stream is now published.",
       "details", G_TYPE_STRING, path,
       NULL);
-  AmfEnc *invoke = amf_enc_new ();
-  amf_enc_write_string (invoke, "onStatus");
-  amf_enc_write_double (invoke, 0.0);
-  amf_enc_write_null (invoke);
-  amf_enc_write_object (invoke, status);
-
-  ret = client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
-      invoke->buf, 0, CHUNK_STREAM_ID_RESULT);
-  amf_enc_free (invoke);
-  gst_structure_free (status);
+  ret = client_send_onstatus_message (client, status, CHUNK_STREAM_ID_RESULT);
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
     return ret;
 
-  return client_send_reply (client, txid, NULL, NULL);
+  return client_send_result (client, txid, NULL, NULL);
 }
 
 static PexRtmpServerStatus
@@ -728,12 +826,7 @@ client_start_playback (Client * client)
   PexRtmpServerStatus ret;
 
   /* StreamBegin */
-  AmfEnc *control = amf_enc_new ();
-  amf_enc_add_short (control, htons (CONTROL_CLEAR_STREAM));
-  amf_enc_add_int (control, htonl (client->msg_stream_id));
-  ret = client_rtmp_send (client, MSG_USER_CONTROL, MSG_STREAM_ID_CONTROL,
-      control->buf, 0, CHUNK_STREAM_ID_CONTROL);
-  amf_enc_free (control);
+  ret = client_send_stream_begin (client);
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
     goto done;
 
@@ -742,15 +835,7 @@ client_start_playback (Client * client)
       "description", G_TYPE_STRING, "Resetting and playing stream.",
       "level", G_TYPE_STRING, "status",
       NULL);
-  AmfEnc *invoke = amf_enc_new ();
-  amf_enc_write_string (invoke, "onStatus");
-  amf_enc_write_double (invoke, 0.0);
-  amf_enc_write_null (invoke);
-  amf_enc_write_object (invoke, status);
-  ret = client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
-      invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
-  amf_enc_free (invoke);
-  gst_structure_free (status);
+  ret = client_send_onstatus_message (client, status, CHUNK_STREAM_ID_STREAM);
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
     goto done;
 
@@ -758,19 +843,11 @@ client_start_playback (Client * client)
       "code", G_TYPE_STRING, "NetStream.Play.Start",
       "description", G_TYPE_STRING, "Started playing.",
       "level", G_TYPE_STRING, "status", NULL);
-  invoke = amf_enc_new ();
-  amf_enc_write_string (invoke, "onStatus");
-  amf_enc_write_double (invoke, 0.0);
-  amf_enc_write_null (invoke);
-  amf_enc_write_object (invoke, status);
-  ret = client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
-      invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
-  amf_enc_free (invoke);
-  gst_structure_free (status);
+  ret = client_send_onstatus_message (client, status, CHUNK_STREAM_ID_STREAM);
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
     goto done;
 
-  invoke = amf_enc_new ();
+  AmfEnc *invoke = amf_enc_new ();
   amf_enc_write_string (invoke, "|RtmpSampleAccess");
   amf_enc_write_bool (invoke, TRUE);
   amf_enc_write_bool (invoke, TRUE);
@@ -781,7 +858,7 @@ client_start_playback (Client * client)
     goto done;
 
   client->playing = TRUE;
-  client->ready = FALSE;
+  client->has_key_frame = FALSE;
   client_add_connection (client, FALSE);
 
   /* send pexip metadata to the client */
@@ -802,7 +879,7 @@ done:
 }
 
 static PexRtmpServerStatus
-client_handle_play (Client * client, double txid, AmfDec * dec)
+client_handle_play (Client * client, gint txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec));  /* NULL */
   gchar *path = amf_dec_load_string (dec);
@@ -825,11 +902,11 @@ client_handle_play (Client * client, double txid, AmfDec * dec)
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
     return ret;
 
-  return client_send_reply (client, txid, NULL, NULL);
+  return client_send_result (client, txid, NULL, NULL);
 }
 
 static PexRtmpServerStatus
-client_handle_play2 (Client * client, double txid, AmfDec * dec)
+client_handle_play2 (Client * client, gint txid, AmfDec * dec)
 {
   g_free (amf_dec_load (dec));  /* NULL */
 
@@ -845,11 +922,11 @@ client_handle_play2 (Client * client, double txid, AmfDec * dec)
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
     return ret;
 
-  return client_send_reply (client, txid, NULL, NULL);
+  return client_send_result (client, txid, NULL, NULL);
 }
 
 static PexRtmpServerStatus
-client_handle_pause (Client * client, double txid, AmfDec * dec)
+client_handle_pause (Client * client, gint txid, AmfDec * dec)
 {
   PexRtmpServerStatus ret;
   g_free (amf_dec_load (dec));  /* NULL */
@@ -863,14 +940,7 @@ client_handle_pause (Client * client, double txid, AmfDec * dec)
         "description", G_TYPE_STRING, "Pausing.",
         "level", G_TYPE_STRING, "status",
         NULL);
-    AmfEnc *invoke = amf_enc_new ();
-    amf_enc_write_string (invoke, "onStatus");
-    amf_enc_write_double (invoke, 0.0);
-    amf_enc_write_null (invoke);
-    amf_enc_write_object (invoke, status);
-
-    ret = client_rtmp_send (client, MSG_INVOKE, client->msg_stream_id,
-        invoke->buf, 0, CHUNK_STREAM_ID_STREAM);
+    ret = client_send_onstatus_message (client, status, CHUNK_STREAM_ID_STREAM);
     client->playing = FALSE;
   } else {
     ret = client_start_playback (client);
@@ -879,7 +949,7 @@ client_handle_pause (Client * client, double txid, AmfDec * dec)
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
     return ret;
 
-  return client_send_reply (client, txid, NULL, NULL);
+  return client_send_result (client, txid, NULL, NULL);
 }
 
 static void
@@ -901,6 +971,9 @@ client_handle_setdataframe (Client * client, AmfDec * dec)
   client->metadata = amf_dec_load_object (dec);
   GST_DEBUG_OBJECT (client->server, "(%s) METADATA %" GST_PTR_FORMAT,
       client->path, client->metadata);
+
+  /* we have new metadata */
+  client->new_metadata = TRUE;
 }
 
 static PexRtmpServerStatus
@@ -921,23 +994,27 @@ client_handle_invoke (Client * client, const RTMPMessage * msg, AmfDec * dec)
 {
   PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
   gchar *method = amf_dec_load_string (dec);
-  gdouble txid;
+  gdouble txid_dbl;
+  gint txid;
 
   if (method == NULL)
     return PEX_RTMP_SERVER_STATUS_INVALID_INVOKE;
 
-  if (!amf_dec_load_number (dec, &txid))
+  if (!amf_dec_load_number (dec, &txid_dbl))
     return PEX_RTMP_SERVER_STATUS_INVALID_INVOKE;
+  txid = (gint)txid_dbl;
 
   GST_DEBUG_OBJECT (client->server,
-      "%p: invoked %s with txid %lf for Stream Id: %d ", client, method, txid,
+      "%p: invoked %s with txid %d for Stream Id: %d ", client, method, txid,
       msg->msg_stream_id);
 
   if (strcmp (method, "onStatus") == 0) {
-    ret = client_handle_onstatus (client, dec, msg->msg_stream_id);
+    ret = client_handle_onstatus (client, dec);
   } else if (msg->msg_stream_id == MSG_STREAM_ID_CONTROL) {
     if (strcmp (method, "connect") == 0) {
       ret = client_handle_connect (client, txid, dec);
+    } else if (strcmp (method, "releaseStream") == 0) {
+      ret = client_handle_releasestream (client, txid);
     } else if (strcmp (method, "FCPublish") == 0) {
       ret = client_handle_fcpublish (client, txid, dec);
     } else if (strcmp (method, "createStream") == 0) {
@@ -981,12 +1058,23 @@ client_send_ack (Client * client)
   return ret;
 }
 
+static PexRtmpServerStatus
+client_maybe_update_metadata (Client * publisher, Client * subscriber)
+{
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
+  if (publisher->new_metadata || subscriber->need_metadata) {
+    ret = client_send_metadata (subscriber, publisher->metadata);
+    subscriber->need_metadata = FALSE;
+  }
+  return ret;
+}
+
 PexRtmpServerStatus
 client_handle_message (Client * client, RTMPMessage * msg)
 {
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
   GST_LOG_OBJECT (client->server, "RTMP message %02x, len %u, abs-timestamp %u",
       msg->type, msg->len, msg->abs_timestamp);
-  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
 
   /* send window-size ACK if we have reached it */
   client->total_bytes_received += msg->len;
@@ -1098,25 +1186,29 @@ client_handle_message (Client * client, RTMPMessage * msg)
     }
 
     case MSG_AUDIO:
+    {
       if (!client->publisher) {
         GST_DEBUG_OBJECT (client->server, "not a publisher");
-        return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
+        ret = PEX_RTMP_SERVER_STATUS_INVALID_MSG;
+        break;
       }
+
       GSList *subscribers =
           connections_get_subscribers (client->connections, client->path);
-      for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
+      for (GSList *walk = subscribers; walk; walk = g_slist_next (walk)) {
         Client *subscriber = (Client *) walk->data;
 
-/* FIXME: this is the best way, can we make it so ?
-        client_rtmp_send (subscriber, MSG_AUDIO, subscriber->msg_stream_id,
-            msg->buf, msg->timestamp, msg->fmt, CHUNK_STREAM_ID_CONTROL);
-*/
+        ret = client_maybe_update_metadata (client, subscriber);
+        if (ret != PEX_RTMP_SERVER_STATUS_OK)
+          break;
+
         ret = client_rtmp_send (subscriber, MSG_AUDIO,
             subscriber->msg_stream_id, msg->buf,
             msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
       }
+      client->new_metadata = FALSE;
       break;
-
+    }
 
     case MSG_VIDEO:
     {
@@ -1137,25 +1229,28 @@ client_handle_message (Client * client, RTMPMessage * msg)
       for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
         Client *subscriber = (Client *) walk->data;
 
-        if (!subscriber->ready) {
+        ret = client_maybe_update_metadata (client, subscriber);
+
+        if (!subscriber->has_key_frame) {
           ret = client_rtmp_send (subscriber, MSG_VIDEO,
               subscriber->msg_stream_id, client->video_codec_data,
               msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
         }
-        if (flags >> 4 == FLV_KEY_FRAME && !subscriber->ready) {
-          subscriber->ready = TRUE;
+        if (flags >> 4 == FLV_KEY_FRAME && !subscriber->has_key_frame) {
+          subscriber->has_key_frame = TRUE;
           if (!stored_packet) {
             ret = client_rtmp_send (subscriber, MSG_VIDEO,
                 subscriber->msg_stream_id, msg->buf,
                 msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
           }
         }
-        if (subscriber->ready) {
+        if (subscriber->has_key_frame) {
           ret = client_rtmp_send (subscriber, MSG_VIDEO,
               subscriber->msg_stream_id, msg->buf,
               msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
         }
       }
+      client->new_metadata = FALSE;
       break;
     }
 
@@ -1306,7 +1401,7 @@ client_outgoing_handshake (Client * client)
   if (client->handshake_state == HANDSHAKE_STAGE2 &&
       client->buf->len >= HANDSHAKE_LENGTH) {
     client->buf = g_byte_array_remove_range (client->buf, 0, HANDSHAKE_LENGTH);
-    ret = client_do_connect (client);
+    ret = client_send_connect (client);
     if (ret != PEX_RTMP_SERVER_STATUS_OK)
       goto done;
 
@@ -1525,6 +1620,39 @@ client_send (Client * client)
   return PEX_RTMP_SERVER_STATUS_OK;
 }
 
+static void
+client_set_default_metadata (Client * client,
+    gboolean have_audio, gboolean have_video)
+{
+  if (client->metadata)
+    gst_structure_free (client->metadata);
+
+  client->metadata = gst_structure_new_empty ("object");
+  if (have_audio) {
+    gst_structure_set (client->metadata,
+        "audiosamplerate", G_TYPE_DOUBLE, 48000.0,
+        "audiochannels", G_TYPE_DOUBLE, 1.0,
+        "audiocodecid", G_TYPE_STRING, "mp4a",
+        "audiodatarate", G_TYPE_DOUBLE, 64.0,
+        NULL);
+  }
+  if (have_video) {
+    gst_structure_set (client->metadata,
+        "framerate", G_TYPE_DOUBLE, 30.0,
+        "width", G_TYPE_DOUBLE, 1280.0,
+        "height", G_TYPE_DOUBLE, 720.0,
+        "videocodecid", G_TYPE_STRING, "avc1",
+        "videodatarate", G_TYPE_DOUBLE, 2000.0,
+        "avclevel", G_TYPE_DOUBLE, 31.0,
+        "avcprofile", G_TYPE_DOUBLE, 66.0,
+        "videokeyframe_frequency", G_TYPE_DOUBLE, 2.0,
+        NULL);
+  }
+  client->new_metadata = TRUE;
+  GST_DEBUG_OBJECT (client->server,
+      "Setting new default metadata: %"GST_PTR_FORMAT, client->metadata);
+}
+
 static PexRtmpServerStatus
 client_handle_flv_buffer (Client * client, GstBuffer * buf)
 {
@@ -1542,10 +1670,14 @@ client_handle_flv_buffer (Client * client, GstBuffer * buf)
   while (total_parsed < map.size) {
     guint8 *data = &map.data[total_parsed];
     guint parsed = 0;
+    gboolean have_audio, have_video;
 
-    if ((parsed = flv_parse_header (data))) {
+    if ((parsed = flv_parse_header (data, &have_audio, &have_video))) {
       total_parsed += parsed;
-      GST_DEBUG_OBJECT (client->server, "Found FLV header!");
+      GST_DEBUG_OBJECT (client->server,
+          "Found FLV header, audio: %s, video: %s",
+          have_audio ? "YES" : "NO", have_video ? "YES" : "NO");
+      client_set_default_metadata (client, have_audio, have_video);
       continue;
     }
 

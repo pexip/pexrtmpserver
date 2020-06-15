@@ -108,12 +108,15 @@ struct _Client
   gchar *opaque;
 
   gboolean playing;             /* Wants to receive the stream? */
-  gboolean ready;               /* Wants to receive and seen a keyframe */
+  gboolean has_key_frame;       /* Wants to receive and seen a keyframe */
   gboolean publisher;           /* Is this a publisher */
 
   gboolean retry_connection;
 
+  /* metadata stuff */
   GstStructure *metadata;
+  gboolean new_metadata;
+  gboolean need_metadata;
 
   guint32 bytes_received_since_ack;
   guint32 total_bytes_received;

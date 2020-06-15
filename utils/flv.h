@@ -22,10 +22,11 @@
 
 #include <gst/gst.h>
 
-guint flv_parse_header (const guint8 * data);
+guint flv_parse_header (const guint8 * data,
+    gboolean * have_audio, gboolean * have_video);
 guint flv_parse_tag (const guint8 * data, guint size,
     guint8 * packet_type, guint * payload_size, guint * timestamp);
-GstBuffer * flv_generate_header ();
+GstBuffer * flv_generate_header (gboolean have_audio, gboolean have_video);
 GstBuffer * flv_generate_tag (const guint8 * data,
     gsize size, guint8 id, guint32 timestamp);
 
