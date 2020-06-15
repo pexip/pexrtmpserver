@@ -342,6 +342,8 @@ static gchar *
 _load_string (AmfDec * dec)
 {
   guint str_len = 0;
+  const gchar *str;
+  gchar *ret = NULL;
 
   if (dec->version == AMF3_VERSION) {
     if (!amf_dec_load_amf3_integer (dec, &str_len))
@@ -359,9 +361,13 @@ _load_string (AmfDec * dec)
     GST_WARNING ("Not enough data");
     return NULL;
   }
-  gchar *s = g_strndup ((const gchar *) &dec->buf->data[dec->pos], str_len);
+  str = (const gchar *) &dec->buf->data[dec->pos];
+  if (g_utf8_validate (str, str_len, NULL)) {
+    ret = g_strndup (str, str_len);
+  }
   dec->pos += str_len;
-  return s;
+
+  return ret;
 }
 
 gchar *
