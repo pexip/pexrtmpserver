@@ -1105,12 +1105,12 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
   g_object_class_install_property (gobject_class, PROP_PORT,
       g_param_spec_int ("port", "Port",
           "The port to listen on", 0, 65535, DEFAULT_PORT,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_SSL_PORT,
       g_param_spec_int ("ssl-port", "Port",
           "The port to listen on", 0, 65535, DEFAULT_SSL_PORT,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_CERT_FILE,
       g_param_spec_string ("cert-file", "Certificate file",
