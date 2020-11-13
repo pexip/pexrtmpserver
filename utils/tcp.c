@@ -218,6 +218,9 @@ tcp_connect (gint * fd, const gchar * ip,
     }
   }
 
+  /* make the connection non-blocking */
+  tcp_set_nonblock (*fd, TRUE);
+
   ret = connect (*fd, result->ai_addr, (int)result->ai_addrlen);
 
   if (ret != 0 && errno != EINPROGRESS) {
@@ -226,9 +229,6 @@ tcp_connect (gint * fd, const gchar * ip,
     *fd = INVALID_FD;
     goto done;
   }
-
-  /* make the connection non-blocking */
-  tcp_set_nonblock (*fd, TRUE);
 
 done:
   freeaddrinfo (result);
