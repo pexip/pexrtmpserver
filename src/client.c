@@ -724,7 +724,7 @@ done:
 }
 
 static PexRtmpServerStatus
-client_handle_fcpublish (Client * client, double txid, AmfDec * dec)
+client_handle_fcpublish (Client * client, gint txid, AmfDec * dec)
 {
   PexRtmpServerStatus ret;
   g_free (amf_dec_load (dec));  /* NULL */
