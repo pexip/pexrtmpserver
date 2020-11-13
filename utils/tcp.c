@@ -223,6 +223,18 @@ tcp_connect (gint * fd, const gchar * ip,
 
   ret = connect (*fd, result->ai_addr, (int)result->ai_addrlen);
 
+  /* on windows, a non-blocking connect actually "fails" with
+     SOCKET_ERROR, but then WSAEWOULDBLOCK will mean everything
+     is fine */
+#ifdef _MSC_VER
+  if (ret == SOCKET_ERROR) {
+    gint err = WSAGetLastError ();
+    if (err == WSAEWOULDBLOCK) {
+      ret = 0;
+    }
+  }
+#endif /* _MSC_VER */
+
   if (ret != 0 && errno != EINPROGRESS) {
     GST_WARNING ("could not connect on port %d: %s", port, g_strerror (errno));
     _close_socket (*fd);
