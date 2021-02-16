@@ -186,10 +186,19 @@ amf_enc_write_bool (AmfEnc * enc, gboolean b)
   }
 }
 
+/* our own NULL safe version */
+static gint
+_structure_n_fields (const GstStructure * s)
+{
+  if (s == NULL)
+    return 0;
+  return gst_structure_n_fields (s);
+}
+
 static void
 amf_enc_write_structure (AmfEnc * enc, const GstStructure * s)
 {
-  gint len = gst_structure_n_fields (s);
+  gint len = _structure_n_fields (s);
   for (int i = 0; i < len; i++) {
     const gchar *key = gst_structure_nth_field_name (s, i);
     const GValue *value = gst_structure_get_value (s, key);
@@ -205,7 +214,7 @@ amf_enc_write_object (AmfEnc * enc, const GstStructure * object)
 {
   if (enc->version == AMF3_VERSION) {
     amf_enc_add_char (enc, AMF3_OBJECT);
-    amf_enc_add_int (enc, gst_structure_n_fields (object) + 1);
+    amf_enc_add_int (enc, _structure_n_fields (object) + 1);
     amf_enc_add_char (enc, AMF3_NULL);
     amf_enc_write_structure (enc, object);
     amf_enc_add_char (enc, AMF3_NULL);
@@ -220,7 +229,7 @@ void
 amf_enc_write_ecma (AmfEnc * enc, const GstStructure * object)
 {
   amf_enc_add_char (enc, AMF0_ECMA_ARRAY);
-  amf_enc_add_int (enc, htonl (gst_structure_n_fields (object)));
+  amf_enc_add_int (enc, htonl (_structure_n_fields (object)));
   amf_enc_write_structure (enc, object);
   amf_enc_add_char (enc, AMF0_OBJECT_END);
 }
