@@ -194,7 +194,7 @@ pex_rtmp_server_sink_render (GstBaseSink * basesink, GstBuffer * buf)
 
   if (sink->first && sink->header) {
     buf = gst_buffer_append (gst_buffer_ref (sink->header),
-        gst_buffer_ref (buf));
+        gst_buffer_copy_deep (buf));
     need_unref = TRUE;
     sink->first = FALSE;
   }
