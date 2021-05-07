@@ -62,6 +62,11 @@ flv_parse_tag (const guint8 * data, guint size,
   *packet_type = data[0];
   *payload_size = GST_READ_UINT24_BE (&data[1]);
   *timestamp = GST_READ_UINT24_BE (&data[4]) | (data[7] << 24);
+
+  /* sanity check */
+  if (*payload_size > (size - flv_tag_header_size))
+    return 0;
+
   return flv_tag_header_size;
 }
 
