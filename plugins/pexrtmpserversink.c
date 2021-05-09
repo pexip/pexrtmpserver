@@ -385,5 +385,6 @@ pex_rtmp_server_sink_class_init (PexRTMPServerSinkClass * klass)
 static void
 pex_rtmp_server_sink_init (PexRTMPServerSink * sink)
 {
-  (void) sink;
+  GstBaseSink *basesink = GST_BASE_SINK_CAST (sink);
+  gst_base_sink_set_last_sample_enabled (basesink, FALSE);
 }
