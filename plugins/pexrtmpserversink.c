@@ -183,7 +183,6 @@ pex_rtmp_server_sink_render (GstBaseSink * basesink, GstBuffer * buf)
 
   if (sink->on_play_done) {
     GST_WARNING_OBJECT (sink, "Dial-Out disconnected, stopping");
-    gst_buffer_unref (buf);
     return GST_FLOW_EOS;
   }
 
