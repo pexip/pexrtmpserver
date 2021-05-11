@@ -39,9 +39,12 @@ static const gchar flv_header[] = {
 };
 
 guint
-flv_parse_header (const guint8 * data,
+flv_parse_header (const guint8 * data, guint size,
     gboolean * have_audio, gboolean * have_video)
 {
+  if (size < sizeof (flv_header))
+    return 0;
+
   /* could use this to "turn on" publishing ? */
   if (data[0] != 'F' || data[1] != 'L' || data[2] != 'V' || data[3] != 0x01)
     return 0;

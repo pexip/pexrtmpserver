@@ -1672,7 +1672,8 @@ client_handle_flv_buffer (Client * client, GstBuffer * buf)
     guint parsed = 0;
     gboolean have_audio, have_video;
 
-    if ((parsed = flv_parse_header (data, &have_audio, &have_video))) {
+    if ((parsed = flv_parse_header (data, map.size - total_parsed,
+          &have_audio, &have_video))) {
       total_parsed += parsed;
       GST_DEBUG_OBJECT (client->server,
           "Found FLV header, audio: %s, video: %s",

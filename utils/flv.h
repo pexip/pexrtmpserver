@@ -22,7 +22,7 @@
 
 #include <gst/gst.h>
 
-guint flv_parse_header (const guint8 * data,
+guint flv_parse_header (const guint8 * data, guint size,
     gboolean * have_audio, gboolean * have_video);
 guint flv_parse_tag (const guint8 * data, guint size,
     guint8 * packet_type, guint * payload_size, guint * timestamp);
