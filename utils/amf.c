@@ -334,7 +334,7 @@ amf_dec_load_amf3_integer (AmfDec * dec, guint * val)
 
   *val = 0;
   for (int i = 0; i < 4; ++i) {
-    guint8 b;
+    guint8 b = 0;
     if (!amf_dec_get_byte (dec, &b))
       return FALSE;
     if (i == 3) {
@@ -384,7 +384,7 @@ _load_string (AmfDec * dec)
 gchar *
 amf_dec_load_string (AmfDec * dec)
 {
-  guint8 type;
+  guint8 type = 0;
   if (!amf_dec_get_byte (dec, &type))
     return NULL;
 
@@ -412,7 +412,7 @@ amf_dec_load_number (AmfDec * dec, gdouble * val)
   if (val == NULL)
     return FALSE;
 
-  guint8 type;
+  guint8 type = 0;
   if (!amf_dec_get_byte (dec, &type))
     return FALSE;
 
@@ -456,7 +456,7 @@ amf_dec_load_boolean (AmfDec * dec, gboolean * val)
   if (val == NULL)
     return FALSE;
 
-  guint8 type;
+  guint8 type = 0;
   if (!amf_dec_get_byte (dec, &type))
     return FALSE;
 
@@ -495,7 +495,7 @@ amf_dec_load_object (AmfDec * dec)
 {
   GstStructure *object = gst_structure_new_empty ("object");
 
-  guint8 type;
+  guint8 type = 0;
   if (!amf_dec_get_byte (dec, &type))
     goto done;
 
@@ -523,7 +523,7 @@ amf_dec_load_object (AmfDec * dec)
       goto done;
     (void) object_count;        //FIXME: could use this!
 
-    guint8 start_byte;
+    guint8 start_byte = 0;
     if (!amf_dec_get_byte (dec, &start_byte))
       goto done;
     if (start_byte != AMF3_NULL) {
@@ -535,7 +535,7 @@ amf_dec_load_object (AmfDec * dec)
   amf_dec_load_structure (dec, object);
 
   if (dec->version == AMF0_VERSION) {
-    guint8 end_byte;
+    guint8 end_byte = 0;
     if (!amf_dec_get_byte (dec, &end_byte))
       goto done;
 
