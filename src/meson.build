@@ -10,7 +10,7 @@ rtmpserver_sources = [
   'pexrtmpserver.c'
 ]
 
-rtmpserver_lib = shared_library('pexrtmpserver',
+rtmpserver_lib = library('pexrtmpserver',
   rtmpserver_sources,
   c_args : rtmpserver_flags,
   include_directories : [config_h_inc],
