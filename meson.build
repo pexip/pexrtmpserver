@@ -27,6 +27,7 @@ add_project_arguments('-DHAVE_CONFIG_H', language: 'c')
 
 install_dir = get_option('libdir')
 plugins_install_dir = '@0@/gstreamer-1.0'.format(install_dir)
+static_build = get_option('default_library') == 'static'
 
 rtmpserver_flags = ['-DPEX_RTMPSERVER_EXPORTS']
 

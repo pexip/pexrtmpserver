@@ -28,7 +28,7 @@ rtmpsrv = executable('rtmpsrv', 'main.c',
   install : true)
 
 gir_scanner = find_program('g-ir-scanner', required : false)
-if gir_scanner.found() and not meson.is_cross_build()
+if gir_scanner.found() and not meson.is_cross_build() and not static_build
   gnome = import('gnome')
   gnome.generate_gir(rtmpserver_lib,
     sources : ['pexrtmpserver.c', 'pexrtmpserver.h', 'pexrtmpserver-types.h'],
