@@ -29,6 +29,10 @@
 #include <openssl/pem.h>
 #include <openssl/err.h>
 #include <openssl/x509v3.h>
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+#  include <openssl/param_build.h>
+#  include <openssl/params.h>
+#endif
 
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
@@ -76,6 +80,11 @@ DH_set0_pqg (DH * dh, BIGNUM * p, BIGNUM * q, BIGNUM * g)
   return 1;
 }
 
+#define BN_get_rfc3526_prime_2048 get_rfc3526_prime_2048
+#define BN_get_rfc3526_prime_3072 get_rfc3526_prime_3072
+#define BN_get_rfc3526_prime_4096 get_rfc3526_prime_4096
+#define BN_get_rfc3526_prime_6144 get_rfc3526_prime_6144
+#define BN_get_rfc3526_prime_8192 get_rfc3526_prime_8192
 #endif /* (OPENSSL_VERSION_NUMBER < 0x10100000L) */
 
 
@@ -221,10 +230,10 @@ file_exists (const gchar * path)
   return g_file_test (path, G_FILE_TEST_EXISTS);
 }
 
-DH *
+EVP_PKEY *
 make_dh_params (const gchar * cert_file)
 {
-  DH *dh = NULL;
+  EVP_PKEY *pkey = NULL;
   BIO *bio = BIO_new_file (cert_file, "r");
 
   if (bio != NULL) {
@@ -240,11 +249,11 @@ make_dh_params (const gchar * cert_file)
           BIGNUM *(*prime) (BIGNUM *);
         } gentable[] = {
           {
-          2048, get_rfc3526_prime_2048}, {
-          3072, get_rfc3526_prime_3072}, {
-          4096, get_rfc3526_prime_4096}, {
-          6144, get_rfc3526_prime_6144}, {
-          8192, get_rfc3526_prime_8192}
+          2048, BN_get_rfc3526_prime_2048}, {
+          3072, BN_get_rfc3526_prime_3072}, {
+          4096, BN_get_rfc3526_prime_4096}, {
+          6144, BN_get_rfc3526_prime_6144}, {
+          8192, BN_get_rfc3526_prime_8192}
         };
         size_t idx;
         int keylen = 2048;
@@ -263,23 +272,71 @@ make_dh_params (const gchar * cert_file)
           idx--;
         }
 
-        dh = DH_new ();
-        if (dh != NULL) {
-          BIGNUM *p = NULL;
-          BIGNUM *g = NULL;
-          p = gentable[idx].prime (NULL);
-          BN_dec2bn (&g, "2");
-          if (!DH_set0_pqg (dh, p, NULL, g)) {
-            DH_free (dh);
-            dh = NULL;
+        do {
+#if (OPENSSL_VERSION_NUMBER < 0x30000000L)
+          DH *dh = DH_new ();
+          if (dh != NULL) {
+            BIGNUM *p = NULL;
+            BIGNUM *g = NULL;
+            p = gentable[idx].prime (NULL);
+            BN_dec2bn (&g, "2");
+            if (!DH_set0_pqg (dh, p, NULL, g)) {
+              DH_free (dh);
+              dh = NULL;
+            }
           }
-        }
+	  if (dh != NULL) {
+            pkey = EVP_PKEY_new ();
+            if (pkey != NULL) {
+              if (!EVP_PKEY_set1_DH (pkey, dh)) {
+                EVP_PKEY_free (pkey);
+                DH_free (dh);
+                pkey = NULL;
+              }
+            }
+            DH_free (dh);
+          }
+#else
+          OSSL_PARAM_BLD *bld = NULL;
+          OSSL_PARAM *params = NULL;
+          EVP_PKEY_CTX *ctx = NULL;
+
+          bld = OSSL_PARAM_BLD_new();
+          if (bld != NULL) {
+            BIGNUM *p = NULL;
+            BIGNUM *g = NULL;
+            p = gentable[idx].prime (NULL);
+            BN_dec2bn (&g, "2");
+
+            if (OSSL_PARAM_BLD_push_BN (bld, "g", g) &&
+                OSSL_PARAM_BLD_push_BN (bld, "p", p)) {
+              params = OSSL_PARAM_BLD_to_param (bld);
+              if (params != NULL) {
+                ctx = EVP_PKEY_CTX_new_id (EVP_PKEY_DH, NULL);
+                if (ctx != NULL) {
+                  if (EVP_PKEY_fromdata_init (ctx) == 1) {
+                    if (EVP_PKEY_fromdata (ctx, &pkey, EVP_PKEY_KEY_PARAMETERS,
+                        params) == 0) {
+                      pkey = NULL;
+                    }
+                  }
+                  EVP_PKEY_CTX_free (ctx);
+                }
+                OSSL_PARAM_free (params);
+              }
+            }
+            BN_free (g);
+            BN_free (p);
+            OSSL_PARAM_BLD_free (bld);
+          }
+#endif
+        } while (0);
       }
       X509_free (cert);
     }
   }
 
-  return dh;
+  return pkey;
 }
 
 static int
@@ -356,41 +413,61 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
     /* Configure DH parameters */
     bio = BIO_new_file (cert_file, "r");
     if (bio != NULL) {
-      DH *dh = PEM_read_bio_DHparams (bio, NULL, NULL, NULL);
+      EVP_PKEY *pkey = PEM_read_bio_Parameters (bio, NULL);
       BIO_free (bio);
 
-      if (dh == NULL) {
-        dh = make_dh_params (cert_file);
+      if (pkey == NULL) {
+        pkey = make_dh_params (cert_file);
       }
 
-      if (dh != NULL) {
+      if (pkey != NULL) {
+#if (OPENSSL_VERSION_NUMBER < 0x30000000L)
+        const DH *dh = EVP_PKEY_get0_DH (pkey);
         SSL_CTX_set_tmp_dh (ssl_ctx, dh);
-        DH_free (dh);
+        EVP_PKEY_free (pkey);
+#else
+        if (SSL_CTX_set0_tmp_dh_pkey (ssl_ctx, pkey) != 1) {
+          EVP_PKEY_free (pkey);
+	}
+#endif
       }
     }
 
     /* Configure ECDH parameters */
     bio = BIO_new_file (cert_file, "r");
     if (bio != NULL) {
-      EC_KEY *key;
       int nid = NID_X9_62_prime256v1;
-      EC_GROUP *group = PEM_read_bio_ECPKParameters (bio, NULL, NULL, NULL);
+      EVP_PKEY *pkey = PEM_read_bio_Parameters (bio, NULL);
       BIO_free (bio);
 
-      if (group != NULL) {
+      if (pkey != NULL) {
+#if (OPENSSL_VERSION_NUMBER < 0x30000000L)
+        const EC_KEY *key = EVP_PKEY_get0_EC (pkey);
+        const EC_GROUP *group = EC_KEY_get0_group (key);
         nid = EC_GROUP_get_curve_name (group);
+#else
+      char *group;
+      size_t len;
+
+      if (EVP_PKEY_get_group_name (pkey, NULL, 0, &len) == 1) {
+        group = OPENSSL_malloc (len + 1);
+        if (group != NULL) {
+          if (EVP_PKEY_get_group_name (pkey, group, len + 1, &len) == 1) {
+            nid = OBJ_sn2nid (group);
+          }
+          OPENSSL_free (group);
+        }
+      }
+
+#endif
         if (nid == NID_undef) {
           nid = NID_X9_62_prime256v1;
         }
 
-        EC_GROUP_free (group);
+        EVP_PKEY_free (pkey);
       }
 
-      key = EC_KEY_new_by_curve_name (nid);
-      if (key != NULL) {
-        SSL_CTX_set_tmp_ecdh (ssl_ctx, key);
-        EC_KEY_free (key);
-      }
+      SSL_CTX_set1_curves (ssl_ctx, &nid, 1);
     }
 
     ERR_clear_error ();
