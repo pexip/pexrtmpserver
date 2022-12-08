@@ -50,6 +50,18 @@ ASN1_STRING_get0_data (ASN1_IA5STRING * candidate)
   return (unsigned char *) ASN1_STRING_data (candidate);
 }
 
+static const DH *
+EVP_PKEY_get0_DH (const EVP_PKEY *pkey)
+{
+  return pkey->pkey.dh;
+}
+
+static const EC_KEY *
+EVP_PKEY_get0_EC_KEY (const EVP_PKEY *pkey)
+{
+  return pkey->pkey.ec;
+}
+
 static int
 DH_set0_pqg (DH * dh, BIGNUM * p, BIGNUM * q, BIGNUM * g)
 {
