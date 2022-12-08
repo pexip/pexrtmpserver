@@ -442,7 +442,7 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
 
       if (pkey != NULL) {
 #if (OPENSSL_VERSION_NUMBER < 0x30000000L)
-        const EC_KEY *key = EVP_PKEY_get0_EC (pkey);
+        const EC_KEY *key = EVP_PKEY_get0_EC_KEY (pkey);
         const EC_GROUP *group = EC_KEY_get0_group (key);
         nid = EC_GROUP_get_curve_name (group);
 #else
