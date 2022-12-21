@@ -985,21 +985,27 @@ pex_rtmp_server_set_property (GObject * obj, guint prop_id,
       srv->ssl_port = g_value_get_int (value);
       break;
     case PROP_CERT_FILE:
+      g_assert(!srv->running);
       srv->cert_file = g_value_dup_string (value);
       break;
     case PROP_KEY_FILE:
+      g_assert(!srv->running);
       srv->key_file = g_value_dup_string (value);
       break;
     case PROP_CA_CERT_FILE:
+      g_assert(!srv->running);
       srv->ca_cert_file = g_value_dup_string (value);
       break;
     case PROP_CA_CERT_DIR:
+      g_assert(!srv->running);
       srv->ca_cert_dir = g_value_dup_string (value);
       break;
     case PROP_CIPHERS:
+      g_assert(!srv->running);
       srv->ciphers = g_value_dup_string (value);
       break;
     case PROP_TLS1_ENABLED:
+      g_assert(!srv->running);
       srv->tls1_enabled = g_value_get_boolean (value);
       break;
     case PROP_IGNORE_LOCALHOST:
@@ -1115,32 +1121,32 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
   g_object_class_install_property (gobject_class, PROP_CERT_FILE,
       g_param_spec_string ("cert-file", "Certificate file",
           "File containing TLS certificate", DEFAULT_CERT_FILE,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_KEY_FILE,
       g_param_spec_string ("key-file", "Key file",
           "File containing TLS private key", DEFAULT_KEY_FILE,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_CA_CERT_FILE,
       g_param_spec_string ("ca-cert-file", "Trusted CA file",
           "File containing trusted CA certificates", DEFAULT_CA_CERT_FILE,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_CA_CERT_DIR,
       g_param_spec_string ("ca-cert-dir", "Trusted CA dir",
           "Directory containing trusted CA certificates", DEFAULT_CA_CERT_DIR,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_CIPHERS,
       g_param_spec_string ("ciphers", "Cipher specification",
           "Specification of ciphers to use", DEFAULT_CIPHERS,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_TLS1_ENABLED,
       g_param_spec_boolean ("tls1-enabled", "TLS1 enabled",
           "Whether TLS1 is enabled", DEFAULT_TLS1_ENABLED,
-          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_IGNORE_LOCALHOST,
       g_param_spec_boolean ("ignore-localhost",
