@@ -5,7 +5,7 @@ includedir=@includedir@
 
 Name: PexRtmpServer Library
 Description: RTMP server
-Requires: openssl
+Requires: @REQUIRES@
 Version: @VERSION@
 Libs: -L${libdir} -lpexrtmpserver
 Cflags: -I${includedir}/pexrtmpserver
