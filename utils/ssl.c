@@ -491,15 +491,24 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
     const gchar * ca_file, const gchar * ca_dir,
     const gchar * ciphers, gboolean tls1_enabled)
 {
+  int seclevel = 0;
+  int min_version = TLS1_VERSION;
   long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
       SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE |
       SSL_OP_CIPHER_SERVER_PREFERENCE;
 
   SSL_CTX *ssl_ctx = SSL_CTX_new (SSLv23_server_method ());
 
-  if (!tls1_enabled)
+  if (!tls1_enabled) {
+    seclevel = 2;
+    min_version = TLS1_2_VERSION;
     ssl_options |= SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1;
+  }
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  SSL_CTX_set_security_level (ssl_ctx, seclevel);
+  SSL_CTX_set_min_proto_version (ssl_ctx, min_version);
+#endif
   SSL_CTX_set_cipher_list (ssl_ctx, ciphers);
   SSL_CTX_set_options (ssl_ctx, ssl_options);
   if (file_exists (ca_file)) {
@@ -605,13 +614,22 @@ SSL_CTX *
 ssl_add_outgoing (const gchar * ca_file, const gchar * ca_dir,
     const gchar * ciphers, gboolean tls1_enabled)
 {
+  int seclevel = 0;
+  int min_version = TLS1_VERSION;
   long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3;
 
   SSL_CTX *ssl_ctx = SSL_CTX_new (SSLv23_client_method ());
 
-  if (!tls1_enabled)
+  if (!tls1_enabled) {
+    seclevel = 2;
+    min_version = TLS1_2_VERSION;
     ssl_options |= SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1;
+  }
 
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  SSL_CTX_set_security_level (ssl_ctx, seclevel);
+  SSL_CTX_set_min_proto_version (ssl_ctx, min_version);
+#endif
   SSL_CTX_set_cipher_list (ssl_ctx, ciphers);
   SSL_CTX_set_options (ssl_ctx, ssl_options);
   if (file_exists (ca_file)) {
