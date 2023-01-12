@@ -480,6 +480,9 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
       }
 
       SSL_CTX_set1_curves (ssl_ctx, &nid, 1);
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+      SSL_CTX_set_ecdh_auto (ssl_ctx, 1);
+#endif
     }
 
     ERR_clear_error ();
