@@ -99,6 +99,81 @@ DH_set0_pqg (DH * dh, BIGNUM * p, BIGNUM * q, BIGNUM * g)
 #define BN_get_rfc3526_prime_8192 get_rfc3526_prime_8192
 #endif /* (OPENSSL_VERSION_NUMBER < 0x10100000L) */
 
+#if (OPENSSL_VERSION_NUMBER < 0x30000000L)
+static EVP_PKEY *
+d2i_KeyParams(int type, EVP_PKEY **a, const unsigned char **pp, long length)
+{
+  EVP_PKEY *pkey = NULL;
+
+  if (type != EVP_PKEY_DH && type != EVP_PKEY_EC) {
+    return NULL;
+  }
+
+  if (a == NULL || *a == NULL) {
+    pkey = EVP_PKEY_new ();
+  } else {
+    pkey = *a;
+  }
+
+  if (type == EVP_PKEY_DH) {
+    DH *dh = d2i_DHparams (NULL, pp, length);
+    if (dh == NULL) {
+      goto failed;
+    }
+    if (EVP_PKEY_set1_DH (pkey, dh) != 1) {
+      DH_free (dh);
+      goto failed;
+    }
+    DH_free (dh);
+  } else {
+    EC_KEY *key = NULL;
+    EC_GROUP *group = d2i_ECPKParameters (NULL, pp, length);
+    if (group == NULL) {
+      goto failed;
+    }
+    key = EC_KEY_new ();
+    if (key == NULL) {
+      EC_GROUP_free (group);
+      goto failed;
+    }
+    if (EC_KEY_set_group (key, group) != 1) {
+      EC_KEY_free (key);
+      EC_GROUP_free (group);
+      goto failed;
+    }
+    if (EVP_PKEY_set1_EC_KEY (pkey, key) != 1) {
+      EC_KEY_free (key);
+      EC_GROUP_free (group);
+      goto failed;
+    }
+    EC_KEY_free (key);
+    EC_GROUP_free (group);
+  }
+
+  if (a != NULL) {
+    *a = pkey;
+  }
+
+  return pkey;
+
+failed:
+  if (a == NULL || *a == NULL) {
+    EVP_PKEY_free (pkey);
+  }
+  return NULL;
+}
+
+static int
+SSL_CTX_set0_tmp_dh_pkey (SSL_CTX *ctx, EVP_PKEY *dhpkey)
+{
+  const DH *dh = EVP_PKEY_get0_DH (dhpkey);
+  if (dh != NULL) {
+    SSL_CTX_set_tmp_dh (ctx, dh);
+  }
+  EVP_PKEY_free (dhpkey);
+  return 1;
+}
+#endif /* (OPENSSL_VERSION_NUMBER < 0x30000000L) */
 
 static int
 match_dns_name (const gchar * remote_host, ASN1_IA5STRING * candidate)
@@ -351,6 +426,41 @@ make_dh_params (const gchar * cert_file)
   return pkey;
 }
 
+static EVP_PKEY *
+pkey_parameters_from_file(const gchar * filename, int type)
+{
+  const char *tname;
+  BIO *bio;
+  EVP_PKEY *pkey = NULL;
+
+  if (type == EVP_PKEY_DH) {
+    tname = PEM_STRING_DHPARAMS;
+  } else if (type == EVP_PKEY_EC) {
+    tname = PEM_STRING_ECPARAMETERS;
+  } else {
+    return NULL;
+  }
+
+  bio = BIO_new_file (filename, "r");
+  if (bio != NULL) {
+    unsigned char *data = NULL;
+    char *name = NULL;
+    long length = 0;
+    int rc;
+
+    rc = PEM_bytes_read_bio (&data, &length, &name, tname, bio, NULL, NULL);
+    if (rc == 1) {
+      const unsigned char *p = data;
+      pkey = d2i_KeyParams (type, NULL, &p, length);
+      free (name);
+      free (data);
+    }
+    BIO_free (bio);
+  }
+
+  return pkey;
+}
+
 static int
 ssl_verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
 {
@@ -381,7 +491,6 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
     const gchar * ca_file, const gchar * ca_dir,
     const gchar * ciphers, gboolean tls1_enabled)
 {
-  BIO *bio;
   long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
       SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE |
       SSL_OP_CIPHER_SERVER_PREFERENCE;
@@ -408,6 +517,8 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
       SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
   if (file_exists (cert_file) && file_exists (key_file)) {
+    EVP_PKEY *params;
+
     if (SSL_CTX_use_certificate_file (ssl_ctx, cert_file,
             SSL_FILETYPE_PEM) <= 0) {
       GST_WARNING ("did not like the certificate: %s", cert_file);
@@ -423,67 +534,52 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
     }
 
     /* Configure DH parameters */
-    bio = BIO_new_file (cert_file, "r");
-    if (bio != NULL) {
-      EVP_PKEY *pkey = PEM_read_bio_Parameters (bio, NULL);
-      BIO_free (bio);
+    params = pkey_parameters_from_file (cert_file, EVP_PKEY_DH);
+    if (params == NULL) {
+      params = make_dh_params (cert_file);
+    }
 
-      if (pkey == NULL) {
-        pkey = make_dh_params (cert_file);
-      }
-
-      if (pkey != NULL) {
-#if (OPENSSL_VERSION_NUMBER < 0x30000000L)
-        const DH *dh = EVP_PKEY_get0_DH (pkey);
-        SSL_CTX_set_tmp_dh (ssl_ctx, dh);
-        EVP_PKEY_free (pkey);
-#else
-        if (SSL_CTX_set0_tmp_dh_pkey (ssl_ctx, pkey) != 1) {
-          EVP_PKEY_free (pkey);
-	}
-#endif
+    if (params != NULL) {
+      if (SSL_CTX_set0_tmp_dh_pkey (ssl_ctx, params) != 1) {
+        EVP_PKEY_free (params);
       }
     }
 
     /* Configure ECDH parameters */
-    bio = BIO_new_file (cert_file, "r");
-    if (bio != NULL) {
-      int nid = NID_X9_62_prime256v1;
-      EVP_PKEY *pkey = PEM_read_bio_Parameters (bio, NULL);
-      BIO_free (bio);
-
-      if (pkey != NULL) {
+    params = pkey_parameters_from_file (cert_file, EVP_PKEY_EC);
+    if (params != NULL) {
+      int nid = NID_undef;
 #if (OPENSSL_VERSION_NUMBER < 0x30000000L)
-        const EC_KEY *key = EVP_PKEY_get0_EC_KEY (pkey);
+      const EC_KEY *key = EVP_PKEY_get0_EC_KEY (params);
+      if (key != NULL) {
         const EC_GROUP *group = EC_KEY_get0_group (key);
         nid = EC_GROUP_get_curve_name (group);
+      }
 #else
       char *group;
       size_t len;
 
-      if (EVP_PKEY_get_group_name (pkey, NULL, 0, &len) == 1) {
+      if (EVP_PKEY_get_group_name (params, NULL, 0, &len) == 1) {
         group = OPENSSL_malloc (len + 1);
         if (group != NULL) {
-          if (EVP_PKEY_get_group_name (pkey, group, len + 1, &len) == 1) {
+          if (EVP_PKEY_get_group_name (params, group, len + 1, &len) == 1) {
             nid = OBJ_sn2nid (group);
           }
           OPENSSL_free (group);
         }
       }
-
 #endif
-        if (nid == NID_undef) {
-          nid = NID_X9_62_prime256v1;
-        }
 
-        EVP_PKEY_free (pkey);
+      if (nid != NID_undef) {
+        SSL_CTX_set1_curves (ssl_ctx, &nid, 1);
       }
 
-      SSL_CTX_set1_curves (ssl_ctx, &nid, 1);
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-      SSL_CTX_set_ecdh_auto (ssl_ctx, 1);
-#endif
+      EVP_PKEY_free (params);
     }
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    SSL_CTX_set_ecdh_auto (ssl_ctx, 1);
+#endif
 
     ERR_clear_error ();
   }
