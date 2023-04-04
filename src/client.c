@@ -1193,18 +1193,43 @@ client_handle_message (Client * client, RTMPMessage * msg)
         break;
       }
 
+      const guint8 flags = msg->buf->data[0];
+      const gint codec_tag = flags >> 4;
+      const gboolean is_aac = codec_tag == 10;
+      gboolean is_aac_codec_data = FALSE;
+
+      if (!client->audio_codec_data && is_aac) {
+        const guint8 aac_packet_type = msg->buf->data[1];
+        if (aac_packet_type == 0) {
+          is_aac_codec_data = TRUE;
+          GByteArray *codec_data = g_byte_array_new ();
+          g_byte_array_append (codec_data, msg->buf->data, msg->buf->len);
+          client->audio_codec_data = codec_data;
+        }
+      }
+
       GSList *subscribers =
           connections_get_subscribers (client->connections, client->path);
-      for (GSList *walk = subscribers; walk; walk = g_slist_next (walk)) {
+      for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
         Client *subscriber = (Client *) walk->data;
 
         ret = client_maybe_update_metadata (client, subscriber);
         if (ret != PEX_RTMP_SERVER_STATUS_OK)
           break;
 
-        ret = client_rtmp_send (subscriber, MSG_AUDIO,
-            subscriber->msg_stream_id, msg->buf,
-            msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
+        if (client->audio_codec_data && !subscriber->has_audio_codec_data) {
+          ret = client_rtmp_send (subscriber, MSG_AUDIO,
+              subscriber->msg_stream_id, client->audio_codec_data,
+              msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
+          subscriber->has_audio_codec_data = TRUE;
+        }
+
+        /* do not send duplicate audio codec-data */
+        if (!is_aac_codec_data) {
+          ret = client_rtmp_send (subscriber, MSG_AUDIO,
+              subscriber->msg_stream_id, msg->buf,
+              msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
+        }
       }
       client->new_metadata = FALSE;
       break;
@@ -2100,6 +2125,8 @@ client_free (Client * client)
     gst_structure_free (client->metadata);
   if (client->video_codec_data)
     g_byte_array_free (client->video_codec_data, TRUE);
+  if (client->audio_codec_data)
+    g_byte_array_free (client->audio_codec_data, TRUE);
 
   pex_rtmp_handshake_free (client->handshake);
 

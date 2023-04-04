@@ -110,6 +110,7 @@ struct _Client
   gboolean playing;             /* Wants to receive the stream? */
   gboolean has_key_frame;       /* Wants to receive and seen a keyframe */
   gboolean publisher;           /* Is this a publisher */
+  gboolean has_audio_codec_data; /* Audio Codec-Data has been sent */
 
   gboolean retry_connection;
 
@@ -135,6 +136,7 @@ struct _Client
 
   gboolean ssl_write_blocked_on_read;
   gboolean ssl_read_blocked_on_write;
+  GByteArray *audio_codec_data;
   GByteArray *video_codec_data;
 
   gboolean direct;
