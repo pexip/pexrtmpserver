@@ -6,7 +6,7 @@ pkgconf.set('includedir', '${prefix}/@0@'.format(get_option('includedir')))
 pkgconf.set('VERSION', meson.project_version())
 
 requires = ''
-if cc.get_id() == 'intel' and host_system != 'windows'
+if cc.get_id().startswith('intel') and host_system != 'windows'
   requires = 'openssl'
 endif
 pkgconf.set('REQUIRES', requires)
