@@ -23,9 +23,12 @@ rtmpserver_dep = declare_dependency(
   dependencies : [gstreamer_dep, utils_dep],
   include_directories : include_directories('.'))
 
-rtmpsrv = executable('rtmpsrv', 'main.c',
-  dependencies : [rtmpserver_dep, glib_dep],
-  install : true)
+host_system = host_machine.system()
+if host_system != 'windows' and not static_build
+  rtmpsrv = executable('rtmpsrv', 'main.c',
+    dependencies : [rtmpserver_dep, glib_dep],
+    install : true)
+endif
 
 gir_scanner = find_program('g-ir-scanner', required : false)
 if gir_scanner.found() and not meson.is_cross_build() and not static_build

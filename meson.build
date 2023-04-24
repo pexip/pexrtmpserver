@@ -9,7 +9,12 @@ gst_req = '>= 1.0.0'
 glib_req = '>= 2.40.0'
 
 glib_dep = dependency('glib-2.0', version : glib_req)
-gstreamer_dep = dependency('gstreamer-1.0', version : gst_req)
+static_build = get_option('default_library') == 'static'
+if static_build
+  gstreamer_dep = dependency('gstreamer-full-1.0', version : gst_req)
+else
+  gstreamer_dep = dependency('gstreamer-1.0', version : gst_req)
+endif
 gst_base_dep = dependency('gstreamer-base-1.0', version : gst_req)
 
 openssl_dep = dependency('openssl', version : '>= 1.0.1', required : false)
@@ -27,9 +32,11 @@ add_project_arguments('-DHAVE_CONFIG_H', language: 'c')
 
 install_dir = get_option('libdir')
 plugins_install_dir = '@0@/gstreamer-1.0'.format(install_dir)
-static_build = get_option('default_library') == 'static'
 
 rtmpserver_flags = ['-DPEX_RTMPSERVER_EXPORTS']
+if static_build
+  rtmpserver_flags += ['-DPEX_RTMPSERVER_STATIC_BUILD']
+endif
 
 # config.h generation
 config_h_inc = include_directories('.')
