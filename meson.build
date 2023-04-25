@@ -34,8 +34,10 @@ install_dir = get_option('libdir')
 plugins_install_dir = '@0@/gstreamer-1.0'.format(install_dir)
 
 rtmpserver_flags = ['-DPEX_RTMPSERVER_EXPORTS']
+rtmpserver_static_build = ''
 if static_build
-  rtmpserver_flags += ['-DPEX_RTMPSERVER_STATIC_BUILD']
+  rtmpserver_static_build = '-DPEX_RTMPSERVER_STATIC_BUILD'
+  rtmpserver_flags += [rtmpserver_static_build]
 endif
 
 # config.h generation
