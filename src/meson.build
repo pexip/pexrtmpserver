@@ -14,13 +14,13 @@ rtmpserver_lib = library('pexrtmpserver',
   rtmpserver_sources,
   c_args : rtmpserver_flags,
   include_directories : [config_h_inc],
-  dependencies : [gstreamer_dep, utils_dep],
+  dependencies : [gst_full_dep, utils_dep],
   install : true,
 )
 
 rtmpserver_dep = declare_dependency(
   link_with: rtmpserver_lib,
-  dependencies : [gstreamer_dep, utils_dep],
+  dependencies : [gst_full_dep, utils_dep],
   include_directories : include_directories('.'))
 
 host_system = host_machine.system()

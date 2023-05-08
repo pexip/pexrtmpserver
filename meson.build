@@ -11,11 +11,13 @@ glib_req = '>= 2.40.0'
 glib_dep = dependency('glib-2.0', version : glib_req)
 static_build = get_option('default_library') == 'static'
 if static_build
-  gstreamer_dep = dependency('gstreamer-full-1.0', version : gst_req)
+  gst_full_dep = dependency('gstreamer-full-1.0', version : gst_req)
 else
-  gstreamer_dep = dependency('gstreamer-1.0', version : gst_req)
+  gst_full_dep = [
+    dependency('gstreamer-1.0', version : gst_req),
+    dependency('gstreamer-base-1.0', version : gst_req)
+  ]
 endif
-gst_base_dep = dependency('gstreamer-base-1.0', version : gst_req)
 
 openssl_dep = dependency('openssl', version : '>= 1.0.1', required : false)
 if not openssl_dep.found()

@@ -23,7 +23,7 @@ install_headers(utils_headers, subdir : 'pexrtmpserver/utils')
 utils_lib = static_library('rtmpserver-utils',
   utils_sources,
   c_args : rtmpserver_flags,
-  dependencies : [gstreamer_dep, openssl_dep, winsock2_dep],
+  dependencies : [gst_full_dep, openssl_dep, winsock2_dep],
   install : false,
 )
 
