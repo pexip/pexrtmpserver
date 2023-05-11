@@ -7,7 +7,7 @@ rtmp_sources = [
 rtmpplugins = library('gstrtmpserverelements',
   rtmp_sources,
   include_directories : [config_h_inc],
-  dependencies : [rtmpserver_dep, gst_full_dep],
+  dependencies : [rtmpserver_dep, gst_base_dep],
   install : true,
   install_dir : plugins_install_dir,
 )
