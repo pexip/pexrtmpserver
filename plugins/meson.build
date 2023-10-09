@@ -11,3 +11,7 @@ rtmpplugins = library('gstrtmpserverelements',
   install : true,
   install_dir : plugins_install_dir,
 )
+
+pkgconfig = import('pkgconfig')
+pkgconfig.generate(rtmpplugins,
+  subdirs : 'pexrtmpserver')
