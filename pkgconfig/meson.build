@@ -12,6 +12,10 @@ if cc.get_id() == 'intel' and host_system != 'windows'
 endif
 pkgconf.set('REQUIRES', requires)
 
+if static_build
+  pkgconf.set('GSTRTMPSERVERELEMENTS', '-L${libdir}/gstreamer-1.0 -lgstrtmpserverelements')
+endif
+
 configure_file(
     input : 'libpexrtmpserver.pc.in',
     output: 'libpexrtmpserver.pc',

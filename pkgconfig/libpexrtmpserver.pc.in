@@ -7,5 +7,5 @@ Name: PexRtmpServer Library
 Description: RTMP server
 Requires: @REQUIRES@
 Version: @VERSION@
-Libs: -L${libdir} -lpexrtmpserver
+Libs: -L${libdir} -lpexrtmpserver @GSTRTMPSERVERELEMENTS@
 Cflags: -I${includedir}/pexrtmpserver @RTMPSERVER_STATIC_BUILD@
