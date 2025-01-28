@@ -7,7 +7,7 @@ pkgconf.set('VERSION', meson.project_version())
 pkgconf.set('RTMPSERVER_STATIC_BUILD', rtmpserver_static_build)
 
 requires = ''
-if cc.get_id() == 'intel' and host_system != 'windows'
+if cc.get_id().startswith('intel') and host_machine.system() != 'windows'
   requires = 'openssl'
 endif
 pkgconf.set('REQUIRES', requires)
