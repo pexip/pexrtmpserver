@@ -50,6 +50,8 @@ GST_DEBUG_CATEGORY (pex_rtmp_server_debug);
 #define DEFAULT_CHUNK_SIZE 128
 #define DEFAULT_TCP_SYNCNT -1
 
+#define CLIENT_ID_FAILURE -1
+
 enum
 {
   PROP_0,
@@ -177,6 +179,9 @@ rtmp_server_add_client_by_id (PexRtmpServer * srv, Client * client)
   g_hash_table_insert (srv->client_by_id,
       GINT_TO_POINTER (srv->client_id), client);
   srv->client_id++;
+  if (srv->client_id == CLIENT_ID_FAILURE){
+    srv->client_id++;
+  }
   g_mutex_unlock (&srv->client_by_id_lock);
 }
 
@@ -351,7 +356,7 @@ pex_rtmp_server_get_application_for_path (PexRtmpServer * srv, gchar * path,
   return app;
 }
 
-gboolean
+gint
 pex_rtmp_server_dialout (PexRtmpServer * srv,
     const gchar * src_path, const gchar * url, const gchar * addresses,
     gint src_port)
@@ -360,7 +365,7 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
       src_port);
 }
 
-gboolean
+gint
 pex_rtmp_server_dialin (PexRtmpServer * srv,
     const gchar * src_path, const gchar * url, const gchar * addresses,
     gint src_port)
@@ -566,12 +571,12 @@ rtmp_server_remove_client (PexRtmpServer * srv,
   g_free (path);
 }
 
-gboolean
+gint
 pex_rtmp_server_external_connect (PexRtmpServer * srv,
     const gchar * src_path, const gchar * url, const gchar * addresses,
     const gboolean is_publisher, gint src_port)
 {
-  gboolean ret = FALSE;
+  gint ret = -1;
 
   GST_DEBUG_OBJECT (srv, "Initiating an outgoing connection");
 
@@ -587,7 +592,7 @@ pex_rtmp_server_external_connect (PexRtmpServer * srv,
 
   /* add the client to the queue, waiting to be added */
   gst_atomic_queue_push (srv->pending_clients, client);
-  ret = TRUE;
+  ret = client->id;
 
 done:
   return ret;

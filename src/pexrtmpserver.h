@@ -46,15 +46,15 @@ PEX_RTMPSERVER_EXPORT
 gchar * pex_rtmp_server_get_application_for_path (PexRtmpServer * srv,
     gchar * path, gboolean is_publisher);
 PEX_RTMPSERVER_EXPORT
-gboolean pex_rtmp_server_dialout (PexRtmpServer * self,
+gint pex_rtmp_server_dialout (PexRtmpServer * self,
     const gchar * path, const gchar * url, const gchar * addresses,
     gint src_port);
 PEX_RTMPSERVER_EXPORT
-gboolean pex_rtmp_server_dialin (PexRtmpServer * self,
+gint pex_rtmp_server_dialin (PexRtmpServer * self,
     const gchar * path, const gchar * url, const gchar * addresses,
     gint src_port);
 PEX_RTMPSERVER_EXPORT
-gboolean pex_rtmp_server_external_connect (PexRtmpServer * self,
+gint pex_rtmp_server_external_connect (PexRtmpServer * self,
     const gchar * path, const gchar * url, const gchar * addresses,
     const gboolean is_publisher, gint src_port);
 
