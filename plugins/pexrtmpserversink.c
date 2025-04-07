@@ -134,9 +134,9 @@ pex_rtmp_server_sink_start (GstBaseSink * basesink)
     /* create a path to use between sink and server */
     sink->path = g_strdup ("pexpath");
 
-    gboolean ret = pex_rtmp_server_dialout (sink->server,
+    gint ret = pex_rtmp_server_dialout (sink->server,
         sink->path, sink->dialout_url, NULL, 23000);
-    if (!ret) {
+    if (ret == CLIENT_ID_FAILURE) {
       GST_ERROR_OBJECT (sink, "Could not dial out to %s", sink->dialout_url);
       return FALSE;
     }

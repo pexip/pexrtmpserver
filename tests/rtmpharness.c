@@ -666,7 +666,7 @@ rtmp_harness_wait_for_notified_subscribers (RTMPHarness * h, gint subscribers)
     g_usleep (G_USEC_PER_SEC / 100);
 }
 
-gboolean
+gint
 rtmp_harness_dialout (RTMPHarness * h_from, gint id_from,
     RTMPHarness * h_to, gint id_to, const gchar * protocol,
     const gchar * host, const gchar * ip)
@@ -683,14 +683,14 @@ rtmp_harness_dialout (RTMPHarness * h_from, gint id_from,
   gchar * publisher_url = rtmp_harness_get_publisher_url (h_to,
     s_to->path, protocol, port, host);
 
-  gboolean result = pex_rtmp_server_dialout (h_from->server, p_from->path, publisher_url, ip, 0);
+  gint result = pex_rtmp_server_dialout (h_from->server, p_from->path, publisher_url, ip, 0);
 
   g_free (publisher_url);
 
   return result;
 }
 
-gboolean
+gint
 rtmp_harness_dialin (RTMPHarness * h_from, gint id_from,
     RTMPHarness * h_to, gint id_to, const gchar * protocol,
     const gchar * host, const gchar * ip)
@@ -707,7 +707,7 @@ rtmp_harness_dialin (RTMPHarness * h_from, gint id_from,
   gchar * publisher_url = rtmp_harness_get_publisher_url (h_to,
     p_to->path, protocol, port, host);
 
-  gboolean result = pex_rtmp_server_dialin (h_from->server, s_from->path, publisher_url, ip, 0);
+  gint result = pex_rtmp_server_dialin (h_from->server, s_from->path, publisher_url, ip, 0);
 
   g_free (publisher_url);
 
