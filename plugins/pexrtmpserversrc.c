@@ -123,7 +123,7 @@ pex_rtmp_server_src_start (GstBaseSrc * basesrc)
 
     gint ret = pex_rtmp_server_dialin (src->server,
         src->path, src->dialin_url, NULL, 22000);
-    if (ret == -1) {
+    if (ret == CLIENT_ID_FAILURE) {
       GST_ERROR_OBJECT (src, "Could not dial out to %s", src->dialin_url);
       return FALSE;
     }
