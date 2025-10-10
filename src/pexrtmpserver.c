@@ -749,11 +749,15 @@ rtmp_server_do_poll (PexRtmpServer * srv)
     /* error */
     if (gst_poll_fd_has_closed (srv->fd_set, &client->gfd) ||
         gst_poll_fd_has_error (srv->fd_set, &client->gfd)) {
-      GST_WARNING_OBJECT (srv,
-          "poll error - removing client (client=%p, path=%s, publisher=%d)",
-           client, client->path, client->publisher);
-      rtmp_server_remove_client (srv, client, PEX_RTMP_SERVER_STATUS_FD_ERROR);
-      break;
+      if (gst_poll_fd_can_read (srv->fd_set, &client->gfd)) {
+        GST_WARNING ("Not removing client with unread data!");
+      } else {
+        GST_WARNING_OBJECT (srv,
+            "poll error - removing client (client=%p, path=%s, publisher=%d)",
+             client, client->path, client->publisher);
+        rtmp_server_remove_client (srv, client, PEX_RTMP_SERVER_STATUS_FD_ERROR);
+        break;
+      }
     }
   }
 
