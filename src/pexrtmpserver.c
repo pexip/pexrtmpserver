@@ -148,6 +148,29 @@ rtmp_server_should_emit_signal (PexRtmpServer * srv, gint fd, gboolean direct)
   return TRUE;
 }
 
+static void
+rtmp_server_update_client_path (const char * base_path, gpointer user_context)
+{
+  /* For paths with query parameters, we need to be able to set the "base" path of the client, back to match the PLAY path of the stream. */
+
+  if (base_path == NULL){
+    GST_ERROR("No base_path to update from!");
+    return;
+  }
+
+  Client * client = (Client *) user_context;
+  if (client == NULL){
+    GST_ERROR("No client to update!");
+    return;
+  }
+
+  GST_DEBUG ("Updating client path from '%s' to: '%s'", client->path, base_path);
+  /* Keep the original PATH around for the done signal! */
+  g_free (client->orig_path);
+  client->orig_path = client->path;
+  client->path = g_strdup (base_path);
+}
+
 static gboolean
 rtmp_server_notify_connection (GObject * server, Client * client)
 {
@@ -161,7 +184,7 @@ rtmp_server_notify_connection (GObject * server, Client * client)
 
   if (client->publisher) {
     g_signal_emit (srv, pex_rtmp_server_signals[SIGNAL_ON_PUBLISH],
-        0, client->id, client->path, &reject);
+        0, client->id, client->path, rtmp_server_update_client_path, client, &reject);
   } else {
     g_signal_emit (srv, pex_rtmp_server_signals[SIGNAL_ON_PLAY],
           0, client->id, client->path, &reject);
@@ -536,7 +559,7 @@ rtmp_server_remove_client (PexRtmpServer * srv,
     return;
   }
 
-  gchar *path = g_strdup (client->path);
+  gchar *path = g_strdup (client->orig_path ? client->orig_path : client->path);
   gboolean publisher = client->publisher;
   gboolean not_notified = client->not_notified;
   PexRtmpClientID client_id = client->id;
@@ -1206,7 +1229,7 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
   pex_rtmp_server_signals[SIGNAL_ON_PUBLISH] =
       g_signal_new ("on-publish", PEX_TYPE_RTMP_SERVER,
       G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_BOOLEAN, 2, G_TYPE_INT, G_TYPE_STRING);
+      G_TYPE_BOOLEAN, 4, G_TYPE_INT, G_TYPE_STRING, G_TYPE_POINTER, G_TYPE_POINTER);
 
   pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE] =
       g_signal_new ("on-publish-done", PEX_TYPE_RTMP_SERVER,

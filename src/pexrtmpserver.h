@@ -29,6 +29,8 @@ G_DECLARE_FINAL_TYPE (PexRtmpServer, pex_rtmp_server, PEX, RTMP_SERVER, GObject)
 
 #define CLIENT_ID_FAILURE -1
 
+typedef void (*PmxRtmpServerUpdateClientPath) (const char * base_path, gpointer user_context);
+
 PEX_RTMPSERVER_EXPORT
 PexRtmpServer * pex_rtmp_server_new (const gchar * application_name,
     gint port, gint ssl_port,
