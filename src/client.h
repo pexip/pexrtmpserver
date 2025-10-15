@@ -92,6 +92,7 @@ struct _Client
   gchar *remote_host;
 
   gchar *path;
+  gchar *params;
   gchar *dialout_path;
   gchar *url;
   gchar *addresses;

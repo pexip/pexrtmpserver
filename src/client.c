@@ -788,6 +788,14 @@ client_handle_publish (Client * client, gint txid, AmfDec * dec)
 
   client->publisher = TRUE;
   g_free (client->path);
+
+  gchar * tmp = NULL;
+  if ((tmp = strchr(path, '?')) != NULL) {
+    tmp[0] = '\0';
+    if (tmp[1] != '\0'){
+      client->params = g_strdup(&tmp[1]);
+    }
+  }
   client->path = path;
 
   gboolean reject_publish = client_notify_connection (client);
@@ -2100,6 +2108,7 @@ static void
 client_free (Client * client)
 {
   g_free (client->path);
+  g_free (client->params);
   g_free (client->url);
   g_free (client->addresses);
   g_free (client->protocol);
