@@ -811,7 +811,7 @@ client_handle_publish (Client * client, gint txid, AmfDec * dec)
       "level", G_TYPE_STRING, "status",
       "code", G_TYPE_STRING, "NetStream.Publish.Start",
       "description", G_TYPE_STRING, "Stream is now published.",
-      "details", G_TYPE_STRING, path,
+      "details", G_TYPE_STRING, client->path,
       NULL);
   ret = client_send_onstatus_message (client, status, CHUNK_STREAM_ID_RESULT);
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
@@ -2099,6 +2099,7 @@ client_new (GObject * server,
 static void
 client_free (Client * client)
 {
+  g_free (client->orig_path);
   g_free (client->path);
   g_free (client->url);
   g_free (client->addresses);

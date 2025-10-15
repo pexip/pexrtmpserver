@@ -91,6 +91,7 @@ struct _Client
   gint port;
   gchar *remote_host;
 
+  gchar *orig_path;
   gchar *path;
   gchar *dialout_path;
   gchar *url;
