@@ -161,10 +161,10 @@ rtmp_server_notify_connection (GObject * server, Client * client)
 
   if (client->publisher) {
     g_signal_emit (srv, pex_rtmp_server_signals[SIGNAL_ON_PUBLISH],
-        0, client->id, client->path, &reject);
+        0, client->id, client->path, client->params, &reject);
   } else {
     g_signal_emit (srv, pex_rtmp_server_signals[SIGNAL_ON_PLAY],
-          0, client->id, client->path, &reject);
+          0, client->id, client->path, client->params, &reject);
   }
 
   return reject;
@@ -537,6 +537,7 @@ rtmp_server_remove_client (PexRtmpServer * srv,
   }
 
   gchar *path = g_strdup (client->path);
+  gchar *params = g_strdup (client->params);
   gboolean publisher = client->publisher;
   gboolean not_notified = client->not_notified;
   PexRtmpClientID client_id = client->id;
@@ -545,10 +546,10 @@ rtmp_server_remove_client (PexRtmpServer * srv,
   if (srv->running && !not_notified) {
     if (publisher) {
       g_signal_emit (srv, pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE],
-          0, client_id, path, reason);
+          0, client_id, path, params, reason);
     } else {
       g_signal_emit (srv, pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE],
-          0, client_id, path, reason);
+          0, client_id, path, params, reason);
     }
   }
 
@@ -565,6 +566,7 @@ rtmp_server_remove_client (PexRtmpServer * srv,
   }
 
   g_free (path);
+  g_free (params);
 }
 
 gint
@@ -1196,22 +1198,22 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
   pex_rtmp_server_signals[SIGNAL_ON_PLAY] =
       g_signal_new ("on-play", PEX_TYPE_RTMP_SERVER,
       G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_BOOLEAN, 2, G_TYPE_INT, G_TYPE_STRING);
+      G_TYPE_BOOLEAN, 3, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING);
 
   pex_rtmp_server_signals[SIGNAL_ON_PLAY_DONE] =
       g_signal_new ("on-play-done", PEX_TYPE_RTMP_SERVER,
       G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_NONE, 3, G_TYPE_INT, G_TYPE_STRING, G_TYPE_UINT);
+      G_TYPE_NONE, 4, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_UINT);
 
   pex_rtmp_server_signals[SIGNAL_ON_PUBLISH] =
       g_signal_new ("on-publish", PEX_TYPE_RTMP_SERVER,
       G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_BOOLEAN, 2, G_TYPE_INT, G_TYPE_STRING);
+      G_TYPE_BOOLEAN, 3, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING);
 
   pex_rtmp_server_signals[SIGNAL_ON_PUBLISH_DONE] =
       g_signal_new ("on-publish-done", PEX_TYPE_RTMP_SERVER,
       G_SIGNAL_RUN_LAST, 0, NULL, NULL, g_cclosure_marshal_generic,
-      G_TYPE_NONE, 3, G_TYPE_INT, G_TYPE_STRING, G_TYPE_UINT);
+      G_TYPE_NONE, 4, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_UINT);
 
   pex_rtmp_server_signals[SIGNAL_ON_QUEUE_OVERFLOW] =
       g_signal_new ("on-queue-overflow", PEX_TYPE_RTMP_SERVER,
