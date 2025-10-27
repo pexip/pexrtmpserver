@@ -848,13 +848,19 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
     }
   }
 
-  if (srv->thread)
+  if (srv->thread){
     g_thread_join (srv->thread);
+    srv->thread = NULL;
+  }
 
-  if (srv->listen_fd > 0)
+  if (srv->listen_fd > 0){
     tcp_disconnect (srv->listen_fd);
-  if (srv->listen_ssl_fd > 0)
+    srv->listen_fd = 0;
+  }
+  if (srv->listen_ssl_fd > 0){
     tcp_disconnect (srv->listen_ssl_fd);
+    srv->listen_ssl_fd = 0;
+  }
 }
 
 void
