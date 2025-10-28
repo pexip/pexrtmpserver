@@ -845,6 +845,7 @@ pex_rtmp_server_stop (PexRtmpServer * srv)
     Client *client = gst_atomic_queue_pop (srv->connecting_clients);
     if (client->fd != INVALID_FD) {
       tcp_disconnect (client->fd);
+      client->fd = INVALID_FD;
     }
   }
 
