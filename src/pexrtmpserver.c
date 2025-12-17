@@ -49,6 +49,8 @@ GST_DEBUG_CATEGORY (pex_rtmp_server_debug);
 #define DEFAULT_STREAM_ID 1337
 #define DEFAULT_CHUNK_SIZE 128
 #define DEFAULT_TCP_SYNCNT -1
+/*We use a 10 second timeout everywhere else in infinity, so use that here too */
+#define DEFAULT_TCP_SYN_TIMEOUT_MS 10000
 
 enum
 {
@@ -357,8 +359,16 @@ pex_rtmp_server_dialout (PexRtmpServer * srv,
     const gchar * src_path, const gchar * url, const gchar * addresses,
     gint src_port)
 {
-  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, FALSE,
-      src_port);
+  return pex_rtmp_server_dialout_with_timeout (srv, src_path, url, addresses, src_port, 0);
+}
+
+gint
+pex_rtmp_server_dialout_with_timeout (PexRtmpServer * srv,
+    const gchar * src_path, const gchar * url, const gchar * addresses,
+    gint src_port, guint32 connect_timeout_ms)
+{
+  return pex_rtmp_server_external_connect_with_timeout (srv, src_path, url, addresses, FALSE,
+      src_port, connect_timeout_ms);
 }
 
 gint
@@ -366,8 +376,16 @@ pex_rtmp_server_dialin (PexRtmpServer * srv,
     const gchar * src_path, const gchar * url, const gchar * addresses,
     gint src_port)
 {
-  return pex_rtmp_server_external_connect (srv, src_path, url, addresses, TRUE,
-      src_port);
+  return pex_rtmp_server_dialin_with_timeout (srv, src_path, url, addresses, src_port, 0);
+}
+
+gint
+pex_rtmp_server_dialin_with_timeout (PexRtmpServer * srv,
+    const gchar * src_path, const gchar * url, const gchar * addresses,
+    gint src_port, guint32 connect_timeout_ms)
+{
+  return pex_rtmp_server_external_connect_with_timeout (srv, src_path, url, addresses, TRUE,
+      src_port, connect_timeout_ms);
 }
 
 gboolean
@@ -532,6 +550,8 @@ rtmp_server_remove_client (PexRtmpServer * srv,
     client->handshake_state = HANDSHAKE_START;
     client->state = CLIENT_TCP_HANDSHAKE_IN_PROGRESS;
     client->retry_connection = FALSE;
+    client->connect_timeout_ts = (client->connect_timeout_val_ms) ?
+      g_get_monotonic_time() + (client->connect_timeout_val_ms * (G_USEC_PER_SEC /1000)) : 0;
     gst_atomic_queue_push (srv->pending_clients, client);
     return;
   }
@@ -574,11 +594,26 @@ pex_rtmp_server_external_connect (PexRtmpServer * srv,
     const gchar * src_path, const gchar * url, const gchar * addresses,
     const gboolean is_publisher, gint src_port)
 {
+  return pex_rtmp_server_external_connect_with_timeout (srv, src_path, url, addresses, is_publisher, src_port, 0);
+}
+
+gint
+pex_rtmp_server_external_connect_with_timeout (PexRtmpServer * srv,
+    const gchar * src_path, const gchar * url, const gchar * addresses,
+    const gboolean is_publisher, gint src_port, guint32 connect_timeout_ms)
+{
   gint ret = CLIENT_ID_FAILURE;
 
   GST_DEBUG_OBJECT (srv, "Initiating an outgoing connection");
 
   Client *client = rtmp_server_client_new (srv);
+
+  client->connect_timeout_val_ms = (connect_timeout_ms == 0) ? DEFAULT_TCP_SYN_TIMEOUT_MS : connect_timeout_ms;
+  client->connect_timeout_ts = g_get_monotonic_time() + (client->connect_timeout_val_ms * (G_USEC_PER_SEC /1000));
+  GST_DEBUG ("Using %s connect timeout of %ums, timeout_timestamp:%"G_GUINT64_FORMAT, 
+    (connect_timeout_ms == 0) ? "default" : "configured",
+    client->connect_timeout_val_ms,
+    client->connect_timeout_ts);
 
   if (!client_add_external_connect (client, is_publisher,
       src_path, url, addresses, src_port, srv->tcp_syncnt)) {
@@ -758,6 +793,16 @@ rtmp_server_do_poll (PexRtmpServer * srv)
             "poll error - removing client (client=%p, path=%s, publisher=%d)",
              client, client->path, client->publisher);
         rtmp_server_remove_client (srv, client, PEX_RTMP_SERVER_STATUS_FD_ERROR);
+        break;
+      }
+    }
+
+    if (client->state == CLIENT_TCP_HANDSHAKE_IN_PROGRESS && client->connect_timeout_ts > 0) {
+      if (g_get_monotonic_time() >= client->connect_timeout_ts) {
+        GST_WARNING_OBJECT (srv,
+            "client TCP handshake timeout after %ums (client=%p, path=%s, publisher=%d)", 
+            client->connect_timeout_val_ms, client, client->path, client->publisher);
+        rtmp_server_remove_client (srv, client, PEX_RTMP_SERVER_STATUS_TCP_HANDSHAKE_FAILED);
         break;
       }
     }

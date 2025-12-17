@@ -1989,12 +1989,18 @@ client_tcp_connect (Client * client)
   for (address = addressv; *address; address++) {
     GST_INFO_OBJECT (client->server, "Trying to connect to %s:%d, from port %d",
         *address, client->port, client->src_port);
+    gboolean in_progress = FALSE;
     tcp_connect (&client->fd, *address, client->port, client->src_port,
-        client->tcp_syncnt);
+        client->tcp_syncnt, &in_progress);
     if (client->fd != INVALID_FD) {
       GST_INFO_OBJECT (client->server,
-          "Connected to %s:%d from port %d with fd %d", *address,
+          "%s to %s:%d from port %d with fd %d",
+          in_progress ? "Attempting non-blocking connect" : "Connected",
+          *address,
           client->port, client->src_port, client->fd);
+      if (in_progress == FALSE) {
+        client->connect_timeout_ts = 0;
+      }
       ret = TRUE;
       break;
     }
