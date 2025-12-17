@@ -144,9 +144,14 @@ _create_socket (const struct addrinfo * ai)
 
 gboolean
 tcp_connect (gint * fd, const gchar * ip,
-    gint port, gint src_port, gint tcp_syncnt)
+    gint port, gint src_port, gint tcp_syncnt, gboolean * in_progress)
 {
   struct addrinfo *result = NULL;
+
+  if (in_progress) {
+    *in_progress = FALSE;
+  }
+
   int ret = tcp_getaddrinfo (ip, port, AF_UNSPEC, 0, &result);
   if (ret != 0) {
     *fd = INVALID_FD;
@@ -230,16 +235,25 @@ tcp_connect (gint * fd, const gchar * ip,
   if (ret == SOCKET_ERROR) {
     gint err = WSAGetLastError ();
     if (err == WSAEWOULDBLOCK) {
+      if (in_progress) {
+        *in_progress = TRUE;
+      }
       ret = 0;
     }
   }
 #endif /* _MSC_VER */
 
-  if (ret != 0 && errno != EINPROGRESS) {
-    GST_WARNING ("could not connect on port %d: %s", port, g_strerror (errno));
-    _close_socket (*fd);
-    *fd = INVALID_FD;
-    goto done;
+  if (ret != 0) {
+    if (errno == EINPROGRESS) {
+      if (in_progress) {
+        *in_progress = TRUE;
+      }
+    } else {
+      GST_WARNING ("could not connect on port %d: %s", port, g_strerror (errno));
+      _close_socket (*fd);
+      *fd = INVALID_FD;
+      goto done;      
+    }
   }
 
 done:

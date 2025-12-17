@@ -75,6 +75,9 @@ struct _Client
   gboolean disconnect;
   gboolean not_notified;
 
+  guint32 connect_timeout_val_ms;
+  gint64 connect_timeout_ts;
+
   ClientConnectionState state;
   gboolean use_ssl;
 

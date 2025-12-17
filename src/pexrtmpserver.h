@@ -52,13 +52,25 @@ gint pex_rtmp_server_dialout (PexRtmpServer * self,
     const gchar * path, const gchar * url, const gchar * addresses,
     gint src_port);
 PEX_RTMPSERVER_EXPORT
+gint pex_rtmp_server_dialout_with_timeout (PexRtmpServer * self,
+    const gchar * path, const gchar * url, const gchar * addresses,
+    gint src_port, guint32 connect_timeout_ms);
+PEX_RTMPSERVER_EXPORT
 gint pex_rtmp_server_dialin (PexRtmpServer * self,
     const gchar * path, const gchar * url, const gchar * addresses,
     gint src_port);
 PEX_RTMPSERVER_EXPORT
+gint pex_rtmp_server_dialin_with_timeout (PexRtmpServer * self,
+    const gchar * path, const gchar * url, const gchar * addresses,
+    gint src_port, guint32 connect_timeout_ms);
+PEX_RTMPSERVER_EXPORT
 gint pex_rtmp_server_external_connect (PexRtmpServer * self,
     const gchar * path, const gchar * url, const gchar * addresses,
     const gboolean is_publisher, gint src_port);
+PEX_RTMPSERVER_EXPORT
+gint pex_rtmp_server_external_connect_with_timeout (PexRtmpServer * self,
+    const gchar * path, const gchar * url, const gchar * addresses,
+    const gboolean is_publisher, gint src_port, guint32 connect_timeout_ms);
 
 PEX_RTMPSERVER_EXPORT
 gboolean pex_rtmp_server_disconnect_client (PexRtmpServer * srv,

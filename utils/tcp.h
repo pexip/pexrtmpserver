@@ -36,7 +36,7 @@
 
 PEX_RTMPSERVER_EXPORT
 gboolean tcp_connect (gint * fd, const gchar * ip,
-    gint port, gint src_port, gint tcp_syncnt);
+    gint port, gint src_port, gint tcp_syncnt, gboolean * in_progress);
 PEX_RTMPSERVER_EXPORT
 gint tcp_listen (gint port);
 PEX_RTMPSERVER_EXPORT
