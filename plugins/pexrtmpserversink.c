@@ -149,7 +149,11 @@ pex_rtmp_server_sink_start (GstBaseSink * basesink)
       return FALSE;
   }
 
-  pex_rtmp_server_add_direct_publisher (sink->server, sink->path);
+  if (!pex_rtmp_server_add_direct_publisher (sink->server, sink->path)) {
+    GST_ERROR_OBJECT (sink, "Could not add direct publisher for path %s",
+        sink->path);
+    return FALSE;
+  }
 
   sink->first = TRUE;
 
