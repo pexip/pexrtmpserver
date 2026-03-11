@@ -549,12 +549,13 @@ rtmp_server_remove_client (PexRtmpServer * srv,
   }
 
   if (client->added_to_fd_table) {
+    gst_poll_remove_fd (srv->fd_set, &client->gfd);
+    client->added_to_fd_table = FALSE;
+
     if (client->fd != INVALID_FD) {
-      gst_poll_remove_fd (srv->fd_set, &client->gfd);
       tcp_disconnect (client->fd);
       client->fd = INVALID_FD;
     }
-    client->added_to_fd_table = FALSE;
   }
 
   if (client->path) {
