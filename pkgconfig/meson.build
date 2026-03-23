@@ -1,5 +1,5 @@
 pkgconf = configuration_data()
-pkgconf.set('prefix', '${prefix}/../..')
+pkgconf.set('prefix', '${pcfiledir}/../..')
 pkgconf.set('exec_prefix', '${prefix}')
 pkgconf.set('libdir', '${prefix}/@0@'.format(get_option('libdir')))
 pkgconf.set('includedir', '${prefix}/@0@'.format(get_option('includedir')))
