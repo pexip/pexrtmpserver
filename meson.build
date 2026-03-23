@@ -3,6 +3,7 @@ project('pexrtmpserver', 'c',
     meson_version : '>= 0.46.0',
     default_options: 'c_std=gnu99')
 
+host_system = host_machine.system()
 cc = meson.get_compiler('c')
 version = meson.project_version()
 gst_req = '>= 1.0.0'
@@ -29,6 +30,10 @@ if not openssl_dep.found()
 endif
 
 winsock2_dep = cc.find_library('ws2_32', required : false)
+if host_system == 'windows'
+  crypt32_dep = cc.find_library('Crypt32', required : false)
+  openssl_dep = declare_dependency(dependencies : [openssl_dep, crypt32_dep])
+endif
 
 add_project_arguments('-DHAVE_CONFIG_H', language: 'c')
 
