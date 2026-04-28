@@ -1293,3 +1293,21 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
   GST_DEBUG_CATEGORY_INIT (pex_rtmp_server_debug, "pexrtmpserver", 0,
       "pexrtmpserver");
 }
+
+gint pex_rtmp_server_get_port(const PexRtmpServer * srv)
+{
+  gint port;
+  if (tcp_get_listen_port(srv->listen_fd, &port) == 0) {
+    return port;
+  }
+  return -1;
+}
+
+gint pex_rtmp_server_get_ssl_port(const PexRtmpServer * srv)
+{
+  gint port;
+  if (tcp_get_listen_port(srv->listen_ssl_fd, &port) == 0) {
+    return port;
+  }
+  return -1;
+}
