@@ -373,3 +373,28 @@ tcp_is_localhost (gint fd)
 
   return is_localhost;
 }
+
+gint tcp_get_listen_port (const gint fd, gint *port)
+{
+  struct sockaddr_storage address;
+  socklen_t address_len = sizeof (address);
+
+  const int result = getsockname(fd, (struct sockaddr *)&address, &address_len);
+  if (result != 0) {
+    return result;
+  }
+  uint16_t listen_port;
+  switch (address.ss_family) {
+    case AF_INET:
+      listen_port = ((struct sockaddr_in *)&address)->sin_port;
+      break;
+    case AF_INET6:
+      listen_port = ((struct sockaddr_in6 *)&address)->sin6_port;
+      break;
+    default:
+      GST_WARNING ("Cannot get port for family %d", address.ss_family);
+      return -2;
+  }
+  *port = ntohs(listen_port);
+  return result;
+}
