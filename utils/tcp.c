@@ -307,6 +307,19 @@ tcp_listen (gint port)
   }
 
   listen (fd, 10);
+  // Get the actual port we are listening on if using a dynamic port
+  if (port == 0) {
+    gint listen_port;
+    switch (tcp_get_listen_port(fd, &listen_port)) {
+      case 0:
+        port = listen_port;
+        break;
+      case -1:
+        GST_WARNING ("Unable to get listen port: %s", get_error_msg ());
+      default:
+        break;
+    }
+  }
   GST_DEBUG ("Listening on port %d with fd %d", port, fd);
 
 done:
