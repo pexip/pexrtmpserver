@@ -306,7 +306,14 @@ tcp_listen (gint port)
     goto done;
   }
 
-  listen (fd, 10);
+  if (listen (fd, 10) != 0) {
+    GST_WARNING ("Unable to listen to port %d: %s",
+        port, strerror (errno));
+    _close_socket (fd);
+    fd = INVALID_FD;
+    goto done;
+  }
+
   // Get the actual port we are listening on if using a dynamic port
   if (port == 0) {
     gint listen_port;
