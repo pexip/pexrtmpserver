@@ -116,7 +116,7 @@ tcp_getaddrinfo (const gchar * ip, gint port,
   hints.ai_flags = ai_flags;
 
   gchar *port_str = NULL;
-  if (port > 0) {
+  if (port >= 0) {
     port_str = g_strdup_printf ("%d", port);
     hints.ai_flags |= AI_NUMERICSERV;
   }
