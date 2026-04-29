@@ -99,10 +99,10 @@ PEX_RTMPSERVER_EXPORT
 void pex_rtmp_server_flush_subscribe (PexRtmpServer * srv, const gchar * path);
 
 PEX_RTMPSERVER_EXPORT
-gint pex_rtmp_server_get_port(const PexRtmpServer * srv);
+gint pex_rtmp_server_get_port (const PexRtmpServer * srv);
 
 PEX_RTMPSERVER_EXPORT
-gint pex_rtmp_server_get_ssl_port(const PexRtmpServer * srv);
+gint pex_rtmp_server_get_ssl_port (const PexRtmpServer * srv);
 
 
 #endif /* __PEX_RTMP_SERVER_H__ */
