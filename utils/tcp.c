@@ -389,7 +389,7 @@ tcp_is_localhost (gint fd)
 gboolean
 tcp_get_listen_port (gint fd, gint *port)
 {
-  if (G_UNLIKELY (!port)) {
+  if (G_UNLIKELY (!port || fd == INVALID_FD)) {
     errno = EINVAL;
     return FALSE;
   }

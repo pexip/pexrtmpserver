@@ -980,6 +980,8 @@ pex_rtmp_server_init (PexRtmpServer * srv)
   srv->thread = NULL;
 
   srv->fd_set = gst_poll_new (TRUE);
+  srv->listen_fd = INVALID_FD;
+  srv->listen_ssl_fd = INVALID_FD;
 
   srv->connections = connections_new ();
   srv->pending_clients = gst_atomic_queue_new (0);
