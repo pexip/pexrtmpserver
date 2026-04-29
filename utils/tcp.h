@@ -51,6 +51,6 @@ void tcp_set_nonblock (gint fd, gboolean enabled);
 PEX_RTMPSERVER_EXPORT
 gboolean tcp_is_localhost (gint fd);
 
-gint tcp_get_listen_port(gint fd, gint* port);
+gint tcp_get_listen_port (gint fd, gint* port);
 
 #endif /* __TCP_H__ */
