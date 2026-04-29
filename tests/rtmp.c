@@ -1147,6 +1147,94 @@ GST_START_TEST(rtmp_window_size)
 }
 GST_END_TEST;
 
+GST_START_TEST(rtmp_server_get_port_dynamic)
+{
+  /* port=0 asks the kernel to pick a free port; ssl_port=-1 means "don't listen on SSL" */
+  PexRtmpServer * server = pex_rtmp_server_new ("pexip",
+      0, -1, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+  fail_unless (pex_rtmp_server_start (server));
+
+  /* the kernel should have assigned a real, non-zero port */
+  gint port = pex_rtmp_server_get_port (server);
+  fail_if (port == INVALID_PORT);
+  fail_if (port == 0);
+  fail_unless (port > 0 && port <= G_MAXUINT16);
+
+  /* SSL was disabled (-1), so we should get INVALID_PORT back */
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_ssl_port (server));
+
+  pex_rtmp_server_stop (server);
+  pex_rtmp_server_free (server);
+}
+GST_END_TEST;
+
+GST_START_TEST(rtmp_server_get_ssl_port_dynamic)
+{
+  /* mirror of the above, but for the SSL listener */
+  PexRtmpServer * server = pex_rtmp_server_new ("pexip",
+      -1, 0, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+  fail_unless (pex_rtmp_server_start (server));
+
+  gint ssl_port = pex_rtmp_server_get_ssl_port (server);
+  fail_if (ssl_port == INVALID_PORT);
+  fail_if (ssl_port == 0);
+  fail_unless (ssl_port > 0 && ssl_port <= G_MAXUINT16);
+
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_port (server));
+
+  pex_rtmp_server_stop (server);
+  pex_rtmp_server_free (server);
+}
+GST_END_TEST;
+
+GST_START_TEST(rtmp_server_get_port_dynamic_both)
+{
+  /* both listeners on dynamic ports - they must end up different */
+  PexRtmpServer * server = pex_rtmp_server_new ("pexip",
+      0, 0, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+  fail_unless (pex_rtmp_server_start (server));
+
+  gint port = pex_rtmp_server_get_port (server);
+  gint ssl_port = pex_rtmp_server_get_ssl_port (server);
+
+  fail_if (port == INVALID_PORT);
+  fail_if (ssl_port == INVALID_PORT);
+  fail_if (port == ssl_port);
+
+  pex_rtmp_server_stop (server);
+  pex_rtmp_server_free (server);
+}
+GST_END_TEST;
+
+GST_START_TEST(rtmp_server_get_port_unset)
+{
+  /* -1 means "no listener" for both - getters should report INVALID_PORT */
+  PexRtmpServer * server = pex_rtmp_server_new ("pexip",
+      -1, -1, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+  fail_unless (pex_rtmp_server_start (server));
+
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_port (server));
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_ssl_port (server));
+
+  pex_rtmp_server_stop (server);
+  pex_rtmp_server_free (server);
+}
+GST_END_TEST;
+
+GST_START_TEST(rtmp_server_get_port_before_start)
+{
+  /* before start() there is no bound socket, so the getters must not crash
+   * and must return INVALID_PORT */
+  PexRtmpServer * server = pex_rtmp_server_new ("pexip",
+      0, 0, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_port (server));
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_ssl_port (server));
+
+  pex_rtmp_server_free (server);
+}
+GST_END_TEST;
+
 GST_START_TEST(rtmp_server_notifications)
 {
   RTMPHarness * h = rtmp_harness_new ("live");
@@ -1989,9 +2077,14 @@ rtmp_suite (void)
   tcase_add_test (tc_chain, rtmp_amf_dec_fuzzing);
 
   tcase_add_test (tc_chain, rtmp_window_size);
-  (void)rtmp_server_notifications;
-  //tcase_add_test (tc_chain, rtmp_server_notifications);
 
+  tcase_add_test (tc_chain, rtmp_server_get_port_dynamic);
+  tcase_add_test (tc_chain, rtmp_server_get_ssl_port_dynamic);
+  tcase_add_test (tc_chain, rtmp_server_get_port_dynamic_both);
+  tcase_add_test (tc_chain, rtmp_server_get_port_unset);
+  tcase_add_test (tc_chain, rtmp_server_get_port_before_start);
+
+  tcase_skip_broken_test (tc_chain, rtmp_server_notifications);
   tcase_add_test (tc_chain, rtmp_server_url_parse);
   tcase_add_test (tc_chain, rtmp_server_dialin);
   tcase_add_test (tc_chain, rtmp_server_dialin_and_dialout);
