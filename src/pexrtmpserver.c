@@ -36,9 +36,11 @@
 GST_DEBUG_CATEGORY (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
 
-#define DEFAULT_APPLICATION_NAME ""
+#define MAX_PORT G_MAXUINT16
 #define DEFAULT_PORT 1935
 #define DEFAULT_SSL_PORT 443
+
+#define DEFAULT_APPLICATION_NAME ""
 #define DEFAULT_CERT_FILE ""
 #define DEFAULT_KEY_FILE ""
 #define DEFAULT_TLS1_ENABLED FALSE
