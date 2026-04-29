@@ -389,6 +389,11 @@ tcp_is_localhost (gint fd)
 gboolean
 tcp_get_listen_port (gint fd, gint *port)
 {
+  if (G_UNLIKELY (!port)) {
+    errno = EINVAL;
+    return FALSE;
+  }
+
   struct sockaddr_storage address;
   socklen_t address_len = sizeof (address);
 
