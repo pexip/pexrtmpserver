@@ -1298,18 +1298,14 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
 
 gint pex_rtmp_server_get_port(const PexRtmpServer * srv)
 {
-  gint port;
-  if (tcp_get_listen_port(srv->listen_fd, &port) == 0) {
-    return port;
-  }
-  return INVALID_PORT;
+  gint port = INVALID_PORT;
+  tcp_get_listen_port (srv->listen_fd, &port);
+  return port;
 }
 
 gint pex_rtmp_server_get_ssl_port(const PexRtmpServer * srv)
 {
-  gint port;
-  if (tcp_get_listen_port(srv->listen_ssl_fd, &port) == 0) {
-    return port;
-  }
-  return INVALID_PORT;
+  gint port = INVALID_PORT;
+  tcp_get_listen_port (srv->listen_ssl_fd, &port);
+  return port;
 }

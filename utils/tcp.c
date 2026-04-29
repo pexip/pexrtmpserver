@@ -315,14 +315,8 @@ tcp_listen (gint port)
   // Get the actual port we are listening on if using a dynamic port
   if (port == DYNAMIC_PORT) {
     gint listen_port;
-    switch (tcp_get_listen_port(fd, &listen_port)) {
-      case 0:
+    if (tcp_get_listen_port (fd, &listen_port)) == 0) {
         port = listen_port;
-        break;
-      case -1:
-        GST_WARNING ("Unable to get listen port: %s", get_error_msg ());
-      default:
-        break;
     }
   }
   GST_DEBUG ("Listening on port %d with fd %d", port, fd);
@@ -388,27 +382,27 @@ tcp_is_localhost (gint fd)
   }
 }
 
-gint tcp_get_listen_port (const gint fd, gint *port)
+gboolean
+tcp_get_listen_port (gint fd, gint *port)
 {
   struct sockaddr_storage address;
   socklen_t address_len = sizeof (address);
 
-  const int result = getsockname(fd, (struct sockaddr *)&address, &address_len);
-  if (result != 0) {
-    return result;
+  if (getsockname (fd, (struct sockaddr *) &address, &address_len) != 0) {
+    GST_WARNING ("getsockname failed: %s", strerror (errno));
+    return FALSE;
   }
-  uint16_t listen_port;
+
   switch (address.ss_family) {
     case AF_INET:
-      listen_port = ((struct sockaddr_in *)&address)->sin_port;
-      break;
+      *port = ntohs (((struct sockaddr_in *) &address)->sin_port);
+      return TRUE;
     case AF_INET6:
-      listen_port = ((struct sockaddr_in6 *)&address)->sin6_port;
-      break;
+      *port = ntohs (((struct sockaddr_in6 *) &address)->sin6_port);
+      return TRUE;
     default:
-      GST_WARNING ("Cannot get port for family %d", address.ss_family);
-      return -2;
+      GST_WARNING ("Cannot get port for address family %d", address.ss_family);
+      errno = EAFNOSUPPORT;
+      return FALSE;
   }
-  *port = ntohs(listen_port);
-  return result;
 }
