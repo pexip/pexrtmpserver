@@ -32,6 +32,9 @@
 #  define PEX_RTMPSERVER_EXPORT extern
 #endif
 
+#define INVALID_PORT -1
+#define DYNAMIC_PORT 0
+
 #define INVALID_FD -1
 
 PEX_RTMPSERVER_EXPORT

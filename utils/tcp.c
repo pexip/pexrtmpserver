@@ -299,23 +299,21 @@ tcp_listen (gint port)
     GST_WARNING ("Could not turn off IPV6_V6ONLY: %s", get_error_msg ());
 
   if (bind (fd, result->ai_addr, (int)result->ai_addrlen) < 0) {
-    GST_WARNING ("Unable to listen to port %d: %s",
-        port, strerror (errno));
+    GST_WARNING ("Unable to bind to port %d: %s", port, strerror (errno));
     _close_socket (fd);
     fd = INVALID_FD;
     goto done;
   }
 
   if (listen (fd, 10) != 0) {
-    GST_WARNING ("Unable to listen to port %d: %s",
-        port, strerror (errno));
+    GST_WARNING ("Unable to listen to port %d: %s", port, strerror (errno));
     _close_socket (fd);
     fd = INVALID_FD;
     goto done;
   }
 
   // Get the actual port we are listening on if using a dynamic port
-  if (port == 0) {
+  if (port == DYNAMIC_PORT) {
     gint listen_port;
     switch (tcp_get_listen_port(fd, &listen_port)) {
       case 0:
