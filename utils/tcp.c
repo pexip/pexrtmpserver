@@ -314,10 +314,14 @@ tcp_listen (gint port)
 
   // Get the actual port we are listening on if using a dynamic port
   if (port == DYNAMIC_PORT) {
-    gint listen_port;
-    if (tcp_get_listen_port (fd, &listen_port)) == 0) {
-        port = listen_port;
+    gint listen_port = INVALID_PORT;
+    if (!tcp_get_listen_port (fd, &listen_port)) {
+      GST_WARNING ("Unable to get listen port: %s", strerror (errno));
+      _close_socket (fd);
+      fd = INVALID_FD;
+      goto done;
     }
+    port = listen_port;
   }
   GST_DEBUG ("Listening on port %d with fd %d", port, fd);
 
