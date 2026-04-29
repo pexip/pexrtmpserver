@@ -2039,6 +2039,168 @@ GST_START_TEST(rtmpsink_start_stop_start)
 }
 GST_END_TEST;
 
+GST_START_TEST (rtmp_tcp_get_listen_port_null_port)
+{
+  /* Passing NULL as the out-param is rejected with errno=EINVAL.
+   * fd value is irrelevant - we should bail out before touching it. */
+  errno = 0;
+  fail_if (tcp_get_listen_port (-1, NULL));
+  fail_unless_equals_int (EINVAL, errno);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_not_a_socket)
+{
+  /* A valid fd that is not a socket -> getsockname returns ENOTSOCK. */
+  gint fd = open ("/dev/null", O_RDONLY);
+  fail_if (fd < 0);
+
+  gint port = 12345;
+  errno = 0;
+  fail_if (tcp_get_listen_port (fd, &port));
+  fail_unless_equals_int (ENOTSOCK, errno);
+  fail_unless_equals_int (12345, port);
+
+  close (fd);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_unsupported_family)
+{
+  /* A bound UNIX-domain socket has AF_UNIX, which the function explicitly
+   * rejects with EAFNOSUPPORT. This pins the default-branch contract. */
+  gint fd = socket (AF_UNIX, SOCK_STREAM, 0);
+  fail_if (fd < 0);
+
+  /* bind to an autobind abstract address so we don't touch the filesystem
+   * (Linux-specific). On non-Linux, skip this test. */
+#ifdef __linux__
+  struct sockaddr_un addr = { 0 };
+  addr.sun_family = AF_UNIX;
+  /* abstract namespace: leading NUL */
+  fail_if (bind (fd, (struct sockaddr *) &addr, sizeof (sa_family_t)) != 0);
+
+  gint port = 12345;
+  errno = 0;
+  fail_if (tcp_get_listen_port (fd, &port));
+  fail_unless_equals_int (EAFNOSUPPORT, errno);
+  fail_unless_equals_int (12345, port);
+#endif
+
+  close (fd);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_ipv4)
+{
+  /* Explicit IPv4 path: bind to 127.0.0.1:0 and verify we read back the
+   * kernel-assigned port. */
+  gint fd = socket (AF_INET, SOCK_STREAM, 0);
+  fail_if (fd < 0);
+
+  struct sockaddr_in addr = { 0 };
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+  addr.sin_port = 0;
+  fail_if (bind (fd, (struct sockaddr *) &addr, sizeof (addr)) != 0);
+
+  gint port = 0;
+  fail_unless (tcp_get_listen_port (fd, &port));
+  fail_if (port == 0);
+  fail_unless (port > 0 && port <= G_MAXUINT16);
+
+  close (fd);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_ipv6)
+{
+  /* Explicit IPv6 path: this is the bug the sockaddr_storage refactor
+   * actually fixed - sockaddr was too small for sockaddr_in6. */
+  gint fd = socket (AF_INET6, SOCK_STREAM, 0);
+  if (fd < 0)
+    return;                     /* IPv6 not available in this environment - skip */
+
+  struct sockaddr_in6 addr = { 0 };
+  addr.sin6_family = AF_INET6;
+  addr.sin6_addr = in6addr_loopback;
+  addr.sin6_port = 0;
+  fail_if (bind (fd, (struct sockaddr *) &addr, sizeof (addr)) != 0);
+
+  gint port = 0;
+  fail_unless (tcp_get_listen_port (fd, &port));
+  fail_if (port == 0);
+  fail_unless (port > 0 && port <= G_MAXUINT16);
+
+  close (fd);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_unbound_socket)
+{
+  /* A socket() that has not been bind()ed yet: on Linux this returns
+   * a sockaddr with port 0 and succeeds. The point of this test is to
+   * document the behavior so a future refactor doesn't change it silently. */
+  gint fd = socket (AF_INET, SOCK_STREAM, 0);
+  fail_if (fd < 0);
+
+  gint port = -1;
+  fail_unless (tcp_get_listen_port (fd, &port));
+  fail_unless_equals_int (0, port);
+
+  close (fd);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_invalid_fd)
+{
+  /* INVALID_FD is the documented "no listener" sentinel. Passing it must be
+   * rejected with EINVAL before any getsockname() call, and must leave the
+   * caller's port value untouched. */
+  gint port = 12345;            /* sentinel */
+  errno = 0;
+  fail_if (tcp_get_listen_port (INVALID_FD, &port));
+  fail_unless_equals_int (EINVAL, errno);
+  fail_unless_equals_int (12345, port);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_invalid_fd_and_null_port)
+{
+  /* Both inputs invalid: still EINVAL, still no crash. Pins down that the
+   * NULL-port and INVALID_FD checks are combined into a single guard and
+   * neither is dependent on the other. */
+  errno = 0;
+  fail_if (tcp_get_listen_port (INVALID_FD, NULL));
+  fail_unless_equals_int (EINVAL, errno);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_closed_fd)
+{
+  /* A closed (but not INVALID_FD) descriptor: should reach getsockname()
+   * and fail with EBADF. */
+  gint fd = socket (AF_INET, SOCK_STREAM, 0);
+  fail_if (fd < 0);
+  close (fd);
+
+  gint port = 12345;
+  errno = 0;
+  fail_if (tcp_get_listen_port (fd, &port));
+  fail_unless_equals_int (EBADF, errno);
+  fail_unless_equals_int (12345, port);
+}
+
+GST_END_TEST;
+
 static Suite *
 rtmp_suite (void)
 {
@@ -2114,6 +2276,17 @@ rtmp_suite (void)
   tcase_add_test (tc_chain, rtmp_unlock_sink_bug5054);
   tcase_add_test (tc_chain, rtmp_unlock_src);
   tcase_add_test (tc_chain, rtmpsink_start_stop_start);
+
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_null_port);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_not_a_socket);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_unsupported_family);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_ipv4);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_ipv6);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_unbound_socket);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_invalid_fd);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_invalid_fd_and_null_port);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_closed_fd);
+
   return s;
 }
 
