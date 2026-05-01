@@ -36,9 +36,11 @@
 GST_DEBUG_CATEGORY (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
 
-#define DEFAULT_APPLICATION_NAME ""
+#define MAX_PORT G_MAXUINT16
 #define DEFAULT_PORT 1935
 #define DEFAULT_SSL_PORT 443
+
+#define DEFAULT_APPLICATION_NAME ""
 #define DEFAULT_CERT_FILE ""
 #define DEFAULT_KEY_FILE ""
 #define DEFAULT_TLS1_ENABLED FALSE
@@ -743,11 +745,11 @@ rtmp_server_do_poll (PexRtmpServer * srv)
   }
 
   /* check for new connections */
-  if (srv->port && gst_poll_fd_can_read (srv->fd_set, &srv->listen_gfd)) {
+  if (srv->port > INVALID_PORT && gst_poll_fd_can_read (srv->fd_set, &srv->listen_gfd)) {
     rtmp_server_create_client (srv, srv->listen_gfd.fd);
     return TRUE;
   }
-  if (srv->ssl_port && gst_poll_fd_can_read (srv->fd_set, &srv->listen_ssl_gfd)) {
+  if (srv->ssl_port > INVALID_PORT && gst_poll_fd_can_read (srv->fd_set, &srv->listen_ssl_gfd)) {
     rtmp_server_create_client (srv, srv->listen_ssl_gfd.fd);
     return TRUE;
   }
@@ -860,7 +862,7 @@ gboolean
 pex_rtmp_server_start (PexRtmpServer * srv)
 {
   /* listen for normal and ssl connections */
-  if (srv->port) {
+  if (srv->port > INVALID_PORT) {
     srv->listen_fd = tcp_listen (srv->port);
     if (srv->listen_fd <= 0) {
       GST_ERROR_OBJECT (srv, "Could not listen on port %d", srv->port);
@@ -872,7 +874,7 @@ pex_rtmp_server_start (PexRtmpServer * srv)
     gst_poll_fd_ctl_read (srv->fd_set, &srv->listen_gfd, TRUE);
   }
 
-  if (srv->ssl_port) {
+  if (srv->ssl_port > INVALID_PORT) {
 #ifdef HAVE_OPENSSL
     srv->listen_ssl_fd = tcp_listen (srv->ssl_port);
     if (srv->listen_ssl_fd <= 0) {
@@ -978,6 +980,8 @@ pex_rtmp_server_init (PexRtmpServer * srv)
   srv->thread = NULL;
 
   srv->fd_set = gst_poll_new (TRUE);
+  srv->listen_fd = INVALID_FD;
+  srv->listen_ssl_fd = INVALID_FD;
 
   srv->connections = connections_new ();
   srv->pending_clients = gst_atomic_queue_new (0);
@@ -1187,12 +1191,12 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
 
   g_object_class_install_property (gobject_class, PROP_PORT,
       g_param_spec_int ("port", "Port",
-          "The port to listen on", 0, 65535, DEFAULT_PORT,
+          "The port to listen on", INVALID_PORT, MAX_PORT, DEFAULT_PORT,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_SSL_PORT,
       g_param_spec_int ("ssl-port", "Port",
-          "The port to listen on", 0, 65535, DEFAULT_SSL_PORT,
+          "The port to listen on", INVALID_PORT, MAX_PORT, DEFAULT_SSL_PORT,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_CERT_FILE,
@@ -1292,4 +1296,18 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
 
   GST_DEBUG_CATEGORY_INIT (pex_rtmp_server_debug, "pexrtmpserver", 0,
       "pexrtmpserver");
+}
+
+gint pex_rtmp_server_get_port (const PexRtmpServer * srv)
+{
+  gint port = INVALID_PORT;
+  tcp_get_listen_port (srv->listen_fd, &port);
+  return port;
+}
+
+gint pex_rtmp_server_get_ssl_port (const PexRtmpServer * srv)
+{
+  gint port = INVALID_PORT;
+  tcp_get_listen_port (srv->listen_ssl_fd, &port);
+  return port;
 }

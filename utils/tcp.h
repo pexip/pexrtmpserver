@@ -32,6 +32,9 @@
 #  define PEX_RTMPSERVER_EXPORT extern
 #endif
 
+#define INVALID_PORT -1
+#define DYNAMIC_PORT 0
+
 #define INVALID_FD -1
 
 PEX_RTMPSERVER_EXPORT
@@ -47,5 +50,7 @@ PEX_RTMPSERVER_EXPORT
 void tcp_set_nonblock (gint fd, gboolean enabled);
 PEX_RTMPSERVER_EXPORT
 gboolean tcp_is_localhost (gint fd);
+PEX_RTMPSERVER_EXPORT
+gboolean tcp_get_listen_port (gint fd, gint* port);
 
 #endif /* __TCP_H__ */
