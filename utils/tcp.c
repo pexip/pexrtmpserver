@@ -116,7 +116,7 @@ tcp_getaddrinfo (const gchar * ip, gint port,
   hints.ai_flags = ai_flags;
 
   gchar *port_str = NULL;
-  if (port > 0) {
+  if (port >= 0) {
     port_str = g_strdup_printf ("%d", port);
     hints.ai_flags |= AI_NUMERICSERV;
   }
@@ -299,14 +299,30 @@ tcp_listen (gint port)
     GST_WARNING ("Could not turn off IPV6_V6ONLY: %s", get_error_msg ());
 
   if (bind (fd, result->ai_addr, (int)result->ai_addrlen) < 0) {
-    GST_WARNING ("Unable to listen to port %d: %s",
-        port, strerror (errno));
+    GST_WARNING ("Unable to bind to port %d: %s", port, strerror (errno));
     _close_socket (fd);
     fd = INVALID_FD;
     goto done;
   }
 
-  listen (fd, 10);
+  if (listen (fd, 10) != 0) {
+    GST_WARNING ("Unable to listen to port %d: %s", port, strerror (errno));
+    _close_socket (fd);
+    fd = INVALID_FD;
+    goto done;
+  }
+
+  // Get the actual port we are listening on if using a dynamic port
+  if (port == DYNAMIC_PORT) {
+    gint listen_port = INVALID_PORT;
+    if (!tcp_get_listen_port (fd, &listen_port)) {
+      GST_WARNING ("Unable to get listen port: %s", strerror (errno));
+      _close_socket (fd);
+      fd = INVALID_FD;
+      goto done;
+    }
+    port = listen_port;
+  }
   GST_DEBUG ("Listening on port %d with fd %d", port, fd);
 
 done:
@@ -352,24 +368,50 @@ gboolean
 tcp_is_localhost (gint fd)
 {
   struct sockaddr_storage addr;
-  struct sockaddr_in6 *sin6;
-  struct sockaddr_in *sin;
   socklen_t len = sizeof (addr);
   gchar ipstr[INET6_ADDRSTRLEN];
-  gboolean is_localhost = FALSE;
 
-  if (getpeername (fd, (struct sockaddr *) &addr, &len) == 0) {
-    if (addr.ss_family == AF_INET) {
-      sin = (struct sockaddr_in *) &addr;
-      inet_ntop (AF_INET, &sin->sin_addr, ipstr, sizeof (ipstr));
-    } else {
-      sin6 = (struct sockaddr_in6 *) &addr;
-      inet_ntop (AF_INET6, &sin6->sin6_addr, ipstr, sizeof ipstr);
-    }
-    is_localhost = g_strcmp0 (ipstr, "::1") == 0 ||
-        g_strcmp0 (ipstr, "::ffff:127.0.0.1") == 0 ||
-        g_strcmp0 (ipstr, "127.0.0.1") == 0;
+  if (getpeername (fd, (struct sockaddr *) &addr, &len) != 0) {
+    return FALSE;
+  }
+  switch (addr.ss_family) {
+    case AF_INET:
+      inet_ntop (AF_INET, &((struct sockaddr_in *)&addr)->sin_addr, ipstr, sizeof (ipstr));
+      return g_strcmp0 (ipstr, "127.0.0.1") == 0;
+    case AF_INET6:
+      inet_ntop (AF_INET, &((struct sockaddr_in6 *)&addr)->sin6_addr, ipstr, sizeof (ipstr));
+      return g_strcmp0 (ipstr, "::1") == 0 || g_strcmp0 (ipstr, "::ffff:127.0.0.1") == 0;
+    default:
+      return FALSE;
+  }
+}
+
+gboolean
+tcp_get_listen_port (gint fd, gint *port)
+{
+  if (G_UNLIKELY (!port || fd == INVALID_FD)) {
+    errno = EINVAL;
+    return FALSE;
   }
 
-  return is_localhost;
+  struct sockaddr_storage address;
+  socklen_t address_len = sizeof (address);
+
+  if (getsockname (fd, (struct sockaddr *) &address, &address_len) != 0) {
+    GST_WARNING ("getsockname failed: %s", strerror (errno));
+    return FALSE;
+  }
+
+  switch (address.ss_family) {
+    case AF_INET:
+      *port = ntohs (((struct sockaddr_in *) &address)->sin_port);
+      return TRUE;
+    case AF_INET6:
+      *port = ntohs (((struct sockaddr_in6 *) &address)->sin6_port);
+      return TRUE;
+    default:
+      GST_WARNING ("Cannot get port for address family %d", address.ss_family);
+      errno = EAFNOSUPPORT;
+      return FALSE;
+  }
 }

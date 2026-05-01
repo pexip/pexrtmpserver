@@ -1147,6 +1147,94 @@ GST_START_TEST(rtmp_window_size)
 }
 GST_END_TEST;
 
+GST_START_TEST(rtmp_server_get_port_dynamic)
+{
+  /* port=0 asks the kernel to pick a free port; ssl_port=-1 means "don't listen on SSL" */
+  PexRtmpServer * server = pex_rtmp_server_new ("pexip",
+      0, -1, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+  fail_unless (pex_rtmp_server_start (server));
+
+  /* the kernel should have assigned a real, non-zero port */
+  gint port = pex_rtmp_server_get_port (server);
+  fail_if (port == INVALID_PORT);
+  fail_if (port == 0);
+  fail_unless (port > 0 && port <= G_MAXUINT16);
+
+  /* SSL was disabled (-1), so we should get INVALID_PORT back */
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_ssl_port (server));
+
+  pex_rtmp_server_stop (server);
+  pex_rtmp_server_free (server);
+}
+GST_END_TEST;
+
+GST_START_TEST(rtmp_server_get_ssl_port_dynamic)
+{
+  /* mirror of the above, but for the SSL listener */
+  PexRtmpServer * server = pex_rtmp_server_new ("pexip",
+      -1, 0, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+  fail_unless (pex_rtmp_server_start (server));
+
+  gint ssl_port = pex_rtmp_server_get_ssl_port (server);
+  fail_if (ssl_port == INVALID_PORT);
+  fail_if (ssl_port == 0);
+  fail_unless (ssl_port > 0 && ssl_port <= G_MAXUINT16);
+
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_port (server));
+
+  pex_rtmp_server_stop (server);
+  pex_rtmp_server_free (server);
+}
+GST_END_TEST;
+
+GST_START_TEST(rtmp_server_get_port_dynamic_both)
+{
+  /* both listeners on dynamic ports - they must end up different */
+  PexRtmpServer * server = pex_rtmp_server_new ("pexip",
+      0, 0, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+  fail_unless (pex_rtmp_server_start (server));
+
+  gint port = pex_rtmp_server_get_port (server);
+  gint ssl_port = pex_rtmp_server_get_ssl_port (server);
+
+  fail_if (port == INVALID_PORT);
+  fail_if (ssl_port == INVALID_PORT);
+  fail_if (port == ssl_port);
+
+  pex_rtmp_server_stop (server);
+  pex_rtmp_server_free (server);
+}
+GST_END_TEST;
+
+GST_START_TEST(rtmp_server_get_port_unset)
+{
+  /* -1 means "no listener" for both - getters should report INVALID_PORT */
+  PexRtmpServer * server = pex_rtmp_server_new ("pexip",
+      -1, -1, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+  fail_unless (pex_rtmp_server_start (server));
+
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_port (server));
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_ssl_port (server));
+
+  pex_rtmp_server_stop (server);
+  pex_rtmp_server_free (server);
+}
+GST_END_TEST;
+
+GST_START_TEST(rtmp_server_get_port_before_start)
+{
+  /* before start() there is no bound socket, so the getters must not crash
+   * and must return INVALID_PORT */
+  PexRtmpServer * server = pex_rtmp_server_new ("pexip",
+      0, 0, NULL, NULL, NULL, NULL, NULL, FALSE, FALSE);
+
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_port (server));
+  fail_unless_equals_int (INVALID_PORT, pex_rtmp_server_get_ssl_port (server));
+
+  pex_rtmp_server_free (server);
+}
+GST_END_TEST;
+
 GST_START_TEST(rtmp_server_notifications)
 {
   RTMPHarness * h = rtmp_harness_new ("live");
@@ -1951,6 +2039,168 @@ GST_START_TEST(rtmpsink_start_stop_start)
 }
 GST_END_TEST;
 
+GST_START_TEST (rtmp_tcp_get_listen_port_null_port)
+{
+  /* Passing NULL as the out-param is rejected with errno=EINVAL.
+   * fd value is irrelevant - we should bail out before touching it. */
+  errno = 0;
+  fail_if (tcp_get_listen_port (-1, NULL));
+  fail_unless_equals_int (EINVAL, errno);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_not_a_socket)
+{
+  /* A valid fd that is not a socket -> getsockname returns ENOTSOCK. */
+  gint fd = open ("/dev/null", O_RDONLY);
+  fail_if (fd < 0);
+
+  gint port = 12345;
+  errno = 0;
+  fail_if (tcp_get_listen_port (fd, &port));
+  fail_unless_equals_int (ENOTSOCK, errno);
+  fail_unless_equals_int (12345, port);
+
+  close (fd);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_unsupported_family)
+{
+  /* A bound UNIX-domain socket has AF_UNIX, which the function explicitly
+   * rejects with EAFNOSUPPORT. This pins the default-branch contract. */
+  gint fd = socket (AF_UNIX, SOCK_STREAM, 0);
+  fail_if (fd < 0);
+
+  /* bind to an autobind abstract address so we don't touch the filesystem
+   * (Linux-specific). On non-Linux, skip this test. */
+#ifdef __linux__
+  struct sockaddr_un addr = { 0 };
+  addr.sun_family = AF_UNIX;
+  /* abstract namespace: leading NUL */
+  fail_if (bind (fd, (struct sockaddr *) &addr, sizeof (sa_family_t)) != 0);
+
+  gint port = 12345;
+  errno = 0;
+  fail_if (tcp_get_listen_port (fd, &port));
+  fail_unless_equals_int (EAFNOSUPPORT, errno);
+  fail_unless_equals_int (12345, port);
+#endif
+
+  close (fd);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_ipv4)
+{
+  /* Explicit IPv4 path: bind to 127.0.0.1:0 and verify we read back the
+   * kernel-assigned port. */
+  gint fd = socket (AF_INET, SOCK_STREAM, 0);
+  fail_if (fd < 0);
+
+  struct sockaddr_in addr = { 0 };
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+  addr.sin_port = 0;
+  fail_if (bind (fd, (struct sockaddr *) &addr, sizeof (addr)) != 0);
+
+  gint port = 0;
+  fail_unless (tcp_get_listen_port (fd, &port));
+  fail_if (port == 0);
+  fail_unless (port > 0 && port <= G_MAXUINT16);
+
+  close (fd);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_ipv6)
+{
+  /* Explicit IPv6 path: this is the bug the sockaddr_storage refactor
+   * actually fixed - sockaddr was too small for sockaddr_in6. */
+  gint fd = socket (AF_INET6, SOCK_STREAM, 0);
+  if (fd < 0)
+    return;                     /* IPv6 not available in this environment - skip */
+
+  struct sockaddr_in6 addr = { 0 };
+  addr.sin6_family = AF_INET6;
+  addr.sin6_addr = in6addr_loopback;
+  addr.sin6_port = 0;
+  fail_if (bind (fd, (struct sockaddr *) &addr, sizeof (addr)) != 0);
+
+  gint port = 0;
+  fail_unless (tcp_get_listen_port (fd, &port));
+  fail_if (port == 0);
+  fail_unless (port > 0 && port <= G_MAXUINT16);
+
+  close (fd);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_unbound_socket)
+{
+  /* A socket() that has not been bind()ed yet: on Linux this returns
+   * a sockaddr with port 0 and succeeds. The point of this test is to
+   * document the behavior so a future refactor doesn't change it silently. */
+  gint fd = socket (AF_INET, SOCK_STREAM, 0);
+  fail_if (fd < 0);
+
+  gint port = -1;
+  fail_unless (tcp_get_listen_port (fd, &port));
+  fail_unless_equals_int (0, port);
+
+  close (fd);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_invalid_fd)
+{
+  /* INVALID_FD is the documented "no listener" sentinel. Passing it must be
+   * rejected with EINVAL before any getsockname() call, and must leave the
+   * caller's port value untouched. */
+  gint port = 12345;            /* sentinel */
+  errno = 0;
+  fail_if (tcp_get_listen_port (INVALID_FD, &port));
+  fail_unless_equals_int (EINVAL, errno);
+  fail_unless_equals_int (12345, port);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_invalid_fd_and_null_port)
+{
+  /* Both inputs invalid: still EINVAL, still no crash. Pins down that the
+   * NULL-port and INVALID_FD checks are combined into a single guard and
+   * neither is dependent on the other. */
+  errno = 0;
+  fail_if (tcp_get_listen_port (INVALID_FD, NULL));
+  fail_unless_equals_int (EINVAL, errno);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (rtmp_tcp_get_listen_port_closed_fd)
+{
+  /* A closed (but not INVALID_FD) descriptor: should reach getsockname()
+   * and fail with EBADF. */
+  gint fd = socket (AF_INET, SOCK_STREAM, 0);
+  fail_if (fd < 0);
+  close (fd);
+
+  gint port = 12345;
+  errno = 0;
+  fail_if (tcp_get_listen_port (fd, &port));
+  fail_unless_equals_int (EBADF, errno);
+  fail_unless_equals_int (12345, port);
+}
+
+GST_END_TEST;
+
 static Suite *
 rtmp_suite (void)
 {
@@ -1989,9 +2239,14 @@ rtmp_suite (void)
   tcase_add_test (tc_chain, rtmp_amf_dec_fuzzing);
 
   tcase_add_test (tc_chain, rtmp_window_size);
-  (void)rtmp_server_notifications;
-  //tcase_add_test (tc_chain, rtmp_server_notifications);
 
+  tcase_add_test (tc_chain, rtmp_server_get_port_dynamic);
+  tcase_add_test (tc_chain, rtmp_server_get_ssl_port_dynamic);
+  tcase_add_test (tc_chain, rtmp_server_get_port_dynamic_both);
+  tcase_add_test (tc_chain, rtmp_server_get_port_unset);
+  tcase_add_test (tc_chain, rtmp_server_get_port_before_start);
+
+  tcase_skip_broken_test (tc_chain, rtmp_server_notifications);
   tcase_add_test (tc_chain, rtmp_server_url_parse);
   tcase_add_test (tc_chain, rtmp_server_dialin);
   tcase_add_test (tc_chain, rtmp_server_dialin_and_dialout);
@@ -2021,6 +2276,17 @@ rtmp_suite (void)
   tcase_add_test (tc_chain, rtmp_unlock_sink_bug5054);
   tcase_add_test (tc_chain, rtmp_unlock_src);
   tcase_add_test (tc_chain, rtmpsink_start_stop_start);
+
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_null_port);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_not_a_socket);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_unsupported_family);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_ipv4);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_ipv6);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_unbound_socket);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_invalid_fd);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_invalid_fd_and_null_port);
+  tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_closed_fd);
+
   return s;
 }
 
