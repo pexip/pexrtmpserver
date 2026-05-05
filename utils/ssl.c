@@ -39,7 +39,8 @@ GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 
 #if (OPENSSL_VERSION_NUMBER < 0x10100000L)
 
-static inline X509 *X509_STORE_CTX_get0_cert (X509_STORE_CTX * ctx)
+static inline X509 *
+X509_STORE_CTX_get0_cert (X509_STORE_CTX * ctx)
 {
   return ctx->cert;
 }
@@ -51,13 +52,13 @@ ASN1_STRING_get0_data (ASN1_IA5STRING * candidate)
 }
 
 static const DH *
-EVP_PKEY_get0_DH (const EVP_PKEY *pkey)
+EVP_PKEY_get0_DH (const EVP_PKEY * pkey)
 {
   return pkey->pkey.dh;
 }
 
 static const EC_KEY *
-EVP_PKEY_get0_EC_KEY (const EVP_PKEY *pkey)
+EVP_PKEY_get0_EC_KEY (const EVP_PKEY * pkey)
 {
   return pkey->pkey.ec;
 }
@@ -101,7 +102,7 @@ DH_set0_pqg (DH * dh, BIGNUM * p, BIGNUM * q, BIGNUM * g)
 
 #if (OPENSSL_VERSION_NUMBER < 0x30000000L)
 static EVP_PKEY *
-d2i_KeyParams(int type, EVP_PKEY **a, const unsigned char **pp, long length)
+d2i_KeyParams (int type, EVP_PKEY ** a, const unsigned char **pp, long length)
 {
   EVP_PKEY *pkey = NULL;
 
@@ -164,7 +165,7 @@ failed:
 }
 
 static int
-SSL_CTX_set0_tmp_dh_pkey (SSL_CTX *ctx, EVP_PKEY *dhpkey)
+SSL_CTX_set0_tmp_dh_pkey (SSL_CTX * ctx, EVP_PKEY * dhpkey)
 {
   const DH *dh = EVP_PKEY_get0_DH (dhpkey);
   if (dh != NULL) {
@@ -178,7 +179,7 @@ SSL_CTX_set0_tmp_dh_pkey (SSL_CTX *ctx, EVP_PKEY *dhpkey)
 static int
 match_dns_name (const gchar * remote_host, ASN1_IA5STRING * candidate)
 {
-  const gchar *data = (const gchar *)ASN1_STRING_get0_data (candidate);
+  const gchar *data = (const gchar *) ASN1_STRING_get0_data (candidate);
   int len = ASN1_STRING_length (candidate);
   int host_len = strlen (remote_host);
 
@@ -336,11 +337,11 @@ make_dh_params (const gchar * cert_file)
           BIGNUM *(*prime) (BIGNUM *);
         } gentable[] = {
           {
-          2048, BN_get_rfc3526_prime_2048}, {
-          3072, BN_get_rfc3526_prime_3072}, {
-          4096, BN_get_rfc3526_prime_4096}, {
-          6144, BN_get_rfc3526_prime_6144}, {
-          8192, BN_get_rfc3526_prime_8192}
+              2048, BN_get_rfc3526_prime_2048}, {
+              3072, BN_get_rfc3526_prime_3072}, {
+              4096, BN_get_rfc3526_prime_4096}, {
+              6144, BN_get_rfc3526_prime_6144}, {
+              8192, BN_get_rfc3526_prime_8192}
         };
         size_t idx;
         int keylen = 2048;
@@ -372,7 +373,7 @@ make_dh_params (const gchar * cert_file)
               dh = NULL;
             }
           }
-	  if (dh != NULL) {
+          if (dh != NULL) {
             pkey = EVP_PKEY_new ();
             if (pkey != NULL) {
               if (!EVP_PKEY_set1_DH (pkey, dh)) {
@@ -388,7 +389,7 @@ make_dh_params (const gchar * cert_file)
           OSSL_PARAM *params = NULL;
           EVP_PKEY_CTX *ctx = NULL;
 
-          bld = OSSL_PARAM_BLD_new();
+          bld = OSSL_PARAM_BLD_new ();
           if (bld != NULL) {
             BIGNUM *p = NULL;
             BIGNUM *g = NULL;
@@ -403,7 +404,7 @@ make_dh_params (const gchar * cert_file)
                 if (ctx != NULL) {
                   if (EVP_PKEY_fromdata_init (ctx) == 1) {
                     if (EVP_PKEY_fromdata (ctx, &pkey, EVP_PKEY_KEY_PARAMETERS,
-                        params) == 0) {
+                            params) == 0) {
                       pkey = NULL;
                     }
                   }
@@ -427,7 +428,7 @@ make_dh_params (const gchar * cert_file)
 }
 
 static EVP_PKEY *
-pkey_parameters_from_file(const gchar * filename, int type)
+pkey_parameters_from_file (const gchar * filename, int type)
 {
   const char *tname;
   BIO *bio;
@@ -535,8 +536,7 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
       return NULL;
     }
 
-    if (SSL_CTX_use_PrivateKey_file (ssl_ctx, key_file,
-            SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_PrivateKey_file (ssl_ctx, key_file, SSL_FILETYPE_PEM) <= 0) {
       GST_WARNING ("did not like the key: %s", key_file);
       ssl_print_errors ();
       return NULL;
