@@ -111,7 +111,7 @@ tcp_getaddrinfo (const gchar * ip, gint port,
   struct addrinfo hints;
   memset (&hints, 0, sizeof (struct addrinfo));
   hints.ai_family = ai_family;
-  hints.ai_socktype = SOCK_STREAM;      /* Stream soc */
+  hints.ai_socktype = SOCK_STREAM;      /* Stream sock */
   hints.ai_protocol = IPPROTO_TCP;      /* TCP protocol */
   hints.ai_flags = ai_flags;
 
