@@ -683,7 +683,7 @@ rtmp_harness_dialout (RTMPHarness * h_from, gint id_from,
     RTMPHarness * h_to, gint id_to, const gchar * protocol,
     const gchar * host, const gchar * ip)
 {
-  Subscriber *p_from =
+  Publisher *p_from =
       g_hash_table_lookup (h_from->publishers, GINT_TO_POINTER (id_from));
   Subscriber *s_to =
       g_hash_table_lookup (h_to->subscribers, GINT_TO_POINTER (id_to));
@@ -713,7 +713,7 @@ rtmp_harness_dialin (RTMPHarness * h_from, gint id_from,
 {
   Subscriber *s_from =
       g_hash_table_lookup (h_from->subscribers, GINT_TO_POINTER (id_from));
-  Subscriber *p_to =
+  Publisher *p_to =
       g_hash_table_lookup (h_to->publishers, GINT_TO_POINTER (id_to));
   g_assert (s_from);
   g_assert (p_to);
