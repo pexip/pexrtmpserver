@@ -1,0 +1,4 @@
+# Add commit hashes here that should be ignored by git blame
+
+# gst-indent all files
+ea1c1db3d356f7eb99f4ae870829212e7a4958c1
