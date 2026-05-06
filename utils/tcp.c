@@ -382,7 +382,7 @@ tcp_is_localhost (gint fd)
           sizeof (ipstr));
       return g_strcmp0 (ipstr, "127.0.0.1") == 0;
     case AF_INET6:
-      inet_ntop (AF_INET, &((struct sockaddr_in6 *) &addr)->sin6_addr, ipstr,
+      inet_ntop (AF_INET6, &((struct sockaddr_in6 *) &addr)->sin6_addr, ipstr,
           sizeof (ipstr));
       return g_strcmp0 (ipstr, "::1") == 0
           || g_strcmp0 (ipstr, "::ffff:127.0.0.1") == 0;
