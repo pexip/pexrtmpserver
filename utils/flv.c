@@ -31,11 +31,11 @@ typedef struct
 
 static const guint flv_tag_header_size = 11;
 static const gchar flv_header[] = {
-    'F', 'L', 'V',
-    0x01, /* version 1 */
-    0x05, /* audio and video */
-    0x00, 0x00, 0x00, 0x09, /* 9 bytes header */
-    0x00, 0x00, 0x00, 0x00, /* cheating, putting PreviousTagSize0 here */
+  'F', 'L', 'V',
+  0x01,                         /* version 1 */
+  0x05,                         /* audio and video */
+  0x00, 0x00, 0x00, 0x09,       /* 9 bytes header */
+  0x00, 0x00, 0x00, 0x00,       /* cheating, putting PreviousTagSize0 here */
 };
 
 guint

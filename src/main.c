@@ -25,15 +25,16 @@ static gchar *dialout_path = NULL;
 
 static GOptionEntry entries[] = {
   {"port", 'p', 0, G_OPTION_ARG_INT, &port, "Set rtmp listening port to N",
-        "N"},
-  {"src-port", 's', 0, G_OPTION_ARG_INT, &src_port, "Set rtmp src-port for dial-out to N",
-        "N"},
+      "N"},
+  {"src-port", 's', 0, G_OPTION_ARG_INT, &src_port,
+        "Set rtmp src-port for dial-out to N",
+      "N"},
   {"application-name", 'a', 0, G_OPTION_ARG_STRING, &app_name,
-        "Set the Application Name", NULL},
+      "Set the Application Name", NULL},
   {"dialout-path", 'd', 0, G_OPTION_ARG_STRING, &dialout_path,
-        "The rtmp-path to forward to the dialed out address", NULL},
+      "The rtmp-path to forward to the dialed out address", NULL},
   {"dialout-url", 'u', 0, G_OPTION_ARG_STRING, &dialout_url,
-        "The rtmp:// address to dial out to", NULL},
+      "The rtmp:// address to dial out to", NULL},
   {NULL, 0, 0, 0, NULL, NULL, NULL},
 };
 
