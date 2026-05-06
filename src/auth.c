@@ -56,9 +56,9 @@ generate_auth_response (const gchar * username, const gchar * password,
   g_assert (strlen (challenge) >= 8);
 
   /* salted = user + salt + password */
-  g_checksum_update (md5, (const guint8 *)username, strlen (username));
-  g_checksum_update (md5, (const guint8 *)salt, strlen (salt));
-  g_checksum_update (md5, (const guint8 *)password, strlen (password));
+  g_checksum_update (md5, (const guint8 *) username, strlen (username));
+  g_checksum_update (md5, (const guint8 *) salt, strlen (salt));
+  g_checksum_update (md5, (const guint8 *) password, strlen (password));
   g_checksum_get_digest (md5, digest, &digest_len);
   gchar *salted = g_base64_encode (digest, digest_len);
 
@@ -66,9 +66,9 @@ generate_auth_response (const gchar * username, const gchar * password,
   g_checksum_reset (md5);
 
   /* response = salted + opaque + challenge */
-  g_checksum_update (md5, (const guint8 *)salted, 24);
-  g_checksum_update (md5, (const guint8 *)opaque, strlen (opaque));
-  g_checksum_update (md5, (const guint8 *)challenge, 8);
+  g_checksum_update (md5, (const guint8 *) salted, 24);
+  g_checksum_update (md5, (const guint8 *) opaque, strlen (opaque));
+  g_checksum_update (md5, (const guint8 *) challenge, 8);
   g_checksum_get_digest (md5, digest, &digest_len);
   gchar *response = g_base64_encode (digest, digest_len);
 
@@ -94,14 +94,15 @@ auth_get_token (const gchar * server_auth_str,
   GST_INFO ("From server: user: %s, salt: %s, opaque: %s", user, salt, opaque);
 
   /* generate our own challenge */
-  guint32 rand_data = g_random_int();
-  gchar *challenge = g_base64_encode ((guchar *)&rand_data, sizeof (guint32));
+  guint32 rand_data = g_random_int ();
+  gchar *challenge = g_base64_encode ((guchar *) & rand_data, sizeof (guint32));
 
   gchar *response = generate_auth_response (user, password,
       salt, opaque, challenge);
 
-  gchar *ret = g_strdup_printf (
-      "?authmod=adobe&user=%s&challenge=%s&response=%s&opaque=%s",
+  gchar *ret =
+      g_strdup_printf
+      ("?authmod=adobe&user=%s&challenge=%s&response=%s&opaque=%s",
       user, challenge, response, opaque);
 
   GST_INFO ("Generated token: %s", ret);

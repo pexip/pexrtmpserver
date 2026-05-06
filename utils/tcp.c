@@ -65,8 +65,8 @@ static gchar *
 get_error_msg ()
 {
 #if defined(_MSC_VER)
-  gchar msgbuf [256];
-  msgbuf [0] = '\0';
+  gchar msgbuf[256];
+  msgbuf[0] = '\0';
 
   gint err = WSAGetLastError ();
   FormatMessage (FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
@@ -79,17 +79,17 @@ get_error_msg ()
 }
 
 gchar *
-get_url_from_sockaddr_storage (const struct sockaddr_storage * addr)
+get_url_from_sockaddr_storage (const struct sockaddr_storage *addr)
 {
   gchar *ret = NULL;
   gchar ip[INET6_ADDRSTRLEN];
 
   if (addr->ss_family == AF_INET) {
-    struct sockaddr_in *addr_in = (struct sockaddr_in *)addr;
+    struct sockaddr_in *addr_in = (struct sockaddr_in *) addr;
     inet_ntop (AF_INET, &addr_in->sin_addr, ip, 100);
     ret = g_strdup_printf ("%s:%d", ip, ntohs (addr_in->sin_port));
   } else {
-    struct sockaddr_in6 *addr_in6 = (struct sockaddr_in6 *)addr;
+    struct sockaddr_in6 *addr_in6 = (struct sockaddr_in6 *) addr;
     inet_ntop (AF_INET6, &addr_in6->sin6_addr, ip, 100);
     ret = g_strdup_printf ("%s:%d", ip, ntohs (addr_in6->sin6_port));
   }
@@ -98,21 +98,21 @@ get_url_from_sockaddr_storage (const struct sockaddr_storage * addr)
 }
 
 gchar *
-get_url_from_addrinfo (const struct addrinfo * ai)
+get_url_from_addrinfo (const struct addrinfo *ai)
 {
   return get_url_from_sockaddr_storage (
-      (const struct sockaddr_storage *)ai->ai_addr);
+      (const struct sockaddr_storage *) ai->ai_addr);
 }
 
 static gint
 tcp_getaddrinfo (const gchar * ip, gint port,
-    gint ai_family, gint ai_flags, struct addrinfo ** result)
+    gint ai_family, gint ai_flags, struct addrinfo **result)
 {
   struct addrinfo hints;
   memset (&hints, 0, sizeof (struct addrinfo));
   hints.ai_family = ai_family;
-  hints.ai_socktype = SOCK_STREAM; /* Stream soc */
-  hints.ai_protocol = IPPROTO_TCP; /* TCP protocol */
+  hints.ai_socktype = SOCK_STREAM;      /* Stream soc */
+  hints.ai_protocol = IPPROTO_TCP;      /* TCP protocol */
   hints.ai_flags = ai_flags;
 
   gchar *port_str = NULL;
@@ -131,7 +131,7 @@ tcp_getaddrinfo (const gchar * ip, gint port,
 }
 
 static gint
-_create_socket (const struct addrinfo * ai)
+_create_socket (const struct addrinfo *ai)
 {
   gint fd = socket (ai->ai_family, ai->ai_socktype, ai->ai_protocol);
   if (fd < 0) {
@@ -163,7 +163,7 @@ tcp_connect (gint * fd, const gchar * ip,
     goto done;
   }
 
-//  struct addrinfo *ai_ptr = NULL;
+  //  struct addrinfo *ai_ptr = NULL;
 //  for (ai_ptr = result; ai_ptr != NULL ; ai_ptr = ai_ptr->ai_next)
 //    GST_INFO ("connect result: %s", get_url_from_addrinfo (ai_ptr));
 
@@ -180,7 +180,8 @@ tcp_connect (gint * fd, const gchar * ip,
   }
   /* Disable packet-accumulation delay (Nagle's algorithm) */
   int value = 1;
-  if (setsockopt (*fd, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof (value)))
+  if (setsockopt (*fd, IPPROTO_TCP, TCP_NODELAY, (char *) &value,
+          sizeof (value)))
     GST_WARNING ("Could not set TCP_NODELAY: %s", get_error_msg ());
 
 #if !defined (_MSC_VER)
@@ -212,7 +213,7 @@ tcp_connect (gint * fd, const gchar * ip,
     //for (ai_ptr = src_res; ai_ptr != NULL ; ai_ptr = ai_ptr->ai_next)
     //  GST_INFO ("bind result: %s", get_url_from_addrinfo (ai_ptr));
 
-    ret = bind (*fd, src_res->ai_addr, (int)src_res->ai_addrlen);
+    ret = bind (*fd, src_res->ai_addr, (int) src_res->ai_addrlen);
     freeaddrinfo (src_res);
 
     if (ret < 0) {
@@ -226,7 +227,7 @@ tcp_connect (gint * fd, const gchar * ip,
   /* make the connection non-blocking */
   tcp_set_nonblock (*fd, TRUE);
 
-  ret = connect (*fd, result->ai_addr, (int)result->ai_addrlen);
+  ret = connect (*fd, result->ai_addr, (int) result->ai_addrlen);
 
   /* on windows, a non-blocking connect actually "fails" with
      SOCKET_ERROR, but then WSAEWOULDBLOCK will mean everything
@@ -249,10 +250,11 @@ tcp_connect (gint * fd, const gchar * ip,
         *in_progress = TRUE;
       }
     } else {
-      GST_WARNING ("could not connect on port %d: %s", port, g_strerror (errno));
+      GST_WARNING ("could not connect on port %d: %s", port,
+          g_strerror (errno));
       _close_socket (*fd);
       *fd = INVALID_FD;
-      goto done;      
+      goto done;
     }
   }
 
@@ -275,12 +277,12 @@ tcp_listen (gint port)
     goto done;
   }
 
-/*
-  struct addrinfo *ai_ptr = NULL;
-  for (ai_ptr = result; ai_ptr != NULL ; ai_ptr = ai_ptr->ai_next) {
-    GST_INFO ("listen result: %s", get_url_from_addrinfo (ai_ptr));
-  }
-*/
+  /*
+     struct addrinfo *ai_ptr = NULL;
+     for (ai_ptr = result; ai_ptr != NULL ; ai_ptr = ai_ptr->ai_next) {
+     GST_INFO ("listen result: %s", get_url_from_addrinfo (ai_ptr));
+     }
+   */
 
   fd = _create_socket (result);
   if (fd < 0) {
@@ -298,7 +300,7 @@ tcp_listen (gint port)
   if (setsockopt (fd, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &val, sizeof (val)))
     GST_WARNING ("Could not turn off IPV6_V6ONLY: %s", get_error_msg ());
 
-  if (bind (fd, result->ai_addr, (int)result->ai_addrlen) < 0) {
+  if (bind (fd, result->ai_addr, (int) result->ai_addrlen) < 0) {
     GST_WARNING ("Unable to bind to port %d: %s", port, strerror (errno));
     _close_socket (fd);
     fd = INVALID_FD;
@@ -335,7 +337,7 @@ tcp_accept (gint listen_fd)
 {
   struct sockaddr_storage addr;
   socklen_t len = sizeof (struct sockaddr_storage);
-  gint fd =  accept (listen_fd, (struct sockaddr *)&addr, &len);
+  gint fd = accept (listen_fd, (struct sockaddr *) &addr, &len);
   if (fd < 0) {
     GST_WARNING ("Could not accept: %s", get_error_msg ());
   } else {
@@ -359,7 +361,7 @@ tcp_disconnect (gint fd)
   struct linger linger;
   linger.l_onoff = 1;
   linger.l_linger = 0;
-  setsockopt (fd, SOL_SOCKET, SO_LINGER, (char *)&linger, sizeof (linger));
+  setsockopt (fd, SOL_SOCKET, SO_LINGER, (char *) &linger, sizeof (linger));
 
   _close_socket (fd);
 }
@@ -376,18 +378,21 @@ tcp_is_localhost (gint fd)
   }
   switch (addr.ss_family) {
     case AF_INET:
-      inet_ntop (AF_INET, &((struct sockaddr_in *)&addr)->sin_addr, ipstr, sizeof (ipstr));
+      inet_ntop (AF_INET, &((struct sockaddr_in *) &addr)->sin_addr, ipstr,
+          sizeof (ipstr));
       return g_strcmp0 (ipstr, "127.0.0.1") == 0;
     case AF_INET6:
-      inet_ntop (AF_INET, &((struct sockaddr_in6 *)&addr)->sin6_addr, ipstr, sizeof (ipstr));
-      return g_strcmp0 (ipstr, "::1") == 0 || g_strcmp0 (ipstr, "::ffff:127.0.0.1") == 0;
+      inet_ntop (AF_INET, &((struct sockaddr_in6 *) &addr)->sin6_addr, ipstr,
+          sizeof (ipstr));
+      return g_strcmp0 (ipstr, "::1") == 0
+          || g_strcmp0 (ipstr, "::ffff:127.0.0.1") == 0;
     default:
       return FALSE;
   }
 }
 
 gboolean
-tcp_get_listen_port (gint fd, gint *port)
+tcp_get_listen_port (gint fd, gint * port)
 {
   if (G_UNLIKELY (!port || fd == INVALID_FD)) {
     errno = EINVAL;

@@ -46,7 +46,7 @@ gst_buffer_queue_flush (GstBufferQueue * queue)
   g_mutex_lock (&queue->lock);
   queue->running = FALSE;
   g_cond_signal (&queue->cond);
-  g_queue_free_full (queue->queue, (GDestroyNotify)gst_buffer_unref);
+  g_queue_free_full (queue->queue, (GDestroyNotify) gst_buffer_unref);
   queue->queue = NULL;
   g_mutex_unlock (&queue->lock);
 }
