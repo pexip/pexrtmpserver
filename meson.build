@@ -30,10 +30,6 @@ if not openssl_dep.found()
 endif
 
 winsock2_dep = cc.find_library('ws2_32', required : false)
-if host_system == 'windows'
-  crypt32_dep = cc.find_library('Crypt32', required : false)
-  openssl_dep = declare_dependency(dependencies : [openssl_dep, crypt32_dep])
-endif
 
 add_project_arguments('-DHAVE_CONFIG_H', language: 'c')
 
