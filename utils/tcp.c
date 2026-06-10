@@ -86,11 +86,11 @@ get_url_from_sockaddr_storage (const struct sockaddr_storage *addr)
 
   if (addr->ss_family == AF_INET) {
     struct sockaddr_in *addr_in = (struct sockaddr_in *) addr;
-    inet_ntop (AF_INET, &addr_in->sin_addr, ip, 100);
+    inet_ntop (AF_INET, &addr_in->sin_addr, ip, sizeof (ip));
     ret = g_strdup_printf ("%s:%d", ip, ntohs (addr_in->sin_port));
   } else {
     struct sockaddr_in6 *addr_in6 = (struct sockaddr_in6 *) addr;
-    inet_ntop (AF_INET6, &addr_in6->sin6_addr, ip, 100);
+    inet_ntop (AF_INET6, &addr_in6->sin6_addr, ip, sizeof (ip));
     ret = g_strdup_printf ("%s:%d", ip, ntohs (addr_in6->sin6_port));
   }
 
