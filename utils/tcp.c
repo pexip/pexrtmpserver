@@ -81,20 +81,24 @@ get_error_msg ()
 gchar *
 get_url_from_sockaddr_storage (const struct sockaddr_storage *addr)
 {
-  gchar *ret = NULL;
   gchar ip[INET6_ADDRSTRLEN];
+  guint16 port = 0;
 
   if (addr->ss_family == AF_INET) {
     struct sockaddr_in *addr_in = (struct sockaddr_in *) addr;
-    inet_ntop (AF_INET, &addr_in->sin_addr, ip, sizeof (ip));
-    ret = g_strdup_printf ("%s:%d", ip, ntohs (addr_in->sin_port));
-  } else {
+    if (inet_ntop (AF_INET, &addr_in->sin_addr, ip, sizeof (ip)) == NULL)
+      g_strlcpy (ip, "invalid-address", sizeof (ip));
+    port = ntohs (addr_in->sin_port);
+  } else if (addr->ss_family == AF_INET6) {
     struct sockaddr_in6 *addr_in6 = (struct sockaddr_in6 *) addr;
-    inet_ntop (AF_INET6, &addr_in6->sin6_addr, ip, sizeof (ip));
-    ret = g_strdup_printf ("%s:%d", ip, ntohs (addr_in6->sin6_port));
+    if (inet_ntop (AF_INET6, &addr_in6->sin6_addr, ip, sizeof (ip)) == NULL)
+      g_strlcpy (ip, "invalid-address", sizeof (ip));
+    port = ntohs (addr_in6->sin6_port);
+  } else {
+    return g_strdup_printf ("unsupported-family:%d", addr->ss_family);
   }
 
-  return ret;
+  return g_strdup_printf ("%s:%d", ip, port);
 }
 
 gchar *
