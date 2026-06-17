@@ -48,6 +48,7 @@ GST_DEBUG_CATEGORY (pex_rtmp_server_debug);
 #define DEFAULT_CA_CERT_FILE ""
 #define DEFAULT_CA_CERT_DIR ""
 #define DEFAULT_CIPHERS "!eNULL:!aNULL:!EXP:!DES:!RC4:!RC2:!IDEA:!ADH:ALL@STRENGTH"
+#define DEFAULT_KEX_GROUPS ""
 #define DEFAULT_STREAM_ID 1337
 #define DEFAULT_CHUNK_SIZE 128
 #define DEFAULT_TCP_SYNCNT -1
@@ -65,6 +66,7 @@ enum
   PROP_CA_CERT_FILE,
   PROP_CA_CERT_DIR,
   PROP_CIPHERS,
+  PROP_KEX_GROUPS,
   PROP_TLS1_ENABLED,
   PROP_IGNORE_LOCALHOST,
   PROP_STREAM_ID,
@@ -103,6 +105,7 @@ struct _PexRtmpServer
   gchar *ca_cert_file;
   gchar *ca_cert_dir;
   gchar *ciphers;
+  gchar *kex_groups;
   gboolean tls1_enabled;
   gboolean ignore_localhost;
   gint stream_id;
@@ -271,7 +274,7 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
 #ifdef HAVE_OPENSSL
   /* ssl connection */
   if (use_ssl) {
-    gchar *cert_file, *key_file, *ca_file, *ca_dir, *ciphers;
+    gchar *cert_file, *key_file, *ca_file, *ca_dir, *ciphers, *kex_groups;
     gboolean tls1_enabled;
 
     g_object_get (srv,
@@ -279,16 +282,21 @@ rtmp_server_create_client (PexRtmpServer * srv, gint listen_fd)
         "key-file", &key_file,
         "ca-cert-file", &ca_file,
         "ca-cert-dir", &ca_dir,
-        "ciphers", &ciphers, "tls1-enabled", &tls1_enabled, NULL);
+        "ciphers", &ciphers,
+        "kex-groups", &kex_groups,
+        "tls1-enabled", &tls1_enabled,
+        NULL
+      );
 
     client_add_incoming_ssl (client, cert_file, key_file, ca_file, ca_dir,
-        ciphers, tls1_enabled);
+        ciphers, kex_groups, tls1_enabled);
 
     g_free (cert_file);
     g_free (key_file);
     g_free (ca_file);
     g_free (ca_dir);
     g_free (ciphers);
+    g_free (kex_groups);
   }
 #endif /* HAVE_OPENSSL */
 
@@ -523,7 +531,7 @@ _establish_client_tcp_connection (PexRtmpServer * srv, Client * client)
 #ifdef HAVE_OPENSSL
   if (client->use_ssl) {
     if (!client_add_outgoing_ssl (client, srv->ca_cert_file, srv->ca_cert_dir,
-            srv->ciphers, srv->tls1_enabled)) {
+            srv->ciphers, srv->kex_groups, srv->tls1_enabled)) {
       /* Client logs warnings for us, so no need to do that here */
       GST_WARNING_OBJECT (srv, "Outgoing SSL failed");
       return PEX_RTMP_SERVER_STATUS_SSL_CONNECT_FAILED;
@@ -982,6 +990,7 @@ pex_rtmp_server_init (PexRtmpServer * srv)
   srv->ca_cert_file = NULL;
   srv->ca_cert_dir = NULL;
   srv->ciphers = NULL;
+  srv->kex_groups = NULL;
   srv->tls1_enabled = DEFAULT_TLS1_ENABLED;
   srv->ignore_localhost = DEFAULT_IGNORE_LOCALHOST;
   g_mutex_init (&srv->direct_lock);
@@ -1043,6 +1052,7 @@ pex_rtmp_server_finalize (GObject * obj)
   g_free (srv->ca_cert_file);
   g_free (srv->ca_cert_dir);
   g_free (srv->ciphers);
+  g_free (srv->kex_groups);
   g_free (srv->opaque);
   g_free (srv->salt);
   g_free (srv->username);
@@ -1096,6 +1106,10 @@ pex_rtmp_server_set_property (GObject * obj, guint prop_id,
     case PROP_CIPHERS:
       g_assert (!srv->running);
       srv->ciphers = g_value_dup_string (value);
+      break;
+    case PROP_KEX_GROUPS:
+      g_assert (!srv->running);
+      srv->kex_groups = g_value_dup_string (value);
       break;
     case PROP_TLS1_ENABLED:
       g_assert (!srv->running);
@@ -1156,6 +1170,9 @@ pex_rtmp_server_get_property (GObject * obj, guint prop_id,
       break;
     case PROP_CIPHERS:
       g_value_set_string (value, srv->ciphers);
+      break;
+    case PROP_KEX_GROUPS:
+      g_value_set_string (value, srv->kex_groups);
       break;
     case PROP_TLS1_ENABLED:
       g_value_set_boolean (value, srv->tls1_enabled);
@@ -1234,6 +1251,11 @@ pex_rtmp_server_class_init (PexRtmpServerClass * klass)
   g_object_class_install_property (gobject_class, PROP_CIPHERS,
       g_param_spec_string ("ciphers", "Cipher specification",
           "Specification of ciphers to use", DEFAULT_CIPHERS,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_KEX_GROUPS,
+      g_param_spec_string ("kex-groups", "KeX groups",
+          "Key exchange groups to use", DEFAULT_KEX_GROUPS,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_TLS1_ENABLED,

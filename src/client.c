@@ -1571,19 +1571,21 @@ gboolean
 client_add_incoming_ssl (Client * client,
     const gchar * cert_file, const gchar * key_file,
     const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean tls1_enabled)
+    const gchar * ciphers, const gchar * kex_groups,
+    gboolean tls1_enabled)
 {
   client->ssl_ctx = ssl_add_incoming (cert_file, key_file, ca_file, ca_dir,
-      ciphers, tls1_enabled);
+      ciphers, kex_groups, tls1_enabled);
   return client->ssl_ctx != NULL;
 }
 
 gboolean
 client_add_outgoing_ssl (Client * client,
     const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean tls1_enabled)
+    const gchar * ciphers, const gchar * kex_groups,
+    gboolean tls1_enabled)
 {
-  client->ssl_ctx = ssl_add_outgoing (ca_file, ca_dir, ciphers, tls1_enabled);
+  client->ssl_ctx = ssl_add_outgoing (ca_file, ca_dir, ciphers, kex_groups, tls1_enabled);
   return client->ssl_ctx != NULL;
 }
 
