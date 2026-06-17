@@ -490,7 +490,7 @@ ssl_verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
 SSL_CTX *
 ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
     const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean tls1_enabled)
+    const gchar * ciphers, const gchar * kex_groups, gboolean tls1_enabled)
 {
   int seclevel = 0;
   int min_version = TLS1_VERSION;
@@ -512,6 +512,15 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
 #endif
   SSL_CTX_set_cipher_list (ssl_ctx, ciphers);
   SSL_CTX_set_options (ssl_ctx, ssl_options);
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  if (kex_groups != NULL && kex_groups[0] != '\0') {
+    if (SSL_CTX_set1_curves_list (ssl_ctx, kex_groups) != 1) {
+      GST_WARNING ("failed to set kex-groups: %s", kex_groups);
+      ssl_print_errors ();
+      return NULL;
+    }
+  }
+#endif
   if (file_exists (ca_file)) {
     SSL_CTX_load_verify_locations (ssl_ctx, ca_file, NULL);
   } else {
@@ -612,7 +621,7 @@ outgoing_ssl_info_callback (const SSL * ssl, int where, int ret)
 
 SSL_CTX *
 ssl_add_outgoing (const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean tls1_enabled)
+    const gchar * ciphers, const gchar * kex_groups, gboolean tls1_enabled)
 {
   int seclevel = 0;
   int min_version = TLS1_VERSION;
@@ -632,6 +641,11 @@ ssl_add_outgoing (const gchar * ca_file, const gchar * ca_dir,
 #endif
   SSL_CTX_set_cipher_list (ssl_ctx, ciphers);
   SSL_CTX_set_options (ssl_ctx, ssl_options);
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  if (kex_groups != NULL && kex_groups[0] != '\0') {
+    SSL_CTX_set1_curves_list (ssl_ctx, kex_groups);
+  }
+#endif
   if (file_exists (ca_file)) {
     SSL_CTX_load_verify_locations (ssl_ctx, ca_file, NULL);
   }
