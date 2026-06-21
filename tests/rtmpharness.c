@@ -217,6 +217,16 @@ rtmp_harness_crank_and_push_with_ts_offset (GstHarness * h,
 
   for (int i = 0; i < pushes; i++) {
     GstBuffer *buf = gst_harness_pull (h->src_harness);
+
+    /* Codec setup data (e.g. the Ogg/Speex headers emitted by speexenc) is
+     * delivered downstream as HEADER-flagged buffers. It is not a media frame
+     * and is carried out-of-band via caps, so skip it: a "push" must refer to
+     * an actual media frame for the publisher/subscriber counts to line up. */
+    while (buf != NULL && GST_BUFFER_FLAG_IS_SET (buf, GST_BUFFER_FLAG_HEADER)) {
+      gst_buffer_unref (buf);
+      buf = gst_harness_pull (h->src_harness);
+    }
+
     if (GST_CLOCK_TIME_IS_VALID (GST_BUFFER_PTS (buf)))
       GST_BUFFER_PTS (buf) += ts_offset;
 

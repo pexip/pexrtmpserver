@@ -14,6 +14,20 @@ test_c_args = [
   '-DTESTS_SRCDIR="@0@"'.format(meson.current_source_dir()),
 ]
 
+# The shared test-suite gates its Speex code paths on HAVE_SPEEX. Enable them
+# when the GStreamer speex encoder/decoder elements are actually available,
+# otherwise the speex tests would hit g_assert_not_reached() in the harness.
+gst_inspect = find_program('gst-inspect-1.0', required : false)
+if gst_inspect.found()
+  if run_command(gst_inspect, 'speexenc', check : false).returncode() == 0 and \
+     run_command(gst_inspect, 'speexdec', check : false).returncode() == 0
+    test_c_args += '-DHAVE_SPEEX=1'
+    message('Speex elements found: enabling speex test coverage')
+  else
+    message('Speex elements not found: skipping speex test coverage')
+  endif
+endif
+
 # Test-support GStreamer plugin: upstream-backed replacements for the Pexip
 # media elements the shared test-suite expects (pexrtmpsrc/sink, pexcision*,
 # codec wrappers). See tests/elements/.
