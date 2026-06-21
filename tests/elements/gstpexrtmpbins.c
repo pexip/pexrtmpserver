@@ -183,6 +183,14 @@ gst_pex_rtmp_sink_init (GstPexRtmpSink * self)
 
   g_object_set (self->flvmux, "streamable", TRUE, NULL);
 
+  /* The test-suite drives this sink through GstHarness, which requires state
+   * changes to complete synchronously (gst_harness_play asserts SUCCESS, not
+   * ASYNC). rtmpserversink is a live network sink, so disable async (preroll)
+   * state changes. It must also not sync media buffers to the clock: the
+   * harness uses a non-advancing test clock, and a network publisher should
+   * forward data as soon as it arrives rather than wait for buffer PTS. */
+  g_object_set (self->rtmpsink, "async", FALSE, "sync", FALSE, NULL);
+
   gst_bin_add_many (GST_BIN (self), self->flvmux, self->rtmpsink, NULL);
   gst_element_link (self->flvmux, self->rtmpsink);
 }

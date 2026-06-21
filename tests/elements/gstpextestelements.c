@@ -39,6 +39,10 @@ typedef struct
 typedef struct
 {
   GstBinClass parent_class;
+  /* NULL-terminated array of inner-pipeline stage descriptions for this
+   * wrapper variant. Set per-subtype from class_data; see
+   * wrap_subtype_class_init(). */
+  const gchar *const *stages;
 } GstPexWrapBinClass;
 
 enum
@@ -49,45 +53,46 @@ enum
   WRAP_PROP_SINGLE_SEGMENT,
 };
 
+#define GST_PEX_WRAP_BIN_GET_CLASS(obj) \
+  (G_TYPE_INSTANCE_GET_CLASS ((obj), gst_pex_wrap_bin_get_type (), \
+      GstPexWrapBinClass))
+
 static GType gst_pex_wrap_bin_get_type (void);
 G_DEFINE_TYPE (GstPexWrapBin, gst_pex_wrap_bin, GST_TYPE_BIN);
 
-/* Returns a NULL-terminated array of factory descriptions (each a single
- * element optionally followed by "prop=value" tokens) for the given wrapper
- * factory name, or NULL if unknown. */
-static const gchar **
-wrap_stages_for_factory (const gchar * name)
-{
-  static const gchar *audioconvert[] = { "audioconvert", "audioresample",
-    NULL
-  };
-  static const gchar *aacenc[] = { "audioconvert", "audioresample",
-    "avenc_aac", "aacparse", "capsfilter caps=audio/mpeg", NULL
-  };
-  static const gchar *aacdec[] = { "avdec_aac", "audioconvert", NULL };
-  static const gchar *h264enc[] = { "videoconvert",
-    "x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30",
-    "h264parse", "capsfilter caps=video/x-h264", NULL
-  };
-  static const gchar *h264dec[] = { "h264parse", "avdec_h264", "videoconvert",
-    NULL
-  };
-  static const gchar *sync[] = { "identity", NULL };
+/* Inner-pipeline stage descriptions for each wrapper variant. Each entry is a
+ * single element optionally followed by "prop=value" tokens. */
+static const gchar *const wrap_stages_audioconvert[] =
+    { "audioconvert", "audioresample", NULL };
+static const gchar *const wrap_stages_aacenc[] = { "audioconvert",
+  "audioresample", "avenc_aac", "aacparse", "capsfilter caps=audio/mpeg", NULL
+};
+static const gchar *const wrap_stages_aacdec[] =
+    { "avdec_aac", "audioconvert", NULL };
+static const gchar *const wrap_stages_h264enc[] = { "videoconvert",
+  "x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30",
+  "h264parse", "capsfilter caps=video/x-h264", NULL
+};
+static const gchar *const wrap_stages_h264dec[] =
+    { "h264parse", "avdec_h264", "videoconvert", NULL };
+static const gchar *const wrap_stages_sync[] = { "identity", NULL };
 
-  if (g_strcmp0 (name, "pexaudioconvert") == 0)
-    return audioconvert;
-  if (g_strcmp0 (name, "pexaacenc") == 0)
-    return aacenc;
-  if (g_strcmp0 (name, "pexaacdec") == 0)
-    return aacdec;
-  if (g_strcmp0 (name, "pexh264enc") == 0)
-    return h264enc;
-  if (g_strcmp0 (name, "pexh264dec") == 0)
-    return h264dec;
-  if (g_strcmp0 (name, "pexsync") == 0)
-    return sync;
-  return NULL;
-}
+/* Mapping of plugin feature name -> registered GType name + inner stages. */
+typedef struct
+{
+  const gchar *factory_name;
+  const gchar *type_name;
+  const gchar *const *stages;
+} GstPexWrapDef;
+
+static const GstPexWrapDef wrap_defs[] = {
+  {"pexaudioconvert", "GstPexAudioConvert", wrap_stages_audioconvert},
+  {"pexaacenc", "GstPexAacEnc", wrap_stages_aacenc},
+  {"pexaacdec", "GstPexAacDec", wrap_stages_aacdec},
+  {"pexh264enc", "GstPexH264Enc", wrap_stages_h264enc},
+  {"pexh264dec", "GstPexH264Dec", wrap_stages_h264dec},
+  {"pexsync", "GstPexSync", wrap_stages_sync},
+};
 
 /* Build a single element from a "factory prop=value ..." description. */
 static GstElement *
@@ -202,10 +207,8 @@ static void
 gst_pex_wrap_bin_constructed (GObject * object)
 {
   GstPexWrapBin *self = (GstPexWrapBin *) object;
-  GstElementFactory *factory = gst_element_get_factory (GST_ELEMENT (self));
-  const gchar *fname =
-      factory ? GST_OBJECT_NAME (factory) : "pexaudioconvert";
-  const gchar **stages = wrap_stages_for_factory (fname);
+  GstPexWrapBinClass *klass = GST_PEX_WRAP_BIN_GET_CLASS (self);
+  const gchar *const *stages = klass->stages;
   GstElement *first = NULL;
   GstElement *last = NULL;
   GstPad *pad, *ghost;
@@ -227,7 +230,8 @@ gst_pex_wrap_bin_constructed (GObject * object)
     if (first == NULL)
       first = e;
     if (last != NULL && !gst_element_link (last, e)) {
-      GST_ERROR_OBJECT (self, "failed to link stages in '%s'", fname);
+      GST_ERROR_OBJECT (self, "failed to link stages in '%s'",
+          G_OBJECT_TYPE_NAME (self));
       return;
     }
     last = e;
@@ -297,20 +301,49 @@ gst_pex_wrap_bin_init (GstPexWrapBin * self)
   (void) self;
 }
 
+/* Per-variant class_init: stash the variant's stage list (passed as
+ * class_data) on the class so constructed() can build the right inner
+ * pipeline. Each wrapper factory is registered as its own GType so that
+ * GST_PEX_WRAP_BIN_GET_CLASS()->stages is reliably distinct (sharing a single
+ * GType across factories does not work: GstElementClass.elementfactory is
+ * stored per-class, not per-instance). */
+static void
+wrap_subtype_class_init (gpointer klass, gpointer class_data)
+{
+  ((GstPexWrapBinClass *) klass)->stages = (const gchar * const *) class_data;
+}
+
+static GType
+wrap_subtype_register (const gchar * type_name, const gchar * const *stages)
+{
+  GType type = g_type_from_name (type_name);
+
+  if (type == 0) {
+    GTypeInfo info = { 0 };
+    info.class_size = sizeof (GstPexWrapBinClass);
+    info.class_init = wrap_subtype_class_init;
+    info.class_data = stages;
+    info.instance_size = sizeof (GstPexWrapBin);
+    type = g_type_register_static (gst_pex_wrap_bin_get_type (), type_name,
+        &info, 0);
+  }
+
+  return type;
+}
+
 /* ------------------------------------------------------------------------- */
 
 static gboolean
 plugin_init (GstPlugin * plugin)
 {
   gboolean ret = TRUE;
-  const gchar *wrappers[] = {
-    "pexaudioconvert", "pexaacenc", "pexaacdec",
-    "pexh264enc", "pexh264dec", "pexsync", NULL
-  };
+  guint i;
 
-  for (const gchar **n = wrappers; *n != NULL; n++) {
-    ret &= gst_element_register (plugin, *n, GST_RANK_NONE,
-        gst_pex_wrap_bin_get_type ());
+  for (i = 0; i < G_N_ELEMENTS (wrap_defs); i++) {
+    GType type = wrap_subtype_register (wrap_defs[i].type_name,
+        wrap_defs[i].stages);
+    ret &= gst_element_register (plugin, wrap_defs[i].factory_name,
+        GST_RANK_NONE, type);
   }
 
   ret &= gst_pex_cision_register (plugin);
