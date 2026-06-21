@@ -62,12 +62,12 @@ wrap_stages_for_factory (const gchar * name)
     NULL
   };
   static const gchar *aacenc[] = { "audioconvert", "audioresample",
-    "avenc_aac", "aacparse", NULL
+    "avenc_aac", "aacparse", "capsfilter caps=audio/mpeg", NULL
   };
   static const gchar *aacdec[] = { "avdec_aac", "audioconvert", NULL };
   static const gchar *h264enc[] = { "videoconvert",
     "x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30",
-    "h264parse", NULL
+    "h264parse", "capsfilter caps=video/x-h264", NULL
   };
   static const gchar *h264dec[] = { "h264parse", "avdec_h264", "videoconvert",
     NULL
