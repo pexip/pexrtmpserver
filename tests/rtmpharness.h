@@ -9,6 +9,7 @@ G_BEGIN_DECLS
 typedef enum {
   RTMP_SPEEX,
   RTMP_AAC,
+  RTMP_ALAW,
 } RTMPAudioCodec;
 
 typedef struct {
@@ -35,6 +36,12 @@ typedef struct {
   gboolean block_on_publish;
   gboolean block_on_play;
 
+  gchar * username;
+  gchar * password;
+
+  PexRtmpServerStatus publish_done_reason;
+  PexRtmpServerStatus play_done_reason;
+
   GMutex lock;
 } RTMPHarness;
 
@@ -43,6 +50,7 @@ typedef struct {
   GstHarness * audio_h;
   GstHarness * video_h;
   GstElement * flvmux;
+  GstElement * rtmpsink;
   gboolean rtmpsink_connected;
   gint id;
   gchar * path;
@@ -84,10 +92,28 @@ void rtmp_harness_unlock (RTMPHarness * h);
 
 gboolean rtmp_harness_dialout (RTMPHarness * h_from, gint id_from,
     RTMPHarness * h_to, gint id_to, const gchar * protocol,
-    const gchar * host, const gchar * ip);
+    const gchar * host, const gchar * ip, gint src_port);
 gboolean rtmp_harness_dialin (RTMPHarness * h_from, gint id_from,
     RTMPHarness * h_to, gint id_to, const gchar * protocol,
-    const gchar * host, const gchar * ip);
+    const gchar * host, const gchar * ip, gint src_port);
+
+RTMPHarness * rtmp_harness_new_with_ciphers (const gchar * application_name,
+    const gchar * ciphers);
+
+gchar * rtmp_harness_create_url (RTMPHarness * h, const gchar * path,
+    const gchar * protocol, gint port, const gchar * host);
+
+gint rtmp_harness_get_poll_count (RTMPHarness * h);
+
+void rtmp_harness_set_server_auth (RTMPHarness * h,
+    const gchar * username, const gchar * password);
+void rtmp_harness_set_dialout_auth (RTMPHarness * h,
+    const gchar * username, const gchar * password);
+
+void rtmp_harness_set_subscriber_auto_reconnect (RTMPHarness * h, gint s_id,
+    gboolean auto_reconnect);
+
+gint rtmp_harness_add_bad_client_ssl (RTMPHarness * h);
 
 void rtmp_harness_set_stream_id (RTMPHarness * h, gint stream_id);
 void rtmp_harness_set_chunk_size (RTMPHarness * h, gint chunk_size);

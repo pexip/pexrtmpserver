@@ -73,3 +73,16 @@ subdir('pkgconfig')
 subdir('utils')
 subdir('src')
 subdir('plugins')
+
+# Test-suite. The sources are kept in sync with the copy in pexip/media but are
+# built here against a plain upstream GStreamer using the compatibility shims in
+# tests/shims (see tests/meson.build).
+gstcheck_dep = dependency('gstreamer-check-1.0', version : gst_req,
+  required : get_option('tests'))
+gstvideo_dep = dependency('gstreamer-video-1.0', version : gst_req,
+  required : get_option('tests'))
+build_tests = gstcheck_dep.found() and gstvideo_dep.found() and \
+  openssl_dep.found() and not static_build
+if build_tests
+  subdir('tests')
+endif
