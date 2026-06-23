@@ -241,8 +241,18 @@ rtmp_harness_crank_and_push_with_ts_offset (GstHarness * h,
       buf = gst_harness_pull (h->src_harness);
     }
 
-    if (GST_CLOCK_TIME_IS_VALID (GST_BUFFER_PTS (buf)))
-      GST_BUFFER_PTS (buf) += ts_offset;
+    /* A stock speexenc leaves the PTS of the very first media frame unset
+     * (GST_CLOCK_TIME_NONE) because of the encoder lookahead; the Pexip-patched
+     * speexenc ("speexenc: Don't set lookahead") instead emits it with PTS == 0.
+     * An un-timestamped media frame is fine for a single-stream pipeline, but
+     * when this buffer is muxed together with a second stream (e.g. audio + a
+     * concurrently pushed video stream) flvmux cannot order it against the other
+     * pad and the aggregator stalls, deadlocking the test. Normalise the missing
+     * timestamp to the start of the stream so the two builds behave identically
+     * and flvmux can always interleave. */
+    if (!GST_CLOCK_TIME_IS_VALID (GST_BUFFER_PTS (buf)))
+      GST_BUFFER_PTS (buf) = 0;
+    GST_BUFFER_PTS (buf) += ts_offset;
 
     if (GST_CLOCK_TIME_IS_VALID (GST_BUFFER_DTS (buf)))
       GST_BUFFER_DTS (buf) += ts_offset;
@@ -440,9 +450,16 @@ rtmp_harness_add_audiosink (RTMPHarness * h, gint s_id, RTMPAudioCodec codec)
   GstElement *sink = gst_harness_find_element (s->audio_h->sink_harness,
       "pexcisionaudiosink");
   g_signal_connect (sink, "freq-list", G_CALLBACK (freq_list_cb), s);
+  /* The analysis window must be small enough that every codec the harness
+   * drives can fill it within the modest number of frames a test pushes.
+   * speexenc emits short 20 ms / 320-sample frames, so a 16 kHz Speex stream
+   * only accumulates ~4-6 frames in the shorter tests; a 1920-sample window
+   * would never complete and the freq-list signal would never fire. 960
+   * samples is plenty for the Goertzel detector to resolve the 100 Hz-spaced
+   * participant tones while staying reachable for all codecs. */
   g_object_set (sink,
       "fft-mag-threshold", -30.0,
-      "fft-required-samples", 960 * 2, "fft-resolution", 100, NULL);
+      "fft-required-samples", 960, "fft-resolution", 100, NULL);
   gst_object_unref (sink);
 }
 
