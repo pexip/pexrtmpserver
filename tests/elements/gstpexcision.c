@@ -632,7 +632,25 @@ gst_pex_cision_video_sink_render (GstBaseSink * sink, GstBuffer * buffer)
   if (count == 0)
     return GST_FLOW_OK;
 
-  id = pex_luma_to_id ((guint) (sum / count));
+  {
+    gdouble luma = (gdouble) sum / count;
+
+    /* The id is encoded as a full-range RGB grey value at the source, but the
+     * round-trip through the H.264 encoder/decoder delivers studio-swing
+     * (limited range, 16..235) luma here.  Expand it back to the full 0..255
+     * range before decoding so the recovered id matches the one embedded by
+     * pexcisionvideosrc; otherwise the systematic 16/219 scaling shifts every
+     * reading by roughly one id step. */
+    if (self->info.colorimetry.range == GST_VIDEO_COLOR_RANGE_16_235) {
+      luma = (luma - 16.0) * 255.0 / 219.0;
+      if (luma < 0.0)
+        luma = 0.0;
+      else if (luma > 255.0)
+        luma = 255.0;
+    }
+
+    id = pex_luma_to_id ((guint) (luma + 0.5));
+  }
 
   arr = g_value_array_new (1);
   g_value_init (&v, G_TYPE_UINT);

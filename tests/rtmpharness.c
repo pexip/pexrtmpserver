@@ -221,8 +221,15 @@ rtmp_harness_crank_and_push_with_ts_offset (GstHarness * h,
     /* Codec setup data (e.g. the Ogg/Speex headers emitted by speexenc) is
      * delivered downstream as HEADER-flagged buffers. It is not a media frame
      * and is carried out-of-band via caps, so skip it: a "push" must refer to
-     * an actual media frame for the publisher/subscriber counts to line up. */
-    while (buf != NULL && GST_BUFFER_FLAG_IS_SET (buf, GST_BUFFER_FLAG_HEADER)) {
+     * an actual media frame for the publisher/subscriber counts to line up.
+     *
+     * Only pure setup headers must be skipped though. Some encoders (notably
+     * x264enc) flag the very first key-frame buffer with GST_BUFFER_FLAG_HEADER
+     * even though it carries real, time-stamped media that must be transmitted.
+     * Pure setup headers (Speex/Vorbis style) carry no timestamp, so use the
+     * absence of a valid PTS to tell them apart from a HEADER-flagged frame. */
+    while (buf != NULL && GST_BUFFER_FLAG_IS_SET (buf, GST_BUFFER_FLAG_HEADER) &&
+        !GST_CLOCK_TIME_IS_VALID (GST_BUFFER_PTS (buf))) {
       gst_buffer_unref (buf);
       buf = gst_harness_pull (h->src_harness);
     }
