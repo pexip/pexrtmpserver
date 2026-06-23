@@ -319,6 +319,46 @@ _push_async (GstHarness * h, gint cranks, gint pushes, GstClockTime ts_offset)
 void
 rtmp_harness_set_timestamp_offset (RTMPHarness * h, GstClockTime ts_offset)
 {
+  GHashTableIter iter;
+  gpointer value;
+
+  /* The publisher media is produced by a live source (pexcisionaudiosrc /
+   * pexcisionvideosrc are is-live=TRUE so the test can drive them with
+   * gst_harness_crank_single_clock_wait), and that liveness propagates down to
+   * flvmux. A live GstAggregator paces its output to the pipeline clock: before
+   * muxing a buffer it sleeps on the clock until "base_time + running_time".
+   * That keeps the audio and video pads interleaving correctly while a test
+   * runs in real time, so it must be left in place for normal operation.
+   *
+   * This setter, however, deliberately jumps the buffer timestamps forward by a
+   * large amount (the extended-timestamp test uses 0xffffff ms ~= 4.66 hours) to
+   * exercise RTMP's extended-timestamp encoding. With base_time fixed at element
+   * start, the aggregator would then sleep ~4.66 hours and the test would
+   * dead-lock. Since the timestamps are pushed by hand rather than emitted in
+   * real time, compensate by moving flvmux's base_time back by the same amount:
+   * "base_time + running_time" stays close to "now", so the pacing wait still
+   * orders the pads but returns immediately regardless of the offset size. */
+  g_hash_table_iter_init (&iter, h->publishers);
+  while (g_hash_table_iter_next (&iter, NULL, &value)) {
+    Publisher *p = value;
+    GstElement *flvmux = gst_bin_get_by_name (GST_BIN (p->rtmpsink), "mux");
+
+    if (flvmux != NULL) {
+      GstClockTime base_time = gst_element_get_base_time (flvmux);
+
+      /* ts_offset only ever grows in practice; guard against underflow. */
+      if (GST_CLOCK_TIME_IS_VALID (base_time)) {
+        GstClockTimeDiff delta = (GstClockTimeDiff) ts_offset - h->ts_offset;
+        if (delta < 0 && (GstClockTime) (-delta) > base_time)
+          base_time = 0;
+        else
+          base_time -= delta;
+        gst_element_set_base_time (flvmux, base_time);
+      }
+      gst_object_unref (flvmux);
+    }
+  }
+
   h->ts_offset = ts_offset;
 }
 

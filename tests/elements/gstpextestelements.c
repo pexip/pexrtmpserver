@@ -7,7 +7,7 @@
  * in replacements built purely from upstream GStreamer elements:
  *
  *   pexaudioconvert  -> audioconvert ! audioresample
- *   pexaacenc        -> audioconvert ! audioresample ! avenc_aac ! aacparse
+ *   pexaacenc        -> audioconvert ! audioresample ! voaacenc ! aacparse
  *   pexaacdec        -> avdec_aac ! audioconvert
  *   pexh264enc       -> videoconvert ! x264enc ! h264parse
  *   pexh264dec       -> h264parse ! avdec_h264 ! videoconvert
@@ -64,8 +64,14 @@ G_DEFINE_TYPE (GstPexWrapBin, gst_pex_wrap_bin, GST_TYPE_BIN);
  * single element optionally followed by "prop=value" tokens. */
 static const gchar *const wrap_stages_audioconvert[] =
     { "audioconvert", "audioresample", NULL };
+/* voaacenc is used (rather than avenc_aac) because it emits one AAC frame for
+ * every input frame with no encoder lookahead/latency. The harness drives the
+ * encoder one buffer at a time and pulls the matching number of frames back
+ * out, so a codec that buffers a frame internally (as avenc_aac does) would
+ * starve the pump and deadlock the test. This mirrors the zero-latency tuning
+ * applied to x264enc below. */
 static const gchar *const wrap_stages_aacenc[] = { "audioconvert",
-  "audioresample", "avenc_aac", "aacparse", "capsfilter caps=audio/mpeg", NULL
+  "audioresample", "voaacenc", "aacparse", "capsfilter caps=audio/mpeg", NULL
 };
 static const gchar *const wrap_stages_aacdec[] =
     { "avdec_aac", "audioconvert", NULL };
