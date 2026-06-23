@@ -141,6 +141,7 @@ rtmp_harness_add_custom_audiosrc (RTMPHarness * h, gint p_id,
 {
   Publisher *p = g_hash_table_lookup (h->publishers, GINT_TO_POINTER (p_id));
   p->audio_h = gst_harness_new_with_element (p->rtmpsink, "audio_sink", NULL);
+  gst_harness_use_systemclock (p->audio_h);
   gst_harness_play (p->audio_h);
 
   gst_harness_add_src_parse (p->audio_h, launch_str, TRUE);
@@ -185,6 +186,7 @@ rtmp_harness_add_custom_videosrc (RTMPHarness * h, gint p_id,
 {
   Publisher *p = g_hash_table_lookup (h->publishers, GINT_TO_POINTER (p_id));
   p->video_h = gst_harness_new_with_element (p->rtmpsink, "video_sink", NULL);
+  gst_harness_use_systemclock (p->video_h);
   gst_harness_play (p->video_h);
 
   gst_harness_add_src_parse (p->video_h, launch_str, TRUE);
@@ -210,6 +212,8 @@ static void
 rtmp_harness_crank_and_push_with_ts_offset (GstHarness * h,
     gint cranks, gint pushes, GstClockTime ts_offset)
 {
+  GstClockTime ts_base = GST_CLOCK_TIME_NONE;
+
   gst_harness_play (h->src_harness);
 
   for (int i = 0; i < cranks; i++)
@@ -241,21 +245,42 @@ rtmp_harness_crank_and_push_with_ts_offset (GstHarness * h,
       buf = gst_harness_pull (h->src_harness);
     }
 
-    /* A stock speexenc leaves the PTS of the very first media frame unset
+    /* Normalise the stream so its first media frame starts at time 0 (plus any
+     * requested ts_offset).
+     *
+     * A stock speexenc leaves the PTS of the very first media frame unset
      * (GST_CLOCK_TIME_NONE) because of the encoder lookahead; the Pexip-patched
      * speexenc ("speexenc: Don't set lookahead") instead emits it with PTS == 0.
-     * An un-timestamped media frame is fine for a single-stream pipeline, but
-     * when this buffer is muxed together with a second stream (e.g. audio + a
-     * concurrently pushed video stream) flvmux cannot order it against the other
-     * pad and the aggregator stalls, deadlocking the test. Normalise the missing
-     * timestamp to the start of the stream so the two builds behave identically
-     * and flvmux can always interleave. */
+     * Upstream x264enc is worse still: to keep DTS non-negative in the presence
+     * of reordering it shifts every PTS/DTS by a large constant (1000 hours),
+     * so a plain video stream comes out with PTS around 1000h rather than 0.
+     *
+     * An un-normalised stream is fine on its own, but when two such streams are
+     * muxed together (audio + a concurrently pushed video stream) flvmux has to
+     * interleave them by running time. With audio sitting near 0 and video near
+     * 1000h the aggregator can never line the two pads up, so it stalls and the
+     * test deadlocks. Subtracting the first frame's PTS puts every codec on the
+     * same zero-based timeline, so audio and video always interleave and the two
+     * speexenc builds behave identically. */
     if (!GST_CLOCK_TIME_IS_VALID (GST_BUFFER_PTS (buf)))
+      GST_BUFFER_PTS (buf) = 0;
+
+    if (!GST_CLOCK_TIME_IS_VALID (ts_base))
+      ts_base = GST_BUFFER_PTS (buf);
+
+    if (GST_BUFFER_PTS (buf) >= ts_base)
+      GST_BUFFER_PTS (buf) -= ts_base;
+    else
       GST_BUFFER_PTS (buf) = 0;
     GST_BUFFER_PTS (buf) += ts_offset;
 
-    if (GST_CLOCK_TIME_IS_VALID (GST_BUFFER_DTS (buf)))
+    if (GST_CLOCK_TIME_IS_VALID (GST_BUFFER_DTS (buf))) {
+      if (GST_BUFFER_DTS (buf) >= ts_base)
+        GST_BUFFER_DTS (buf) -= ts_base;
+      else
+        GST_BUFFER_DTS (buf) = 0;
       GST_BUFFER_DTS (buf) += ts_offset;
+    }
     GstFlowReturn ret = gst_harness_push (h, buf);
     if (ret != GST_FLOW_OK)
       break;
