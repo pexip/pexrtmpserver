@@ -226,10 +226,17 @@ rtmp_harness_crank_and_push_with_ts_offset (GstHarness * h,
      * Only pure setup headers must be skipped though. Some encoders (notably
      * x264enc) flag the very first key-frame buffer with GST_BUFFER_FLAG_HEADER
      * even though it carries real, time-stamped media that must be transmitted.
-     * Pure setup headers (Speex/Vorbis style) carry no timestamp, so use the
-     * absence of a valid PTS to tell them apart from a HEADER-flagged frame. */
+     * A real frame always carries a valid, non-zero duration, whereas a pure
+     * setup header carries none. The exact timestamping of the Speex headers
+     * differs between a stock speexenc (PTS/duration are GST_CLOCK_TIME_NONE)
+     * and the Pexip-patched one (the "speexenc: Don't set lookahead" patch in
+     * github.com/pexip/gstreamer, where they come out with PTS == 0 and a zero
+     * duration), so rely on the absence of a valid, non-zero duration -- which
+     * holds for both -- rather than on the PTS to tell setup headers apart from
+     * a HEADER-flagged media frame. */
     while (buf != NULL && GST_BUFFER_FLAG_IS_SET (buf, GST_BUFFER_FLAG_HEADER) &&
-        !GST_CLOCK_TIME_IS_VALID (GST_BUFFER_PTS (buf))) {
+        (!GST_CLOCK_TIME_IS_VALID (GST_BUFFER_DURATION (buf)) ||
+            GST_BUFFER_DURATION (buf) == 0)) {
       gst_buffer_unref (buf);
       buf = gst_harness_pull (h->src_harness);
     }
