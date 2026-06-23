@@ -71,7 +71,8 @@ static const gchar *const wrap_stages_audioconvert[] =
  * starve the pump and deadlock the test. This mirrors the zero-latency tuning
  * applied to x264enc below. */
 static const gchar *const wrap_stages_aacenc[] = { "audioconvert",
-  "audioresample", "voaacenc", "aacparse", "capsfilter caps=audio/mpeg", NULL
+  "audioresample", "capsfilter caps=audio/x-raw,rate=48000", "voaacenc",
+  "aacparse", "capsfilter caps=audio/mpeg", NULL
 };
 static const gchar *const wrap_stages_aacdec[] =
     { "avdec_aac", "audioconvert", NULL };
