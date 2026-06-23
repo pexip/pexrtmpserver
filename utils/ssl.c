@@ -18,6 +18,7 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
+#include <stdbool.h>
 #include "ssl.h"
 
 #ifdef G_OS_WIN32
@@ -493,6 +494,7 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
     const gchar * ciphers, const gchar * kex_groups, const gchar * sig_algs,
     gboolean tls1_enabled)
 {
+  bool kex_groups_set = false;
   int seclevel = 0;
   int min_version = TLS1_VERSION;
   long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
@@ -520,6 +522,7 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
       ssl_print_errors ();
       return NULL;
     }
+    kex_groups_set = true;
   }
 #endif
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
@@ -573,8 +576,11 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
       }
     }
 
-    /* Configure ECDH parameters */
-    params = pkey_parameters_from_file (cert_file, EVP_PKEY_EC);
+    /* Configure ECDH parameters (if not already set) */
+    params = NULL;
+    if (!kex_groups_set) {
+      params = pkey_parameters_from_file (cert_file, EVP_PKEY_EC);
+    }
     if (params != NULL) {
       int nid = NID_undef;
 #if (OPENSSL_VERSION_NUMBER < 0x30000000L)
