@@ -1,7 +1,16 @@
 #include "rtmpharness.h"
 #include <string.h>
 #include <gst/video/video.h>
-#include <sys/socket.h>
+#include "utils/tcp.h"
+#include "pex/tools/pextools.h"
+
+#if defined(_MSC_VER)
+#  define WIN32_LEAN_AND_MEAN
+#  include <winsock2.h>
+#  include <windows.h>
+#else
+#  include <sys/socket.h>
+#endif
 
 // to get the g_debug messages in the log, simply use:
 // (export) G_MESSAGES_DEBUG=all
@@ -31,19 +40,6 @@ rtmp_harness_unlock (RTMPHarness * h)
   UNLOCK (h);
 }
 
-static void
-_rtmpsink_connected_cb (GstElement * rtmpsink, GParamSpec * pspec,
-    Publisher * p)
-{
-  (void) pspec;
-  LOCK (p);
-  g_object_get (rtmpsink, "connected", &p->rtmpsink_connected, NULL);
-  g_debug ("******* RTMPSINK WAS %sCONNECTED *******\n",
-      p->rtmpsink_connected ? "" : "DIS");
-  SIGNAL (p);
-  UNLOCK (p);
-}
-
 static gint
 count_chars_in_string (const gchar * s, char c)
 {
@@ -53,23 +49,33 @@ count_chars_in_string (const gchar * s, char c)
 }
 
 static gchar *
-rtmp_harness_get_publisher_url (RTMPHarness * h,
+_get_auth_string (RTMPHarness * h)
+{
+  if (h->username && h->password)
+    return g_strdup_printf ("%s:%s@", h->username, h->password);
+  else
+    return g_strdup ("");
+}
+
+gchar *
+rtmp_harness_create_url (RTMPHarness * h,
     const gchar * path, const gchar * protocol, gint port, const gchar * host)
 {
   gchar *ret;
+  gchar *auth_str = _get_auth_string (h);
   if (count_chars_in_string (host, ':') > 1) {
-    ret = g_strdup_printf ("%s://[%s]:%d/%s/%s live=1",
-        protocol, host, port, h->application_name, path);
+    ret = g_strdup_printf ("%s://%s[%s]:%d/%s/%s live=1",
+        protocol, auth_str, host, port, h->application_name, path);
   } else {
-    ret = g_strdup_printf ("%s://%s:%d/%s/%s live=1",
-        protocol, host, port, h->application_name, path);
+    ret = g_strdup_printf ("%s://%s%s:%d/%s/%s live=1",
+        protocol, auth_str, host, port, h->application_name, path);
   }
+  g_free (auth_str);
   return ret;
 }
 
-static gint
-rtmp_harness_add_publisher_full (RTMPHarness * h,
-    const gchar * path, const gchar * protocol, gint port)
+gint
+rtmp_harness_add_publisher (RTMPHarness * h, const gchar * path)
 {
   Publisher *p = g_new0 (Publisher, 1);
   p->path = g_strdup (path);
@@ -77,38 +83,16 @@ rtmp_harness_add_publisher_full (RTMPHarness * h,
   g_mutex_init (&p->lock);
   g_cond_init (&p->cond);
 
-  gchar *publisher_url = rtmp_harness_get_publisher_url (h,
-      path, protocol, port, "localhost");
-  gchar *pipeline =
-      g_strdup_printf ("flvmux streamable=1 ! rtmpsink location=\"%s\"",
-      publisher_url);
-  g_free (publisher_url);
+  p->rtmpsink = gst_element_factory_make ("pexrtmpsink", NULL);
+  g_assert (p->rtmpsink);
 
-  p->h = gst_harness_new_parse (pipeline);
-  g_free (pipeline);
-  p->flvmux = gst_harness_find_element (p->h, "flvmux");
-  GstElement *rtmpsink = gst_harness_find_element (p->h, "rtmpsink");
-  g_signal_connect (rtmpsink,
-      "notify::connected", G_CALLBACK (_rtmpsink_connected_cb), p);
-  gst_object_unref (rtmpsink);
+  g_object_set (p->rtmpsink, "server", h->server, "path", path, NULL);
 
-  gst_harness_play (p->h);
+  gst_element_set_state (p->rtmpsink, GST_STATE_PLAYING);
 
   g_hash_table_insert (h->publishers, GINT_TO_POINTER (p->id), p);
 
   return p->id;
-}
-
-gint
-rtmp_harness_add_publisher (RTMPHarness * h, const gchar * path)
-{
-  return rtmp_harness_add_publisher_full (h, path, "rtmp", h->port);
-}
-
-gint
-rtmp_harness_add_publisher_ssl (RTMPHarness * h, const gchar * path)
-{
-  return rtmp_harness_add_publisher_full (h, path, "rtmps", h->ssl_port);
 }
 
 void
@@ -117,18 +101,26 @@ rtmp_harness_remove_publisher (RTMPHarness * h, gint p_id)
   g_hash_table_remove (h->publishers, GINT_TO_POINTER (p_id));
 }
 
+/* wrapper function to use correct function signature */
+static void
+g_thread_join_destroy_notify (gpointer data)
+{
+  g_thread_join (data);
+}
+
 static void
 publisher_teardown (Publisher * p)
 {
-  gst_object_unref (p->flvmux);
-  gst_harness_teardown (p->h);
+  g_list_free_full (p->push_threads, g_thread_join_destroy_notify);
 
-  g_list_free_full (p->push_threads, (GDestroyNotify) g_thread_join);
+  gst_element_set_state (p->rtmpsink, GST_STATE_NULL);
 
   if (p->audio_h)
     gst_harness_teardown (p->audio_h);
   if (p->video_h)
     gst_harness_teardown (p->video_h);
+
+  gst_object_unref (p->rtmpsink);
 
   g_mutex_clear (&p->lock);
   g_cond_clear (&p->cond);
@@ -148,33 +140,43 @@ rtmp_harness_add_custom_audiosrc (RTMPHarness * h, gint p_id,
     const gchar * launch_str)
 {
   Publisher *p = g_hash_table_lookup (h->publishers, GINT_TO_POINTER (p_id));
-  p->audio_h = gst_harness_new_with_element (p->flvmux, "audio", NULL);
+  p->audio_h = gst_harness_new_with_element (p->rtmpsink, "audio_sink", NULL);
+  gst_harness_use_systemclock (p->audio_h);
   gst_harness_play (p->audio_h);
 
-  p->audio_h->src_harness = gst_harness_new_parse (launch_str);
-  gst_harness_use_testclock (p->audio_h->src_harness);
+  gst_harness_add_src_parse (p->audio_h, launch_str, TRUE);
 }
 
 void
 rtmp_harness_add_audiosrc (RTMPHarness * h, gint p_id, RTMPAudioCodec codec)
 {
-  if (codec == RTMP_SPEEX) {
+  if (codec == RTMP_AAC) {
     rtmp_harness_add_custom_audiosrc (h, p_id,
         "pexcisionaudiosrc ! pexaudioconvert ! "
-        "capsfilter caps=\"audio/x-raw-int, rate=16000\" ! speexenc");
-  } else if (codec == RTMP_AAC) {
+        "capsfilter caps=\"audio/x-raw, format=S16LE, rate=48000, channels=2\" "
+        "! pexaacenc aot=5");
+#if HAVE_SPEEX
+  } else if (codec == RTMP_SPEEX) {
     rtmp_harness_add_custom_audiosrc (h, p_id,
         "pexcisionaudiosrc ! pexaudioconvert ! "
-        "capsfilter caps=\"audio/x-raw-int, rate=48000, channels=2\" ! pexaacenc aot=5");
+        "capsfilter caps=\"audio/x-raw, format=S16LE, rate=16000\" ! speexenc");
+
+#endif /* HAVE_SPEEX */
+  } else if (codec == RTMP_ALAW) {
+    rtmp_harness_add_custom_audiosrc (h, p_id,
+        "pexcisionaudiosrc ! pexaudioconvert ! "
+        "capsfilter caps=\"audio/x-raw, format=S16LE, rate=11025, channels=1\" "
+        "! alawenc");
   } else {
     g_assert_not_reached ();
   }
 
   Publisher *p = g_hash_table_lookup (h->publishers, GINT_TO_POINTER (p_id));
-  GstElement *src =
-      gst_harness_find_element (p->audio_h->src_harness, "pexcisionaudiosrc");
-  g_object_set (src, "mode", 1, "freq", (float) _get_freq_for_id (p_id),
-      "samplesperbuffer", 960, NULL);
+  GstElement *src = gst_harness_find_element (p->audio_h->src_harness,
+      "pexcisionaudiosrc");
+  g_object_set (src,
+      "mode", 1,
+      "freq", (float) _get_freq_for_id (p_id), "samplesperbuffer", 960, NULL);
   gst_object_unref (src);
 }
 
@@ -183,11 +185,11 @@ rtmp_harness_add_custom_videosrc (RTMPHarness * h, gint p_id,
     const gchar * launch_str)
 {
   Publisher *p = g_hash_table_lookup (h->publishers, GINT_TO_POINTER (p_id));
-  p->video_h = gst_harness_new_with_element (p->flvmux, "video", NULL);
+  p->video_h = gst_harness_new_with_element (p->rtmpsink, "video_sink", NULL);
+  gst_harness_use_systemclock (p->video_h);
   gst_harness_play (p->video_h);
 
-  p->video_h->src_harness = gst_harness_new_parse (launch_str);
-  gst_harness_use_testclock (p->video_h->src_harness);
+  gst_harness_add_src_parse (p->video_h, launch_str, TRUE);
 }
 
 void
@@ -195,14 +197,13 @@ rtmp_harness_add_videosrc (RTMPHarness * h, gint p_id)
 {
   rtmp_harness_add_custom_videosrc (h, p_id,
       "pexcisionvideosrc ! "
+      "capsfilter caps=\"video/x-raw, width=128, height=72\" ! "
       "pexh264enc ! "
-      "capsfilter caps=\"video/x-h264, stream-format=byte-stream, alignment=nal\" ! "
-      "h264parse ! "
-      "capsfilter caps=\"video/x-h264, stream-format=(string)avc, alignment=(string)au\"");
+      "capsfilter caps=\"video/x-h264, stream-format=avc, alignment=au\"");
 
   Publisher *p = g_hash_table_lookup (h->publishers, GINT_TO_POINTER (p_id));
-  GstElement *src =
-      gst_harness_find_element (p->video_h->src_harness, "pexcisionvideosrc");
+  GstElement *src = gst_harness_find_element (p->video_h->src_harness,
+      "pexcisionvideosrc");
   g_object_set (src, "id", _get_freq_for_id (p_id), NULL);
   gst_object_unref (src);
 }
@@ -211,6 +212,8 @@ static void
 rtmp_harness_crank_and_push_with_ts_offset (GstHarness * h,
     gint cranks, gint pushes, GstClockTime ts_offset)
 {
+  GstClockTime ts_base = GST_CLOCK_TIME_NONE;
+
   gst_harness_play (h->src_harness);
 
   for (int i = 0; i < cranks; i++)
@@ -218,7 +221,66 @@ rtmp_harness_crank_and_push_with_ts_offset (GstHarness * h,
 
   for (int i = 0; i < pushes; i++) {
     GstBuffer *buf = gst_harness_pull (h->src_harness);
-    GST_BUFFER_TIMESTAMP (buf) += ts_offset;
+
+    /* Codec setup data (e.g. the Ogg/Speex headers emitted by speexenc) is
+     * delivered downstream as HEADER-flagged buffers. It is not a media frame
+     * and is carried out-of-band via caps, so skip it: a "push" must refer to
+     * an actual media frame for the publisher/subscriber counts to line up.
+     *
+     * Only pure setup headers must be skipped though. Some encoders (notably
+     * x264enc) flag the very first key-frame buffer with GST_BUFFER_FLAG_HEADER
+     * even though it carries real, time-stamped media that must be transmitted.
+     * A real frame always carries a valid, non-zero duration, whereas a pure
+     * setup header carries none. The exact timestamping of the Speex headers
+     * differs between a stock speexenc (PTS/duration are GST_CLOCK_TIME_NONE)
+     * and the Pexip-patched one (the "speexenc: Don't set lookahead" patch in
+     * github.com/pexip/gstreamer, where they come out with PTS == 0 and a zero
+     * duration), so rely on the absence of a valid, non-zero duration -- which
+     * holds for both -- rather than on the PTS to tell setup headers apart from
+     * a HEADER-flagged media frame. */
+    while (buf != NULL && GST_BUFFER_FLAG_IS_SET (buf, GST_BUFFER_FLAG_HEADER) &&
+        (!GST_CLOCK_TIME_IS_VALID (GST_BUFFER_DURATION (buf)) ||
+            GST_BUFFER_DURATION (buf) == 0)) {
+      gst_buffer_unref (buf);
+      buf = gst_harness_pull (h->src_harness);
+    }
+
+    /* Normalise the stream so its first media frame starts at time 0 (plus any
+     * requested ts_offset).
+     *
+     * A stock speexenc leaves the PTS of the very first media frame unset
+     * (GST_CLOCK_TIME_NONE) because of the encoder lookahead; the Pexip-patched
+     * speexenc ("speexenc: Don't set lookahead") instead emits it with PTS == 0.
+     * Upstream x264enc is worse still: to keep DTS non-negative in the presence
+     * of reordering it shifts every PTS/DTS by a large constant (1000 hours),
+     * so a plain video stream comes out with PTS around 1000h rather than 0.
+     *
+     * An un-normalised stream is fine on its own, but when two such streams are
+     * muxed together (audio + a concurrently pushed video stream) flvmux has to
+     * interleave them by running time. With audio sitting near 0 and video near
+     * 1000h the aggregator can never line the two pads up, so it stalls and the
+     * test deadlocks. Subtracting the first frame's PTS puts every codec on the
+     * same zero-based timeline, so audio and video always interleave and the two
+     * speexenc builds behave identically. */
+    if (!GST_CLOCK_TIME_IS_VALID (GST_BUFFER_PTS (buf)))
+      GST_BUFFER_PTS (buf) = 0;
+
+    if (!GST_CLOCK_TIME_IS_VALID (ts_base))
+      ts_base = GST_BUFFER_PTS (buf);
+
+    if (GST_BUFFER_PTS (buf) >= ts_base)
+      GST_BUFFER_PTS (buf) -= ts_base;
+    else
+      GST_BUFFER_PTS (buf) = 0;
+    GST_BUFFER_PTS (buf) += ts_offset;
+
+    if (GST_CLOCK_TIME_IS_VALID (GST_BUFFER_DTS (buf))) {
+      if (GST_BUFFER_DTS (buf) >= ts_base)
+        GST_BUFFER_DTS (buf) -= ts_base;
+      else
+        GST_BUFFER_DTS (buf) = 0;
+      GST_BUFFER_DTS (buf) += ts_offset;
+    }
     GstFlowReturn ret = gst_harness_push (h, buf);
     if (ret != GST_FLOW_OK)
       break;
@@ -233,12 +295,14 @@ typedef struct
   GstClockTime ts_offset;
 } AsyncPushCtx;
 
-static void
+static gpointer
 _async_push_func (AsyncPushCtx * ctx)
 {
   rtmp_harness_crank_and_push_with_ts_offset (ctx->h,
       ctx->cranks, ctx->pushes, ctx->ts_offset);
   g_free (ctx);
+
+  return NULL;
 }
 
 static GThread *
@@ -255,6 +319,46 @@ _push_async (GstHarness * h, gint cranks, gint pushes, GstClockTime ts_offset)
 void
 rtmp_harness_set_timestamp_offset (RTMPHarness * h, GstClockTime ts_offset)
 {
+  GHashTableIter iter;
+  gpointer value;
+
+  /* The publisher media is produced by a live source (pexcisionaudiosrc /
+   * pexcisionvideosrc are is-live=TRUE so the test can drive them with
+   * gst_harness_crank_single_clock_wait), and that liveness propagates down to
+   * flvmux. A live GstAggregator paces its output to the pipeline clock: before
+   * muxing a buffer it sleeps on the clock until "base_time + running_time".
+   * That keeps the audio and video pads interleaving correctly while a test
+   * runs in real time, so it must be left in place for normal operation.
+   *
+   * This setter, however, deliberately jumps the buffer timestamps forward by a
+   * large amount (the extended-timestamp test uses 0xffffff ms ~= 4.66 hours) to
+   * exercise RTMP's extended-timestamp encoding. With base_time fixed at element
+   * start, the aggregator would then sleep ~4.66 hours and the test would
+   * dead-lock. Since the timestamps are pushed by hand rather than emitted in
+   * real time, compensate by moving flvmux's base_time back by the same amount:
+   * "base_time + running_time" stays close to "now", so the pacing wait still
+   * orders the pads but returns immediately regardless of the offset size. */
+  g_hash_table_iter_init (&iter, h->publishers);
+  while (g_hash_table_iter_next (&iter, NULL, &value)) {
+    Publisher *p = value;
+    GstElement *flvmux = gst_bin_get_by_name (GST_BIN (p->rtmpsink), "mux");
+
+    if (flvmux != NULL) {
+      GstClockTime base_time = gst_element_get_base_time (flvmux);
+
+      /* ts_offset only ever grows in practice; guard against underflow. */
+      if (GST_CLOCK_TIME_IS_VALID (base_time)) {
+        GstClockTimeDiff delta = (GstClockTimeDiff) ts_offset - h->ts_offset;
+        if (delta < 0 && (GstClockTime) (-delta) > base_time)
+          base_time = 0;
+        else
+          base_time -= delta;
+        gst_element_set_base_time (flvmux, base_time);
+      }
+      gst_object_unref (flvmux);
+    }
+  }
+
   h->ts_offset = ts_offset;
 }
 
@@ -301,60 +405,10 @@ rtmp_harness_request_intra (RTMPHarness * h, gint p_id)
           0));
 }
 
-gboolean
-rtmp_harness_wait_for_rtmpsink_connection (RTMPHarness * h,
-    gint p_id, gboolean connected)
-{
-  Publisher *p = g_hash_table_lookup (h->publishers, GINT_TO_POINTER (p_id));
-  gint64 timeout = g_get_monotonic_time () + G_USEC_PER_SEC * 60;
-
-  LOCK (p);
-  while (p->rtmpsink_connected != connected) {
-    WAIT_UNTIL (p, timeout);
-  }
-  UNLOCK (p);
-
-  return p->rtmpsink_connected == connected;
-}
-
-gboolean
-rtmp_harness_get_rtmpsink_connection (RTMPHarness * h, gint p_id)
-{
-  Publisher *p = g_hash_table_lookup (h->publishers, GINT_TO_POINTER (p_id));
-  return p->rtmpsink_connected;
-}
-
  /******* Subscriber ******/
 
-static void
-_rtmpsrc_connected_cb (GstElement * rtmpsrc, GParamSpec * pspec, Subscriber * s)
-{
-  (void) pspec;
-  LOCK (s);
-  g_object_get (rtmpsrc, "connected", &s->rtmpsrc_connected, NULL);
-  g_debug ("******* RTMPSRC WAS %sCONNECTED *******\n",
-      s->rtmpsrc_connected ? "" : "DIS");
-  SIGNAL (s);
-  UNLOCK (s);
-}
-
-static void
-flvdemux_pad_added (GstElement * flvdemux, GstPad * srcpad, Subscriber * s)
-{
-  (void) flvdemux;
-
-  gchar *padname = gst_pad_get_name (srcpad);
-  if (strcmp (padname, "audio") == 0) {
-    gst_harness_add_element_srcpad (s->audio_h, srcpad);
-  } else if (strcmp (padname, "video") == 0) {
-    gst_harness_add_element_srcpad (s->video_h, srcpad);
-  }
-  g_free (padname);
-}
-
-static gint
-rtmp_harness_add_subscriber_full (RTMPHarness * h,
-    const gchar * path, const gchar * protocol, gint port)
+gint
+rtmp_harness_add_subscriber (RTMPHarness * h, const gchar * path)
 {
   Subscriber *s = g_new0 (Subscriber, 1);
   s->path = g_strdup (path);
@@ -362,43 +416,32 @@ rtmp_harness_add_subscriber_full (RTMPHarness * h,
   g_mutex_init (&s->lock);
   g_cond_init (&s->cond);
 
-  gchar *pipeline =
-      g_strdup_printf
-      ("rtmpsrc blocksize=1 location=\"%s://localhost:%d/%s/%s live=1\" ! flvdemux",
-      protocol, port, h->application_name, path);
-  s->h = gst_harness_new_parse (pipeline);
-  g_free (pipeline);
+  s->rtmpsrc = gst_element_factory_make ("pexrtmpsrc", NULL);
+  g_assert (s->rtmpsrc);
 
-  GstElement *flvdemux = gst_harness_find_element (s->h, "flvdemux");
-  g_signal_connect (flvdemux, "pad-added", G_CALLBACK (flvdemux_pad_added), s);
-  /* setup harnesses ready to receive from flvdemux */
-  s->audio_h = gst_harness_new_with_element (flvdemux, NULL, NULL);
-  s->video_h = gst_harness_new_with_element (flvdemux, NULL, NULL);
-  gst_object_unref (flvdemux);
+  g_object_set (s->rtmpsrc, "server", h->server, "path", path, NULL);
 
-  s->rtmpsrc = gst_harness_find_element (s->h, "rtmpsrc");
-  g_signal_connect (s->rtmpsrc,
-      "notify::connected", G_CALLBACK (_rtmpsrc_connected_cb), s);
+  s->audio_h = gst_harness_new_with_element (s->rtmpsrc, NULL, "audio_src");
+  s->video_h = gst_harness_new_with_element (s->rtmpsrc, NULL, "video_src");
+
+  gst_harness_use_systemclock (s->audio_h);
+  gst_harness_use_systemclock (s->video_h);
 
   gst_harness_play (s->audio_h);
   gst_harness_play (s->video_h);
-  gst_harness_play (s->h);
 
   g_hash_table_insert (h->subscribers, GINT_TO_POINTER (s->id), s);
 
   return s->id;
 }
 
-gint
-rtmp_harness_add_subscriber (RTMPHarness * h, const gchar * path)
+void
+rtmp_harness_set_subscriber_auto_reconnect (RTMPHarness * h, gint s_id,
+    gboolean auto_reconnect)
 {
-  return rtmp_harness_add_subscriber_full (h, path, "rtmp", h->port);
-}
-
-gint
-rtmp_harness_add_subscriber_ssl (RTMPHarness * h, const gchar * path)
-{
-  return rtmp_harness_add_subscriber_full (h, path, "rtmps", h->ssl_port);
+  Subscriber *s = g_hash_table_lookup (h->subscribers, GINT_TO_POINTER (s_id));
+  g_assert (s);
+  g_object_set (s->rtmpsrc, "auto-reconnect", auto_reconnect, NULL);
 }
 
 void
@@ -417,7 +460,6 @@ subscriber_teardown (Subscriber * s)
       GST_STATE_CHANGE_SUCCESS);
   g_assert (state == GST_STATE_NULL);
   gst_object_unref (s->rtmpsrc);
-  gst_harness_teardown (s->h);
 
   gst_harness_teardown (s->audio_h);
   gst_harness_teardown (s->video_h);
@@ -439,7 +481,7 @@ rtmp_harness_add_custom_audiosink (RTMPHarness * h, gint s_id,
     const gchar * launch_str)
 {
   Subscriber *s = g_hash_table_lookup (h->subscribers, GINT_TO_POINTER (s_id));
-  s->audio_h->sink_harness = gst_harness_new_parse (launch_str);
+  gst_harness_add_sink_parse (s->audio_h, launch_str);
   gst_harness_play (s->audio_h->sink_harness);
 }
 
@@ -456,21 +498,33 @@ void
 rtmp_harness_add_audiosink (RTMPHarness * h, gint s_id, RTMPAudioCodec codec)
 {
   Subscriber *s = g_hash_table_lookup (h->subscribers, GINT_TO_POINTER (s_id));
-  if (codec == RTMP_SPEEX) {
-    rtmp_harness_add_custom_audiosink (h, s_id,
-        "speexdec ! pexaudioconvert ! pexcisionaudiosink");
-  } else if (codec == RTMP_AAC) {
+  if (codec == RTMP_AAC) {
     rtmp_harness_add_custom_audiosink (h, s_id,
         "pexaacdec ! pexaudioconvert ! pexcisionaudiosink");
+#if HAVE_SPEEX
+  } else if (codec == RTMP_SPEEX) {
+    rtmp_harness_add_custom_audiosink (h, s_id,
+        "speexdec ! pexaudioconvert ! pexcisionaudiosink");
+#endif /* HAVE_SPEEX */
+  } else if (codec == RTMP_ALAW) {
+    rtmp_harness_add_custom_audiosink (h, s_id,
+        "alawdec ! pexaudioconvert ! pexcisionaudiosink");
   } else {
     g_assert_not_reached ();
   }
-  GstElement *sink =
-      gst_harness_find_element (s->audio_h->sink_harness, "pexcisionaudiosink");
+  GstElement *sink = gst_harness_find_element (s->audio_h->sink_harness,
+      "pexcisionaudiosink");
   g_signal_connect (sink, "freq-list", G_CALLBACK (freq_list_cb), s);
+  /* The analysis window must be small enough that every codec the harness
+   * drives can fill it within the modest number of frames a test pushes.
+   * speexenc emits short 20 ms / 320-sample frames, so a 16 kHz Speex stream
+   * only accumulates ~4-6 frames in the shorter tests; a 1920-sample window
+   * would never complete and the freq-list signal would never fire. 960
+   * samples is plenty for the Goertzel detector to resolve the 100 Hz-spaced
+   * participant tones while staying reachable for all codecs. */
   g_object_set (sink,
       "fft-mag-threshold", -30.0,
-      "fft-required-samples", 960 * 2, "fft-resolution", 100, NULL);
+      "fft-required-samples", 960, "fft-resolution", 100, NULL);
   gst_object_unref (sink);
 }
 
@@ -479,7 +533,7 @@ rtmp_harness_add_custom_videosink (RTMPHarness * h, gint s_id,
     const gchar * launch_str)
 {
   Subscriber *s = g_hash_table_lookup (h->subscribers, GINT_TO_POINTER (s_id));
-  s->video_h->sink_harness = gst_harness_new_parse (launch_str);
+  gst_harness_add_sink_parse (s->video_h, launch_str);
   gst_harness_play (s->video_h->sink_harness);
 }
 
@@ -498,13 +552,11 @@ rtmp_harness_add_videosink (RTMPHarness * h, gint s_id)
 {
   Subscriber *s = g_hash_table_lookup (h->subscribers, GINT_TO_POINTER (s_id));
   rtmp_harness_add_custom_videosink (h, s_id,
-      "h264parse ! "
-      "capsfilter caps=\"video/x-h264, stream-format=nalu-stream\" ! "
       "pexh264dec !" "pexcisionvideosink");
-  GstElement *sink =
-      gst_harness_find_element (s->video_h->sink_harness, "pexcisionvideosink");
-  g_signal_connect (sink, "participant-list", G_CALLBACK (participant_list_cb),
-      s);
+  GstElement *sink = gst_harness_find_element (s->video_h->sink_harness,
+      "pexcisionvideosink");
+  g_signal_connect (sink,
+      "participant-list", G_CALLBACK (participant_list_cb), s);
   g_object_set (sink, "participants-hint", 1, NULL);
   gst_object_unref (sink);
 }
@@ -514,7 +566,7 @@ rtmp_harness_recv_audio (RTMPHarness * h, gint s_id, gint pushes)
 {
   Subscriber *s = g_hash_table_lookup (h->subscribers, GINT_TO_POINTER (s_id));
   for (int i = 0; i < pushes; i++)
-    g_assert (gst_harness_push_to_sink (s->audio_h));
+    g_assert_cmpint (GST_FLOW_OK, ==, gst_harness_push_to_sink (s->audio_h));
 }
 
 void
@@ -522,7 +574,7 @@ rtmp_harness_recv_video (RTMPHarness * h, gint s_id, gint pushes)
 {
   Subscriber *s = g_hash_table_lookup (h->subscribers, GINT_TO_POINTER (s_id));
   for (int i = 0; i < pushes; i++)
-    g_assert (gst_harness_push_to_sink (s->video_h));
+    g_assert_cmpint (GST_FLOW_OK, ==, gst_harness_push_to_sink (s->video_h));
 }
 
 gboolean
@@ -535,8 +587,8 @@ rtmp_harness_verify_recv_audio (RTMPHarness * h, gint s_id, gint p_id)
     return FALSE;
 
   gint expected_id = _get_freq_for_id (p_id);
-  gint actual_id =
-      (gint) g_value_get_uint (g_value_array_get_nth (s->freq_list, 0));
+  gint actual_id = (gint) g_value_get_uint (g_value_array_get_nth (s->freq_list,
+          0));
   if (expected_id != actual_id) {
     g_warning ("expected id:%d, got:%d", expected_id, actual_id);
     return FALSE;
@@ -551,10 +603,15 @@ gboolean
 rtmp_harness_verify_recv_video (RTMPHarness * h, gint s_id, gint p_id)
 {
   Subscriber *s = g_hash_table_lookup (h->subscribers, GINT_TO_POINTER (s_id));
-  if (s->participant_list == NULL)
+  if (s->participant_list == NULL) {
+    g_warning ("No participant list!");
     return FALSE;
-  if (s->participant_list->n_values != 1)
+  }
+
+  if (s->participant_list->n_values != 1) {
+    g_warning ("%u n_values instead of 1", s->participant_list->n_values);
     return FALSE;
+  }
 
   gint expected_id = _get_freq_for_id (p_id);
   gint actual_id =
@@ -581,22 +638,6 @@ rtmp_harness_start_server (RTMPHarness * h)
   pex_rtmp_server_start (h->server);
 }
 
-gboolean
-rtmp_harness_wait_for_rtmpsrc_connection (RTMPHarness * h,
-    gint s_id, gboolean connected)
-{
-  Subscriber *s = g_hash_table_lookup (h->subscribers, GINT_TO_POINTER (s_id));
-  gint64 timeout = g_get_monotonic_time () + G_USEC_PER_SEC * 60;
-
-  LOCK (s);
-  while (s->rtmpsrc_connected != connected) {
-    WAIT_UNTIL (s, timeout);
-  }
-  UNLOCK (s);
-
-  return s->rtmpsrc_connected == connected;
-}
-
 void
 rtmp_harness_restart_rtmpsrc (RTMPHarness * h, gint s_id)
 {
@@ -612,8 +653,8 @@ rtmp_harness_on_publish (RTMPHarness * h, PexRtmpClientID client_id,
   LOCK (h);
   h->notified_publishers++;
   g_debug
-      ("got publisher (%d) on server %p for path %s params %s with client-id %d\n",
-      h->notified_publishers, server, path, params, client_id);
+      ("got publisher (%d) with client-id %d on server %p for path %s params %s\n",
+      client_id, h->notified_publishers, server, path, params);
 
   UNLOCK (h);
 
@@ -625,13 +666,15 @@ rtmp_harness_on_publish (RTMPHarness * h, PexRtmpClientID client_id,
 
 static void
 rtmp_harness_on_publish_done (RTMPHarness * h, PexRtmpClientID client_id,
-    const gchar * path, const gchar * params, GObject * server)
+    const gchar * path, const gchar * params, PexRtmpServerStatus reason,
+    GObject * server)
 {
   LOCK (h);
   h->notified_publishers--;
+  h->publish_done_reason = reason;
   g_debug
-      ("lost publisher (%d) on server %p for path %s params %s with client-id %d\n",
-      h->notified_publishers, server, path, params, client_id);
+      ("lost publisher (%d) with client-id %d on server %p for path %s params %s\n",
+      client_id, h->notified_publishers, server, path, params);
   UNLOCK (h);
 }
 
@@ -642,8 +685,8 @@ rtmp_harness_on_play (RTMPHarness * h, PexRtmpClientID client_id,
   LOCK (h);
   h->notified_subscribers++;
   g_debug
-      ("got subscriber (%d) on server %p for path %s params %s with client-id %d\n",
-      h->notified_subscribers, server, path, params, client_id);
+      ("got subscriber (%d) with client-id %d on server %p for path %s params %s\n",
+      client_id, h->notified_subscribers, server, path, params);
   UNLOCK (h);
 
   while (h->block_on_play)
@@ -654,13 +697,15 @@ rtmp_harness_on_play (RTMPHarness * h, PexRtmpClientID client_id,
 
 static void
 rtmp_harness_on_play_done (RTMPHarness * h, PexRtmpClientID client_id,
-    const gchar * path, const gchar * params, GObject * server)
+    const gchar * path, const gchar * params, PexRtmpServerStatus reason,
+    GObject * server)
 {
   LOCK (h);
   h->notified_subscribers--;
+  h->play_done_reason = reason;
   g_debug
-      ("lost subscriber (%d) on server %p for path %s params %s with client-id %d\n",
-      h->notified_subscribers, server, path, params, client_id);
+      ("lost subscriber (%d) with client-id %d on server %p for path %s params %s\n",
+      client_id, h->notified_subscribers, server, path, params);
   UNLOCK (h);
 }
 
@@ -678,15 +723,15 @@ rtmp_harness_wait_for_notified_subscribers (RTMPHarness * h, gint subscribers)
     g_usleep (G_USEC_PER_SEC / 100);
 }
 
-gint
+gboolean
 rtmp_harness_dialout (RTMPHarness * h_from, gint id_from,
     RTMPHarness * h_to, gint id_to, const gchar * protocol,
-    const gchar * host, const gchar * ip)
+    const gchar * host, const gchar * ip, gint src_port)
 {
-  Publisher *p_from =
-      g_hash_table_lookup (h_from->publishers, GINT_TO_POINTER (id_from));
-  Subscriber *s_to =
-      g_hash_table_lookup (h_to->subscribers, GINT_TO_POINTER (id_to));
+  Publisher *p_from = g_hash_table_lookup (h_from->publishers,
+      GINT_TO_POINTER (id_from));
+  Subscriber *s_to = g_hash_table_lookup (h_to->subscribers,
+      GINT_TO_POINTER (id_to));
   g_assert (p_from);
   g_assert (s_to);
 
@@ -694,27 +739,24 @@ rtmp_harness_dialout (RTMPHarness * h_from, gint id_from,
   if (g_strcmp0 (protocol, "rtmps") == 0)
     port = h_to->ssl_port;
 
-  gchar *publisher_url = rtmp_harness_get_publisher_url (h_to,
+  gchar *publisher_url = rtmp_harness_create_url (h_to,
       s_to->path, protocol, port, host);
-
-  gint result =
-      pex_rtmp_server_dialout (h_from->server, p_from->path, publisher_url, ip,
-      0);
-
+  gboolean result = pex_rtmp_server_dialout (h_from->server, p_from->path,
+      publisher_url, ip, src_port);
   g_free (publisher_url);
 
   return result;
 }
 
-gint
+gboolean
 rtmp_harness_dialin (RTMPHarness * h_from, gint id_from,
     RTMPHarness * h_to, gint id_to, const gchar * protocol,
-    const gchar * host, const gchar * ip)
+    const gchar * host, const gchar * ip, gint src_port)
 {
-  Subscriber *s_from =
-      g_hash_table_lookup (h_from->subscribers, GINT_TO_POINTER (id_from));
-  Publisher *p_to =
-      g_hash_table_lookup (h_to->publishers, GINT_TO_POINTER (id_to));
+  Subscriber *s_from = g_hash_table_lookup (h_from->subscribers,
+      GINT_TO_POINTER (id_from));
+  Publisher *p_to = g_hash_table_lookup (h_to->publishers,
+      GINT_TO_POINTER (id_to));
   g_assert (s_from);
   g_assert (p_to);
 
@@ -722,14 +764,11 @@ rtmp_harness_dialin (RTMPHarness * h_from, gint id_from,
   if (g_strcmp0 (protocol, "rtmps") == 0)
     port = h_to->ssl_port;
 
-  gchar *publisher_url = rtmp_harness_get_publisher_url (h_to,
+  gchar *subscriber_url = rtmp_harness_create_url (h_to,
       p_to->path, protocol, port, host);
-
-  gint result =
-      pex_rtmp_server_dialin (h_from->server, s_from->path, publisher_url, ip,
-      0);
-
-  g_free (publisher_url);
+  gboolean result = pex_rtmp_server_dialin (h_from->server, s_from->path,
+      subscriber_url, ip, src_port);
+  g_free (subscriber_url);
 
   return result;
 }
@@ -754,10 +793,20 @@ rtmp_harness_set_tcp_syncnt (RTMPHarness * h, gint tcp_syncnt)
 }
 
 gint
+rtmp_harness_get_poll_count (RTMPHarness * h)
+{
+  gint count = 0;
+
+  g_object_get (h->server, "poll-count", &count, NULL);
+
+  return count;
+}
+
+gint
 rtmp_harness_add_bad_client (RTMPHarness * h)
 {
-  gint fd = pex_rtmp_server_tcp_connect (h->server,
-      "localhost", h->port, 0);
+  gint fd;
+  tcp_connect (&fd, "localhost", h->port, 0, 0, NULL);
 
   /* send the first byte of the handshake, then ...nothing... */
   guint8 byte = 0x03;
@@ -766,14 +815,45 @@ rtmp_harness_add_bad_client (RTMPHarness * h)
 }
 
 gint
-rtmp_harness_add_bad_server (RTMPHarness * h, gint port)
+rtmp_harness_add_bad_client_ssl (RTMPHarness * h)
 {
-  return pex_rtmp_server_add_listen_fd (h->server, port);
+  gint fd;
+  tcp_connect (&fd, "localhost", h->ssl_port, 0, 0, NULL);
+
+  /* Do nothing (not even the TLS handshake) */
+  return fd;
 }
 
-RTMPHarness *
+gint
+rtmp_harness_add_bad_server (RTMPHarness * h, gint port)
+{
+  (void) h;
+  return tcp_listen (port);
+}
+
+void
+rtmp_harness_set_server_auth (RTMPHarness * h,
+    const gchar * username, const gchar * password)
+{
+  g_object_set (h->server, "username", username, "password", password, NULL);
+}
+
+void
+rtmp_harness_set_dialout_auth (RTMPHarness * h,
+    const gchar * username, const gchar * password)
+{
+  g_free (h->username);
+  g_free (h->password);
+
+  h->username = g_strdup (username);
+  h->password = g_strdup (password);
+}
+
+
+static RTMPHarness *
 rtmp_harness_new_full (const gchar * application_name, gint port, gint ssl_port,
-    const gchar * cert, const gchar * key, const gchar * ca)
+    const gchar * cert, const gchar * key, const gchar * ca,
+    const gchar * ciphers)
 {
   gchar *certfile, *keyfile, *cafile;
   RTMPHarness *h = g_new0 (RTMPHarness, 1);
@@ -783,16 +863,17 @@ rtmp_harness_new_full (const gchar * application_name, gint port, gint ssl_port,
   h->ssl_port = ssl_port;
   h->chunk_size = 128;          /* default */
 
+  certfile = g_strdup_printf ("%s/certs/%s", pex_testfile_path (""), cert);
+  keyfile = g_strdup_printf ("%s/certs/%s", pex_testfile_path (""), key);
+  cafile = g_strdup_printf ("%s/certs/%s", pex_testfile_path (""), ca);
 
-  certfile = g_strdup_printf ("%s/rtmp/certs/%s", getenv ("SRCDIR"), cert);
-  keyfile = g_strdup_printf ("%s/rtmp/certs/%s", getenv ("SRCDIR"), key);
-  cafile = g_strdup_printf ("%s/rtmp/certs/%s", getenv ("SRCDIR"), ca);
+  if (ciphers == NULL) {
+    ciphers = "!eNULL:!aNULL:!EXP:!DES:!RC4:!RC2:!IDEA:!ADH:ALL@STRENGTH";
+  }
 
   h->server = pex_rtmp_server_new (application_name, h->port, h->ssl_port,
-      certfile, keyfile, cafile, "/etc/ssl/certs",
-      "!eNULL:!aNULL:!EXP:!DES:!RC4:!RC2:!IDEA:!ADH:ALL@STRENGTH", FALSE,
-      FALSE);
-  pex_rtmp_server_start (h->server);
+      certfile, keyfile, cafile, "/etc/ssl/certs", ciphers, FALSE, FALSE);
+  g_assert (pex_rtmp_server_start (h->server));
 
   g_free (cafile);
   g_free (keyfile);
@@ -822,7 +903,18 @@ rtmp_harness_new_with_certs (const gchar * application_name,
     const gchar * cert, const gchar * key, const gchar * ca)
 {
   RTMPHarness *h = rtmp_harness_new_full (application_name,
-      STATIC_PORT, STATIC_PORT + 1, cert, key, ca);
+      STATIC_PORT, STATIC_PORT + 1, cert, key, ca, NULL);
+  STATIC_PORT += 2;
+  return h;
+}
+
+RTMPHarness *
+rtmp_harness_new_with_ciphers (const gchar * application_name,
+    const gchar * ciphers)
+{
+  RTMPHarness *h = rtmp_harness_new_full (application_name,
+      STATIC_PORT, STATIC_PORT + 1, "cert_san.pem", "cert.key",
+      "ca.pem", ciphers);
   STATIC_PORT += 2;
   return h;
 }
@@ -839,20 +931,22 @@ rtmp_harness_new_with_ports (const gchar * application_name,
     gint port, gint ssl_port)
 {
   return rtmp_harness_new_full (application_name, port, ssl_port,
-      "cert_san.pem", "cert.key", "ca.pem");
+      "cert_san.pem", "cert.key", "ca.pem", NULL);
 }
 
 void
 rtmp_harness_teardown (RTMPHarness * h)
 {
-  pex_rtmp_server_stop (h->server);
-  g_object_unref (h->server);
-
   g_hash_table_destroy (h->publishers);
   g_hash_table_destroy (h->subscribers);
 
+  pex_rtmp_server_stop (h->server);
+  g_object_unref (h->server);
+
   g_mutex_clear (&h->lock);
 
+  g_free (h->username);
+  g_free (h->password);
   g_free (h->application_name);
   g_free (h);
 }

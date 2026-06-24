@@ -36,6 +36,24 @@
 GST_DEBUG_CATEGORY_EXTERN (pex_rtmp_server_debug);
 #define GST_CAT_DEFAULT pex_rtmp_server_debug
 
+/* The shared pex_rtmp_server_debug category is normally registered by
+ * pex_rtmp_server_class_init(). Some helpers here (notably
+ * tcp_get_listen_port()) are exercised by unit tests in isolation, i.e.
+ * without ever instantiating a PexRtmpServer, in which case the category is
+ * still NULL and any GST_* logging would trip a "category != NULL" assertion.
+ * Lazily (and idempotently) register it so the helpers are safe to call
+ * standalone. GST_DEBUG_CATEGORY_INIT is a no-op once the category exists. */
+static void
+tcp_ensure_debug_category (void)
+{
+  static gsize once = 0;
+  if (g_once_init_enter (&once)) {
+    GST_DEBUG_CATEGORY_INIT (pex_rtmp_server_debug, "pexrtmpserver", 0,
+        "pexrtmpserver");
+    g_once_init_leave (&once, 1);
+  }
+}
+
 void
 tcp_set_nonblock (gint fd, gboolean enabled)
 {
@@ -402,6 +420,8 @@ tcp_get_listen_port (gint fd, gint * port)
     errno = EINVAL;
     return FALSE;
   }
+
+  tcp_ensure_debug_category ();
 
   struct sockaddr_storage address;
   socklen_t address_len = sizeof (address);

@@ -1247,6 +1247,16 @@ client_handle_message (Client * client, RTMPMessage * msg)
         return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
       }
       guint8 flags = msg->buf->data[0];
+      const gint video_codec_tag = flags & 0x0f;
+      /* An H.264/AVC "sequence header" is a codec-data packet (AVCPacketType
+       * == 0), not an actual coded frame. FLV nevertheless flags it as a
+       * key-frame (frame-type 1), so it must not be mistaken for a real
+       * key-frame: doing so would mark a fresh subscriber as already having a
+       * key-frame and suppress the replay of the first real one. This mirrors
+       * the AAC codec-data handling in the MSG_AUDIO branch above. */
+      const gboolean is_avc_codec_data =
+          (video_codec_tag == 7) && (msg->buf->len > 1)
+          && (msg->buf->data[1] == 0);
       GSList *subscribers =
           connections_get_subscribers (client->connections, client->path);
       gboolean stored_packet = FALSE;
@@ -1266,18 +1276,22 @@ client_handle_message (Client * client, RTMPMessage * msg)
               subscriber->msg_stream_id, client->video_codec_data,
               msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
         }
-        if (flags >> 4 == FLV_KEY_FRAME && !subscriber->has_key_frame) {
-          subscriber->has_key_frame = TRUE;
-          if (!stored_packet) {
+        /* Codec-data packets are delivered out-of-band above; never treat them
+         * as a key-frame nor forward them again as a media frame. */
+        if (!is_avc_codec_data) {
+          if (flags >> 4 == FLV_KEY_FRAME && !subscriber->has_key_frame) {
+            subscriber->has_key_frame = TRUE;
+            if (!stored_packet) {
+              ret = client_rtmp_send (subscriber, MSG_VIDEO,
+                  subscriber->msg_stream_id, msg->buf,
+                  msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
+            }
+          }
+          if (subscriber->has_key_frame) {
             ret = client_rtmp_send (subscriber, MSG_VIDEO,
                 subscriber->msg_stream_id, msg->buf,
                 msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
           }
-        }
-        if (subscriber->has_key_frame) {
-          ret = client_rtmp_send (subscriber, MSG_VIDEO,
-              subscriber->msg_stream_id, msg->buf,
-              msg->abs_timestamp, CHUNK_STREAM_ID_STREAM);
         }
       }
       client->new_metadata = FALSE;

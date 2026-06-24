@@ -598,6 +598,15 @@ rtmp_server_remove_client (PexRtmpServer * srv,
     GSList *subscribers = connections_get_subscribers (srv->connections, path);
     for (GSList * walk = subscribers; walk; walk = g_slist_next (walk)) {
       Client *subscriber = (Client *) walk->data;
+      /* Direct (in-process) subscribers are driven by the lifecycle of the
+       * GStreamer element that owns them, not by publisher presence. Tearing
+       * one down here would wedge its pexrtmpsrc in a permanent EOS state, so
+       * the data from a re-connecting publisher on the same path would never
+       * reach it. Leave direct subscribers in place; they keep blocking on an
+       * empty queue until the next publisher starts streaming. Only network
+       * subscribers get disconnected when their publisher goes away. */
+      if (subscriber->direct)
+        continue;
       GST_DEBUG_OBJECT (srv,
           "removing subscriber %p (fd: %d) as its publisher was removed",
           subscriber, subscriber->fd);
