@@ -473,8 +473,17 @@ amf_dec_load_boolean (AmfDec * dec, gboolean * val)
   return TRUE;
 }
 
+/* Maximum allowed nesting depth for AMF objects/arrays. A crafted, deeply
+ * nested AMF message would otherwise recurse through
+ * amf_dec_load() -> amf_dec_load_object() -> amf_dec_load_structure() until
+ * the C stack is exhausted and the process crashes. */
+#define AMF_MAX_DEPTH 32
+
+static GValue *amf_dec_load_with_depth (AmfDec * dec, gint depth);
+static GstStructure *amf_dec_load_object_with_depth (AmfDec * dec, gint depth);
+
 static void
-amf_dec_load_structure (AmfDec * dec, GstStructure * s)
+amf_dec_load_structure (AmfDec * dec, GstStructure * s, gint depth)
 {
   while (1) {
     gchar *key = amf_dec_load_key (dec);
@@ -482,7 +491,7 @@ amf_dec_load_structure (AmfDec * dec, GstStructure * s)
       g_free (key);
       break;
     }
-    GValue *value = amf_dec_load (dec);
+    GValue *value = amf_dec_load_with_depth (dec, depth);
     gst_structure_set_value (s, key, value);
     g_free (key);
     g_value_unset (value);
@@ -490,10 +499,15 @@ amf_dec_load_structure (AmfDec * dec, GstStructure * s)
   }
 }
 
-GstStructure *
-amf_dec_load_object (AmfDec * dec)
+static GstStructure *
+amf_dec_load_object_with_depth (AmfDec * dec, gint depth)
 {
   GstStructure *object = gst_structure_new_empty ("object");
+
+  if (depth > AMF_MAX_DEPTH) {
+    GST_WARNING ("AMF nesting limit (%d) exceeded", AMF_MAX_DEPTH);
+    goto done;
+  }
 
   guint8 type = 0;
   if (!amf_dec_get_byte (dec, &type))
@@ -532,7 +546,7 @@ amf_dec_load_object (AmfDec * dec)
     }
   }
 
-  amf_dec_load_structure (dec, object);
+  amf_dec_load_structure (dec, object, depth + 1);
 
   if (dec->version == AMF0_VERSION) {
     guint8 end_byte = 0;
@@ -549,8 +563,20 @@ done:
   return object;
 }
 
+GstStructure *
+amf_dec_load_object (AmfDec * dec)
+{
+  return amf_dec_load_object_with_depth (dec, 0);
+}
+
 GValue *
 amf_dec_load (AmfDec * dec)
+{
+  return amf_dec_load_with_depth (dec, 0);
+}
+
+static GValue *
+amf_dec_load_with_depth (AmfDec * dec, gint depth)
 {
   GValue *value = g_new0 (GValue, 1);
   guint8 type = 0;
@@ -604,7 +630,7 @@ amf_dec_load (AmfDec * dec)
       case AMF3_OBJECT:
       {
         g_value_init (value, GST_TYPE_STRUCTURE);
-        GstStructure *s = amf_dec_load_object (dec);
+        GstStructure *s = amf_dec_load_object_with_depth (dec, depth + 1);
         gst_value_set_structure (value, s);
         gst_structure_free (s);
         break;
@@ -652,7 +678,7 @@ amf_dec_load (AmfDec * dec)
       case AMF0_ECMA_ARRAY:
       {
         g_value_init (value, GST_TYPE_STRUCTURE);
-        GstStructure *s = amf_dec_load_object (dec);
+        GstStructure *s = amf_dec_load_object_with_depth (dec, depth + 1);
         gst_value_set_structure (value, s);
         gst_structure_free (s);
         break;

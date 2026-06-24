@@ -51,13 +51,24 @@ connection_free (Connection * connection)
 static void
 connection_add_subscriber (Connection * connection, gpointer client)
 {
+  /* Avoid adding the same client more than once (e.g. a client that sends
+   * play() twice). A duplicate entry would otherwise linger as a dangling
+   * pointer after the client is torn down, leading to a use-after-free when
+   * a publisher walks the subscriber list. */
+  if (g_slist_find (connection->subscribers, client) != NULL) {
+    GST_WARNING ("subscriber %p already present, not adding again", client);
+    return;
+  }
   connection->subscribers = g_slist_append (connection->subscribers, client);
 }
 
 static void
 connection_remove_subscriber (Connection * connection, gpointer client)
 {
-  connection->subscribers = g_slist_remove (connection->subscribers, client);
+  /* Remove every occurrence of the client to make sure no dangling pointer
+   * survives teardown, even if the same client was somehow added twice. */
+  connection->subscribers =
+      g_slist_remove_all (connection->subscribers, client);
 }
 
 void

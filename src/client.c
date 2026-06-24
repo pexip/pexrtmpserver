@@ -1111,8 +1111,16 @@ client_handle_message (Client * client, RTMPMessage * msg)
 
     case MSG_USER_CONTROL:
     {
+      if (pos + 2 > msg->buf->len) {
+        GST_DEBUG_OBJECT (client->server, "Not enough data");
+        return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
+      }
       guint16 method = GST_READ_UINT16_BE (&msg->buf->data[pos]);
       if (method == 6) {
+        if (pos + 6 > msg->buf->len) {
+          GST_DEBUG_OBJECT (client->server, "Not enough data");
+          return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
+        }
         guint32 timestamp = GST_READ_UINT32_BE (&msg->buf->data[pos + 2]);
         ret = client_handle_user_control (client, timestamp);
       }
@@ -1121,6 +1129,10 @@ client_handle_message (Client * client, RTMPMessage * msg)
 
     case MSG_WINDOW_ACK_SIZE:
     {
+      if (pos + 4 > msg->buf->len) {
+        GST_DEBUG_OBJECT (client->server, "Not enough data");
+        return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
+      }
       client->window_size = GST_READ_UINT32_BE (&msg->buf->data[pos]);
       GST_DEBUG_OBJECT (client->server, "%s window size set to %u",
           client->path, client->window_size);
@@ -1129,6 +1141,10 @@ client_handle_message (Client * client, RTMPMessage * msg)
 
     case MSG_SET_PEER_BW:
     {
+      if (pos + 4 > msg->buf->len) {
+        GST_DEBUG_OBJECT (client->server, "Not enough data");
+        return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
+      }
       client->window_size = GST_READ_UINT32_BE (&msg->buf->data[pos]);
       GST_DEBUG_OBJECT (client->server,
           "%s Got Set Peer BW msg, window size set to %u", client->path,
@@ -1198,12 +1214,18 @@ client_handle_message (Client * client, RTMPMessage * msg)
         break;
       }
 
+      if (msg->buf->len < 1) {
+        GST_DEBUG_OBJECT (client->server, "not enough audio data");
+        ret = PEX_RTMP_SERVER_STATUS_INVALID_MSG;
+        break;
+      }
+
       const guint8 flags = msg->buf->data[0];
       const gint codec_tag = flags >> 4;
       const gboolean is_aac = codec_tag == 10;
       gboolean is_aac_codec_data = FALSE;
 
-      if (!client->audio_codec_data && is_aac) {
+      if (!client->audio_codec_data && is_aac && msg->buf->len >= 2) {
         const guint8 aac_packet_type = msg->buf->data[1];
         if (aac_packet_type == 0) {
           is_aac_codec_data = TRUE;
@@ -1244,6 +1266,10 @@ client_handle_message (Client * client, RTMPMessage * msg)
     {
       if (!client->publisher) {
         GST_DEBUG_OBJECT (client->server, "not a publisher");
+        return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
+      }
+      if (msg->buf->len < 1) {
+        GST_DEBUG_OBJECT (client->server, "not enough video data");
         return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
       }
       guint8 flags = msg->buf->data[0];
