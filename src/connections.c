@@ -56,7 +56,7 @@ connection_add_subscriber (Connection * connection, gpointer client)
    * pointer after the client is torn down, leading to a use-after-free when
    * a publisher walks the subscriber list. */
   if (g_slist_find (connection->subscribers, client) != NULL) {
-    GST_WARNING ("subscriber %p already present, not adding again", client);
+    GST_INFO ("subscriber %p already present, not adding again", client);
     return;
   }
   connection->subscribers = g_slist_append (connection->subscribers, client);

@@ -1,5 +1,5 @@
-# Security regression tests. These only depend on glib/gst and the public
-# PexRTMPServer library, so they are always built as part of the test suite.
+# Security regression tests. These are in-tree tests that use internal
+# PexRTMPServer headers/APIs and are built as part of the test suite.
 
 security_test = executable('security_test',
   'security.c',

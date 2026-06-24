@@ -5,9 +5,9 @@
  *   - RTMP AMF unbounded recursion DoS (amf.c)
  *   - RTMP user-control / control-message out-of-bounds heap reads (client.c)
  *
- * These tests are intentionally self-contained and only rely on glib/gst and
- * the public PexRTMPServer APIs so that they can be built and run as part of
- * the meson `check` target.
+ * These tests are intentionally in-tree and rely on glib/gst together with
+ * internal PexRTMPServer headers/APIs so that they can be built and run as
+ * part of the meson `check` target.
  */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -132,9 +132,11 @@ test_amf_deep_recursion (void)
  * and MSG_VIDEO. A short payload must now be rejected instead of read OOB.
  */
 static Client *
-make_test_client (Connections * connections)
+make_test_client (Connections * connections, GstElement ** server)
 {
-  return client_new (NULL, 0, connections, 0, DEFAULT_CHUNK_SIZE, NULL);
+  *server = gst_pipeline_new ("security-test-server");
+  return client_new (G_OBJECT (*server), 0, connections, 0,
+      DEFAULT_CHUNK_SIZE, NULL);
 }
 
 static PexRtmpServerStatus
@@ -158,7 +160,8 @@ static void
 test_user_control_oob_read (void)
 {
   Connections *connections = connections_new ();
-  Client *client = make_test_client (connections);
+  GstElement *server = NULL;
+  Client *client = make_test_client (connections, &server);
 
   /* method == 6 (SetBufferLength) but no room for the 32-bit timestamp */
   const guint8 short_payload[] = { 0x00, 0x06 };
@@ -171,6 +174,7 @@ test_user_control_oob_read (void)
   g_assert_cmpint (ret, ==, PEX_RTMP_SERVER_STATUS_INVALID_MSG);
 
   client_unref (client);
+  gst_object_unref (server);
   connections_free (connections);
 }
 
@@ -178,7 +182,8 @@ static void
 test_control_msg_oob_read (void)
 {
   Connections *connections = connections_new ();
-  Client *client = make_test_client (connections);
+  GstElement *server = NULL;
+  Client *client = make_test_client (connections, &server);
 
   const guint8 two_bytes[] = { 0x00, 0x01 };
 
@@ -191,6 +196,7 @@ test_control_msg_oob_read (void)
       PEX_RTMP_SERVER_STATUS_INVALID_MSG);
 
   client_unref (client);
+  gst_object_unref (server);
   connections_free (connections);
 }
 
@@ -198,7 +204,8 @@ static void
 test_av_msg_oob_read (void)
 {
   Connections *connections = connections_new ();
-  Client *client = make_test_client (connections);
+  GstElement *server = NULL;
+  Client *client = make_test_client (connections, &server);
 
   /* Mark the client as a publisher so we reach the payload-reading code. */
   client_configure_direct (client, "/live/stream", TRUE);
@@ -210,6 +217,7 @@ test_av_msg_oob_read (void)
       PEX_RTMP_SERVER_STATUS_INVALID_MSG);
 
   client_unref (client);
+  gst_object_unref (server);
   connections_free (connections);
 }
 

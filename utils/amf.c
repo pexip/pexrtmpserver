@@ -506,6 +506,7 @@ amf_dec_load_object_with_depth (AmfDec * dec, gint depth)
 
   if (depth > AMF_MAX_DEPTH) {
     GST_WARNING ("AMF nesting limit (%d) exceeded", AMF_MAX_DEPTH);
+    dec->pos = dec->buf->len;
     goto done;
   }
 
