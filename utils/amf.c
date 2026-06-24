@@ -547,7 +547,7 @@ amf_dec_load_object_with_depth (AmfDec * dec, gint depth)
     }
   }
 
-  amf_dec_load_structure (dec, object, depth + 1);
+  amf_dec_load_structure (dec, object, depth);
 
   if (dec->version == AMF0_VERSION) {
     guint8 end_byte = 0;
