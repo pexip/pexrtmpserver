@@ -18,6 +18,7 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
+#include <stdbool.h>
 #include "ssl.h"
 
 #ifdef G_OS_WIN32
@@ -490,8 +491,10 @@ ssl_verify_callback (int preverify_ok, X509_STORE_CTX * ctx)
 SSL_CTX *
 ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
     const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean tls1_enabled)
+    const gchar * ciphers, const gchar * kex_groups, const gchar * sig_algs,
+    gboolean tls1_enabled)
 {
+  bool kex_groups_set = false;
   int seclevel = 0;
   int min_version = TLS1_VERSION;
   long ssl_options = SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
@@ -512,6 +515,25 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
 #endif
   SSL_CTX_set_cipher_list (ssl_ctx, ciphers);
   SSL_CTX_set_options (ssl_ctx, ssl_options);
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  if (kex_groups != NULL && kex_groups[0] != '\0') {
+    if (SSL_CTX_set1_curves_list (ssl_ctx, kex_groups) != 1) {
+      GST_WARNING ("failed to set kex-groups: %s", kex_groups);
+      ssl_print_errors ();
+      return NULL;
+    }
+    kex_groups_set = true;
+  }
+#endif
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  if (sig_algs != NULL && sig_algs[0] != '\0') {
+    if (SSL_CTX_set1_sigalgs_list (ssl_ctx, sig_algs) != 1) {
+      GST_WARNING ("failed to set tls-sig-algs: %s", kex_groups);
+      ssl_print_errors ();
+      return NULL;
+    }
+  }
+#endif
   if (file_exists (ca_file)) {
     SSL_CTX_load_verify_locations (ssl_ctx, ca_file, NULL);
   } else {
@@ -554,8 +576,11 @@ ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
       }
     }
 
-    /* Configure ECDH parameters */
-    params = pkey_parameters_from_file (cert_file, EVP_PKEY_EC);
+    /* Configure ECDH parameters (if not already set) */
+    params = NULL;
+    if (!kex_groups_set) {
+      params = pkey_parameters_from_file (cert_file, EVP_PKEY_EC);
+    }
     if (params != NULL) {
       int nid = NID_undef;
 #if (OPENSSL_VERSION_NUMBER < 0x30000000L)
@@ -612,7 +637,8 @@ outgoing_ssl_info_callback (const SSL * ssl, int where, int ret)
 
 SSL_CTX *
 ssl_add_outgoing (const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean tls1_enabled)
+    const gchar * ciphers, const gchar * kex_groups, const gchar * sig_algs,
+    gboolean tls1_enabled)
 {
   int seclevel = 0;
   int min_version = TLS1_VERSION;
@@ -632,6 +658,16 @@ ssl_add_outgoing (const gchar * ca_file, const gchar * ca_dir,
 #endif
   SSL_CTX_set_cipher_list (ssl_ctx, ciphers);
   SSL_CTX_set_options (ssl_ctx, ssl_options);
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  if (kex_groups != NULL && kex_groups[0] != '\0') {
+    SSL_CTX_set1_curves_list (ssl_ctx, kex_groups);
+  }
+#endif
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+  if (sig_algs != NULL && sig_algs[0] != '\0') {
+    SSL_CTX_set1_sigalgs_list (ssl_ctx, sig_algs);
+  }
+#endif
   if (file_exists (ca_file)) {
     SSL_CTX_load_verify_locations (ssl_ctx, ca_file, NULL);
   }
