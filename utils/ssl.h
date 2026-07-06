@@ -30,9 +30,11 @@
 void ssl_print_errors ();
 
 SSL_CTX * ssl_add_outgoing (const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean tls1_enabled);
+    const gchar * ciphers, const gchar * kex_groups, const gchar * sig_algs,
+    gboolean tls1_enabled);
 SSL_CTX * ssl_add_incoming (const gchar * cert_file, const gchar * key_file,
     const gchar * ca_file, const gchar * ca_dir,
-    const gchar * ciphers, gboolean tls1_enabled);
+    const gchar * ciphers, const gchar * kex_groups, const gchar * sig_algs,
+    gboolean tls1_enabled);
 
 #endif /* __SSL_H__ */
