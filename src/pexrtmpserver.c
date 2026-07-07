@@ -1085,6 +1085,7 @@ pex_rtmp_server_set_property (GObject * obj, guint prop_id,
 
   switch (prop_id) {
     case PROP_APPLICATION_NAME:
+      g_free (srv->application_name);
       srv->application_name = g_value_dup_string (value);
       break;
     case PROP_PORT:
@@ -1095,30 +1096,37 @@ pex_rtmp_server_set_property (GObject * obj, guint prop_id,
       break;
     case PROP_CERT_FILE:
       g_assert (!srv->running);
+      g_free (srv->cert_file);
       srv->cert_file = g_value_dup_string (value);
       break;
     case PROP_KEY_FILE:
       g_assert (!srv->running);
+      g_free (srv->key_file);
       srv->key_file = g_value_dup_string (value);
       break;
     case PROP_CA_CERT_FILE:
       g_assert (!srv->running);
+      g_free (srv->ca_cert_file);
       srv->ca_cert_file = g_value_dup_string (value);
       break;
     case PROP_CA_CERT_DIR:
       g_assert (!srv->running);
+      g_free (srv->ca_cert_dir);
       srv->ca_cert_dir = g_value_dup_string (value);
       break;
     case PROP_CIPHERS:
       g_assert (!srv->running);
+      g_free (srv->ciphers);
       srv->ciphers = g_value_dup_string (value);
       break;
     case PROP_KEX_GROUPS:
       g_assert (!srv->running);
+      g_free (srv->kex_groups);
       srv->kex_groups = g_value_dup_string (value);
       break;
     case PROP_TLS_SIG_ALGS:
       g_assert (!srv->running);
+      g_free (srv->tls_sig_algs);
       srv->tls_sig_algs = g_value_dup_string (value);
       break;
     case PROP_TLS1_ENABLED:
