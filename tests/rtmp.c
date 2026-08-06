@@ -1573,14 +1573,24 @@ GST_START_TEST (rtmp_server_url_parse)
   g_free (application_name);
   g_free (path);
 
+  /* ipv4 no application name is still valid */
+  fail_unless (pex_rtmp_server_parse_url (h->server,
+          "rtmp://10.47.4.114:666/thisactuallyworks",
+          &protocol, &port, &ip, &application_name, &path));
+  fail_unless (g_strcmp0 (protocol, "rtmp") == 0);
+  fail_unless (g_strcmp0 (ip, "10.47.4.114") == 0);
+  fail_unless_equals_int (port, 666);
+  fail_unless (g_strcmp0 (application_name, "") == 0);
+  fail_unless (g_strcmp0 (path, "thisactuallyworks") == 0);
+
+  g_free (protocol);
+  g_free (ip);
+  g_free (application_name);
+  g_free (path);
+
   /* rtmpx - should fail */
   fail_unless (!pex_rtmp_server_parse_url (h->server,
           "rtmpx://10.47.4.114:666/this/actually/works",
-          &protocol, &port, &ip, &application_name, &path));
-
-  /* no path - should fail */
-  fail_unless (!pex_rtmp_server_parse_url (h->server,
-          "rtmp://10.47.4.114:666/this",
           &protocol, &port, &ip, &application_name, &path));
 
   /* bogus - should fail */
