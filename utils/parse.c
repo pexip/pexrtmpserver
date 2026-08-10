@@ -99,6 +99,14 @@ parse_rtmp_url (const gchar * url,
     goto done;
   }
 
+  /* the path is the last component and must not be empty; the application
+    name may be empty, the path may not */
+  if (slash_clip[idx - 1][0] == '\0') {
+    GST_WARNING ("Empty path");
+    ret = FALSE;
+    goto done;
+  }
+
   /* clip IP and port */
   const gchar *address = slash_clip[0];
 
