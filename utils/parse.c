@@ -94,7 +94,7 @@ parse_rtmp_url (const gchar * url,
   while (slash_clip[idx] != NULL)
     idx++;
   if (idx < 2) {
-    GST_WARNING ("Not able to find address, application_name and path");
+    GST_WARNING ("Not able to find address and path");
     ret = FALSE;
     goto done;
   }
