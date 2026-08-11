@@ -93,8 +93,16 @@ parse_rtmp_url (const gchar * url,
   gint idx = 0;
   while (slash_clip[idx] != NULL)
     idx++;
-  if (idx < 3) {
-    GST_WARNING ("Not able to find address, application_name and path");
+  if (idx < 2) {
+    GST_WARNING ("Not able to find address and path");
+    ret = FALSE;
+    goto done;
+  }
+
+  /* the path is the last component and must not be empty; the application
+    name may be empty, the path may not */
+  if (slash_clip[idx - 1][0] == '\0') {
+    GST_WARNING ("Empty path");
     ret = FALSE;
     goto done;
   }
@@ -146,8 +154,14 @@ parse_rtmp_url (const gchar * url,
 
   *protocol = g_strdup (protocol_tmp);
   *path = g_strdup (slash_clip[idx - 1]);       /* path is last */
-  *application_name = g_strndup (&the_rest[strlen (slash_clip[0]) + 1],
-      strlen (the_rest) - strlen (slash_clip[0]) - strlen (*path) - 2);
+
+  if (idx > 2) {
+    *application_name = g_strndup (&the_rest[strlen (slash_clip[0]) + 1],
+        strlen (the_rest) - strlen (slash_clip[0]) - strlen (*path) - 2);
+  } else {
+    /* if only one "/" in the path, use empty app name */
+    *application_name = g_strdup ("");
+  }
 
   GST_INFO ("Parsed: Protocol: %s, Ip: %s, Port: %d, "
       "Application Name: %s, Path: %s, Username: %s, Password: %s",
