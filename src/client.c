@@ -1104,9 +1104,16 @@ client_handle_message (Client * client, RTMPMessage * msg)
         GST_DEBUG_OBJECT (client->server, "Not enough data");
         return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
       }
-      client->recv_chunk_size = GST_READ_UINT32_BE (&msg->buf->data[pos]);
-      GST_DEBUG_OBJECT (client->server, "receive chunk size set to %d",
-          client->recv_chunk_size);
+      {
+        guint32 new_chunk_size = GST_READ_UINT32_BE (&msg->buf->data[pos]);
+        if (new_chunk_size == 0) {
+          GST_WARNING_OBJECT (client->server, "invalid chunk size 0");
+          return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
+        }
+        client->recv_chunk_size = new_chunk_size;
+        GST_DEBUG_OBJECT (client->server, "receive chunk size set to %u",
+            client->recv_chunk_size);
+      }
       break;
 
     case MSG_USER_CONTROL:
