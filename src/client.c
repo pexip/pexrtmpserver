@@ -950,6 +950,8 @@ client_handle_pause (Client * client, gint txid, AmfDec * dec)
     ret = client_send_onstatus_message (client, status, CHUNK_STREAM_ID_STREAM);
     client->playing = FALSE;
   } else {
+    if (client->path == NULL)
+      return PEX_RTMP_SERVER_STATUS_INVALID_PAUSE;
     ret = client_start_playback (client);
   }
 
