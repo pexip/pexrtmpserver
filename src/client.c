@@ -1106,8 +1106,9 @@ client_handle_message (Client * client, RTMPMessage * msg)
       }
       {
         guint32 new_chunk_size = GST_READ_UINT32_BE (&msg->buf->data[pos]);
-        if (new_chunk_size == 0) {
-          GST_WARNING_OBJECT (client->server, "invalid chunk size 0");
+        if (new_chunk_size == 0 || (new_chunk_size & 0x80000000) != 0) {
+          GST_WARNING_OBJECT (client->server, "invalid chunk size %u",
+              new_chunk_size);
           return PEX_RTMP_SERVER_STATUS_INVALID_MSG;
         }
         client->recv_chunk_size = new_chunk_size;
