@@ -922,6 +922,9 @@ client_handle_play2 (Client * client, gint txid, AmfDec * dec)
   if (path == NULL)
     return PEX_RTMP_SERVER_STATUS_INVALID_PLAY2;
 
+  if (client->path == NULL)
+    return PEX_RTMP_SERVER_STATUS_INVALID_PLAY2;
+
   PexRtmpServerStatus ret = client_start_playback (client);
   if (ret != PEX_RTMP_SERVER_STATUS_OK)
     return ret;
