@@ -650,6 +650,10 @@ client_handle_connect (Client * client, gint txid, AmfDec * dec)
   const gchar *type = gst_structure_get_string (params, "type");
 
   if (type && client->username && client->password) {
+    if (client->app == NULL) {
+      ret = PEX_RTMP_SERVER_STATUS_AUTH_REJECTED;
+      goto done;
+    }
     gchar *description;
     gboolean auth_ok = auth_verify (client->app, client->username,
         client->password, client->salt, client->opaque, &description);
