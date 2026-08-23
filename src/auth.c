@@ -139,7 +139,10 @@ auth_verify (const gchar * app, const gchar * username, const gchar * password,
     goto done;
   }
 
-  if (challenge == NULL || response == NULL) {
+  /* generate_auth_response() reads 8 bytes of challenge unconditionally
+   * (and asserts on that length); reject anything shorter here instead of
+   * asserting deeper in. */
+  if (challenge == NULL || response == NULL || strlen (challenge) < 8) {
     *description = g_strdup_printf ("[ AccessManager.Reject ] : "
         "[ authmod=adobe ] : "
         "?reason=needauth&user=%s&salt=%s&challenge=%s&opaque=%s",
