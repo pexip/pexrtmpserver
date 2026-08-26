@@ -1733,7 +1733,6 @@ client_handle_flv_script_data (Client * client)
       GST_DEBUG_OBJECT (client->server,
           "ignoring FLV onMetaData with empty/invalid payload");
     }
-  }
   } else {
     GST_DEBUG_OBJECT (client->server, "ignoring FLV script data: %s",
         type ? type : "(unknown)");
