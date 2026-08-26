@@ -1711,8 +1711,8 @@ client_set_default_metadata (Client * client,
       "Setting new default metadata: %" GST_PTR_FORMAT, client->metadata);
 }
 
-/* An FLV script-data tag (onMetaData) carries the same AMF payload as an
- * RTMP MSG_NOTIFY, so decode it and pick up the (possibly updated) metadata. */
+/* An FLV script-data tag ("onMetaData") carries the same AMF payload as the
+ * RTMP "@setDataFrame"/"onMetaData" MSG_NOTIFY, so decode and apply it. */
 static void
 client_handle_flv_script_data (Client * client)
 {
