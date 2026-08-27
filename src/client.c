@@ -1721,19 +1721,14 @@ client_handle_flv_script_data (Client * client)
 
   if (g_strcmp0 (type, "onMetaData") == 0) {
     GstStructure *metadata = amf_dec_load_object (dec);
-    if (metadata && gst_structure_n_fields (metadata) > 0) {
+    if (metadata) {
       if (client->metadata)
         gst_structure_free (client->metadata);
       client->metadata = metadata;
       client->new_metadata = TRUE;
       GST_DEBUG_OBJECT (client->server, "(%s) FLV METADATA %" GST_PTR_FORMAT,
           client->path, client->metadata);
-    } else if (metadata) {
-      gst_structure_free (metadata);
-      GST_DEBUG_OBJECT (client->server,
-          "ignoring FLV onMetaData with empty/invalid payload");
     }
-  }
   } else {
     GST_DEBUG_OBJECT (client->server, "ignoring FLV script data: %s",
         type ? type : "(unknown)");
