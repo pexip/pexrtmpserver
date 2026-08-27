@@ -154,14 +154,11 @@ amf_enc_write_string (AmfEnc * enc, const gchar * str)
 static void
 amf_enc_write_int (AmfEnc * enc, gint i)
 {
-  /* AMF0 has no integer type, so widen to a number instead of dying on
-     values that came in over an AMF3 decode */
-  if (enc->version != AMF3_VERSION) {
-    amf_enc_write_double (enc, (gdouble) i);
-    return;
-  }
+  if (enc->version == AMF3_VERSION)
+    amf_enc_add_char (enc, AMF3_INTEGER);
+  else
+    g_assert_not_reached ();
 
-  amf_enc_add_char (enc, AMF3_INTEGER);
   amf_enc_add_int (enc, i);
 }
 
