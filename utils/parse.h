@@ -22,7 +22,7 @@
 
 #include <gst/gst.h>
 
-#ifdef G_OS_WIN32
+#if defined(G_OS_WIN32) && !defined(PEX_RTMPSERVER_STATIC_BUILD)
 #  ifdef PEX_RTMPSERVER_EXPORTS
 #    define PEX_RTMPSERVER_EXPORT __declspec(dllexport)
 #  else
