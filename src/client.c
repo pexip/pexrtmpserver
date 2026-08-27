@@ -1711,40 +1711,13 @@ client_set_default_metadata (Client * client,
       "Setting new default metadata: %" GST_PTR_FORMAT, client->metadata);
 }
 
-/* An FLV script-data tag (onMetaData) carries the same AMF payload as an
- * RTMP MSG_NOTIFY, so decode it and pick up the (possibly updated) metadata. */
-static void
-client_handle_flv_script_data (Client * client)
-{
-  AmfDec *dec = amf_dec_new (client->buf, 0);
-  gchar *type = amf_dec_load_string (dec);
-
-  if (g_strcmp0 (type, "onMetaData") == 0) {
-    GstStructure *metadata = amf_dec_load_object (dec);
-    if (metadata) {
-      if (client->metadata)
-        gst_structure_free (client->metadata);
-      client->metadata = metadata;
-      client->new_metadata = TRUE;
-      GST_DEBUG_OBJECT (client->server, "(%s) FLV METADATA %" GST_PTR_FORMAT,
-          client->path, client->metadata);
-    }
-  } else {
-    GST_DEBUG_OBJECT (client->server, "ignoring FLV script data: %s",
-        type ? type : "(unknown)");
-  }
-
-  g_free (type);
-  amf_dec_free (dec);
-}
-
 static PexRtmpServerStatus
 client_handle_flv_buffer (Client * client, GstBuffer * buf)
 {
   RTMPMessage msg;
   GstMapInfo map;
   guint payload_size;
-  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_BAD;
   guint total_parsed = 0;
 
   gst_buffer_map (buf, &map, GST_MAP_READ);
@@ -1771,7 +1744,6 @@ client_handle_flv_buffer (Client * client, GstBuffer * buf)
     if (!(parsed = flv_parse_tag (data, map.size - total_parsed,
                 &msg.type, &payload_size, &msg.abs_timestamp))) {
       GST_WARNING_OBJECT (client->server, "Could not parse header!");
-      ret = PEX_RTMP_SERVER_STATUS_PARSE_FAILED;
       goto done;
     }
 
@@ -1787,16 +1759,7 @@ client_handle_flv_buffer (Client * client, GstBuffer * buf)
       ret = client_handle_message (client, &msg);
       client->buf =
           g_byte_array_remove_range (client->buf, 0, client->buf->len);
-    } else if (msg.type == MSG_NOTIFY) {
-      client->buf = g_byte_array_append (client->buf,
-          data + parsed, payload_size);
-      client_handle_flv_script_data (client);
-      client->buf =
-          g_byte_array_remove_range (client->buf, 0, client->buf->len);
     }
-
-    if (ret != PEX_RTMP_SERVER_STATUS_OK)
-      goto done;
 
     total_parsed += (parsed + payload_size + 4);
   }
