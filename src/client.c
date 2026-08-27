@@ -1727,22 +1727,6 @@ amf_payload_fully_decoded (const AmfDec * dec)
       object_end, sizeof (object_end)) == 0;
 }
 
-/* A re-announced onMetaData only carries what the muxer knows about, so it may
- * update values but must not drop the fields it omits (avcprofile, avclevel,
- * ...) nor change the type of one we already publish. */
-static gboolean
-client_merge_metadata_field (const GstIdStr * field, const GValue * value,
-    gpointer user_data)
-{
-  GstStructure *metadata = user_data;
-  const GValue *existing = gst_structure_id_str_get_value (metadata, field);
-
-  if (existing == NULL || G_VALUE_TYPE (existing) == G_VALUE_TYPE (value))
-    gst_structure_id_str_set_value (metadata, field, value);
-
-  return TRUE;
-}
-
 /* An FLV script-data tag ("onMetaData") carries the same AMF payload as the
  * RTMP "@setDataFrame"/"onMetaData" MSG_NOTIFY, so decode and apply it. */
 static void
@@ -1754,19 +1738,18 @@ client_handle_flv_script_data (Client * client)
   if (g_strcmp0 (type, "onMetaData") == 0) {
     GstStructure *metadata = amf_dec_load_object (dec);
     if (amf_payload_fully_decoded (dec)) {
-      if (client->metadata == NULL)
-        client->metadata = gst_structure_new_empty ("object");
-      gst_structure_foreach_id_str (metadata, client_merge_metadata_field,
-          client->metadata);
+      if (client->metadata)
+        gst_structure_free (client->metadata);
+      client->metadata = metadata;
       client->new_metadata = TRUE;
       GST_DEBUG_OBJECT (client->server, "(%s) FLV METADATA %" GST_PTR_FORMAT,
           client->path, client->metadata);
     } else {
+      gst_structure_free (metadata);
       GST_WARNING_OBJECT (client->server,
           "(%s) ignoring malformed FLV onMetaData, decoded %" G_GSIZE_FORMAT
           " of %u bytes", client->path, dec->pos, client->buf->len);
     }
-    gst_structure_free (metadata);
   } else {
     GST_DEBUG_OBJECT (client->server, "ignoring FLV script data: %s",
         type ? type : "(unknown)");
