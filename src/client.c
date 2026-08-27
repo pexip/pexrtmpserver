@@ -1711,22 +1711,6 @@ client_set_default_metadata (Client * client,
       "Setting new default metadata: %" GST_PTR_FORMAT, client->metadata);
 }
 
-/* amf_dec_load_object() always hands back a (possibly partially filled)
- * structure, so a truncated payload has to be spotted by the caller: a good
- * one is consumed in full and ends with the AMF0 object-end marker. */
-static gboolean
-amf_payload_fully_decoded (const AmfDec * dec)
-{
-  const guint8 object_end[] = { 0x00, 0x00, AMF0_OBJECT_END };
-
-  if (dec->pos != dec->buf->len)
-    return FALSE;
-
-  return dec->buf->len >= sizeof (object_end) &&
-      memcmp (&dec->buf->data[dec->buf->len - sizeof (object_end)],
-      object_end, sizeof (object_end)) == 0;
-}
-
 /* A re-announced onMetaData only carries what the muxer knows about, so it may
  * update values but must not drop the fields it omits (avcprofile, avclevel,
  * ...) nor change the type of one we already publish. */
@@ -1753,7 +1737,7 @@ client_handle_flv_script_data (Client * client)
 
   if (g_strcmp0 (type, "onMetaData") == 0) {
     GstStructure *metadata = amf_dec_load_object (dec);
-    if (amf_payload_fully_decoded (dec)) {
+    if (amf_dec_payload_fully_decoded (dec)) {
       if (client->metadata == NULL)
         client->metadata = gst_structure_new_empty ("object");
       gst_structure_foreach_id_str (metadata, client_merge_metadata_field,
