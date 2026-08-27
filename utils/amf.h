@@ -129,6 +129,5 @@ GValue * amf_dec_load (AmfDec * dec);
 gboolean amf_dec_load_number (AmfDec * dec, gdouble * ret);
 gboolean amf_dec_load_integer (AmfDec * dec, gint * ret);
 gboolean amf_dec_load_boolean (AmfDec * dec, gboolean * ret);
-gboolean amf_dec_payload_fully_decoded (const AmfDec * dec);
 
 #endif /* __AMF_H__ */

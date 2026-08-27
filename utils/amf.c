@@ -573,22 +573,6 @@ amf_dec_load_object (AmfDec * dec)
   return amf_dec_load_object_with_depth (dec, 0);
 }
 
-/* amf_dec_load_object() always hands back a (possibly partially filled)
- * structure, so a truncated payload has to be spotted by the caller: a good
- * one is consumed in full and ends with the AMF0 object-end marker. */
-gboolean
-amf_dec_payload_fully_decoded (const AmfDec * dec)
-{
-  const guint8 object_end[] = { 0x00, 0x00, AMF0_OBJECT_END };
-
-  if (dec->pos != dec->buf->len)
-    return FALSE;
-
-  return dec->buf->len >= sizeof (object_end) &&
-      memcmp (&dec->buf->data[dec->buf->len - sizeof (object_end)],
-      object_end, sizeof (object_end)) == 0;
-}
-
 GValue *
 amf_dec_load (AmfDec * dec)
 {
