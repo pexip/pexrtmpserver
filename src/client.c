@@ -1711,22 +1711,6 @@ client_set_default_metadata (Client * client,
       "Setting new default metadata: %" GST_PTR_FORMAT, client->metadata);
 }
 
-/* amf_dec_load_object() always hands back a (possibly partially filled)
- * structure, so a truncated payload has to be spotted by the caller: a good
- * one is consumed in full and ends with the AMF0 object-end marker. */
-static gboolean
-amf_payload_fully_decoded (const AmfDec * dec)
-{
-  const guint8 object_end[] = { 0x00, 0x00, AMF0_OBJECT_END };
-
-  if (dec->pos != dec->buf->len)
-    return FALSE;
-
-  return dec->buf->len >= sizeof (object_end) &&
-      memcmp (&dec->buf->data[dec->buf->len - sizeof (object_end)],
-      object_end, sizeof (object_end)) == 0;
-}
-
 /* An FLV script-data tag ("onMetaData") carries the same AMF payload as the
  * RTMP "@setDataFrame"/"onMetaData" MSG_NOTIFY, so decode and apply it. */
 static void
@@ -1737,18 +1721,17 @@ client_handle_flv_script_data (Client * client)
 
   if (g_strcmp0 (type, "onMetaData") == 0) {
     GstStructure *metadata = amf_dec_load_object (dec);
-    if (amf_payload_fully_decoded (dec)) {
+    if (metadata && gst_structure_n_fields (metadata) > 0) {
       if (client->metadata)
         gst_structure_free (client->metadata);
       client->metadata = metadata;
       client->new_metadata = TRUE;
       GST_DEBUG_OBJECT (client->server, "(%s) FLV METADATA %" GST_PTR_FORMAT,
           client->path, client->metadata);
-    } else {
+    } else if (metadata) {
       gst_structure_free (metadata);
-      GST_WARNING_OBJECT (client->server,
-          "(%s) ignoring malformed FLV onMetaData, decoded %" G_GSIZE_FORMAT
-          " of %u bytes", client->path, dec->pos, client->buf->len);
+      GST_DEBUG_OBJECT (client->server,
+          "ignoring FLV onMetaData with empty/invalid payload");
     }
   } else {
     GST_DEBUG_OBJECT (client->server, "ignoring FLV script data: %s",
