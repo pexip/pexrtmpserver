@@ -1805,7 +1805,14 @@ client_handle_flv_buffer (Client * client, GstBuffer * buf)
           data + parsed, payload_size);
       msg.len = payload_size;
       msg.buf = client->buf;
-      ret = client_handle_message (client, &msg);
+      /* this largely reports how forwarding to the subscribers went, which
+         must not abandon the rest of the publisher's input */
+      PexRtmpServerStatus msg_ret = client_handle_message (client, &msg);
+      if (msg_ret != PEX_RTMP_SERVER_STATUS_OK) {
+        GST_WARNING_OBJECT (client->server,
+            "(%s) failed to handle FLV tag 0x%x (ret=%d), continuing",
+            client->path, msg.type, msg_ret);
+      }
       client->buf =
           g_byte_array_remove_range (client->buf, 0, client->buf->len);
     } else if (msg.type == MSG_NOTIFY) {
@@ -1815,9 +1822,6 @@ client_handle_flv_buffer (Client * client, GstBuffer * buf)
       client->buf =
           g_byte_array_remove_range (client->buf, 0, client->buf->len);
     }
-
-    if (ret != PEX_RTMP_SERVER_STATUS_OK)
-      goto done;
 
     total_parsed += (parsed + payload_size + 4);
   }
