@@ -1711,13 +1711,62 @@ client_set_default_metadata (Client * client,
       "Setting new default metadata: %" GST_PTR_FORMAT, client->metadata);
 }
 
+/* A re-announced onMetaData only carries what the muxer knows about, so it may
+ * update values but must not drop the fields it omits (avcprofile, avclevel,
+ * ...) nor change the type of one we already publish. */
+static gboolean
+client_merge_metadata_field (const GstIdStr * field, const GValue * value,
+    gpointer user_data)
+{
+  GstStructure *metadata = user_data;
+  const GValue *existing = gst_structure_id_str_get_value (metadata, field);
+
+  if (existing == NULL || G_VALUE_TYPE (existing) == G_VALUE_TYPE (value))
+    gst_structure_id_str_set_value (metadata, field, value);
+
+  return TRUE;
+}
+
+/* An FLV script-data tag ("onMetaData") carries the same AMF payload as the
+ * RTMP "@setDataFrame"/"onMetaData" MSG_NOTIFY, so decode and apply it. */
+static void
+client_handle_flv_script_data (Client * client)
+{
+  AmfDec *dec = amf_dec_new (client->buf, 0);
+  gchar *type = amf_dec_load_string (dec);
+
+  if (g_strcmp0 (type, "onMetaData") == 0) {
+    GstStructure *metadata = amf_dec_load_object (dec);
+    if (amf_dec_payload_fully_decoded (dec)) {
+      if (client->metadata == NULL)
+        client->metadata = gst_structure_new_empty ("object");
+      gst_structure_foreach_id_str (metadata, client_merge_metadata_field,
+          client->metadata);
+      client->new_metadata = TRUE;
+      GST_DEBUG_OBJECT (client->server, "(%s) FLV METADATA %" GST_PTR_FORMAT,
+          client->path, client->metadata);
+    } else {
+      GST_WARNING_OBJECT (client->server,
+          "(%s) ignoring malformed FLV onMetaData, decoded %" G_GSIZE_FORMAT
+          " of %u bytes", client->path, dec->pos, client->buf->len);
+    }
+    gst_structure_free (metadata);
+  } else {
+    GST_DEBUG_OBJECT (client->server, "ignoring FLV script data: %s",
+        type ? type : "(unknown)");
+  }
+
+  g_free (type);
+  amf_dec_free (dec);
+}
+
 static PexRtmpServerStatus
 client_handle_flv_buffer (Client * client, GstBuffer * buf)
 {
   RTMPMessage msg;
   GstMapInfo map;
   guint payload_size;
-  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_BAD;
+  PexRtmpServerStatus ret = PEX_RTMP_SERVER_STATUS_OK;
   guint total_parsed = 0;
 
   gst_buffer_map (buf, &map, GST_MAP_READ);
@@ -1744,6 +1793,7 @@ client_handle_flv_buffer (Client * client, GstBuffer * buf)
     if (!(parsed = flv_parse_tag (data, map.size - total_parsed,
                 &msg.type, &payload_size, &msg.abs_timestamp))) {
       GST_WARNING_OBJECT (client->server, "Could not parse header!");
+      ret = PEX_RTMP_SERVER_STATUS_PARSE_FAILED;
       goto done;
     }
 
@@ -1756,7 +1806,20 @@ client_handle_flv_buffer (Client * client, GstBuffer * buf)
           data + parsed, payload_size);
       msg.len = payload_size;
       msg.buf = client->buf;
-      ret = client_handle_message (client, &msg);
+      /* this largely reports how forwarding to the subscribers went, which
+         must not abandon the rest of the publisher's input */
+      PexRtmpServerStatus msg_ret = client_handle_message (client, &msg);
+      if (msg_ret != PEX_RTMP_SERVER_STATUS_OK) {
+        GST_WARNING_OBJECT (client->server,
+            "(%s) failed to handle FLV tag 0x%x (ret=%d), continuing",
+            client->path, msg.type, msg_ret);
+      }
+      client->buf =
+          g_byte_array_remove_range (client->buf, 0, client->buf->len);
+    } else if (msg.type == MSG_NOTIFY) {
+      client->buf = g_byte_array_append (client->buf,
+          data + parsed, payload_size);
+      client_handle_flv_script_data (client);
       client->buf =
           g_byte_array_remove_range (client->buf, 0, client->buf->len);
     }

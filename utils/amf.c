@@ -154,11 +154,14 @@ amf_enc_write_string (AmfEnc * enc, const gchar * str)
 static void
 amf_enc_write_int (AmfEnc * enc, gint i)
 {
-  if (enc->version == AMF3_VERSION)
-    amf_enc_add_char (enc, AMF3_INTEGER);
-  else
-    g_assert_not_reached ();
+  /* AMF0 has no integer type, so widen to a number instead of dying on
+     values that came in over an AMF3 decode */
+  if (enc->version != AMF3_VERSION) {
+    amf_enc_write_double (enc, (gdouble) i);
+    return;
+  }
 
+  amf_enc_add_char (enc, AMF3_INTEGER);
   amf_enc_add_int (enc, i);
 }
 
@@ -568,6 +571,22 @@ GstStructure *
 amf_dec_load_object (AmfDec * dec)
 {
   return amf_dec_load_object_with_depth (dec, 0);
+}
+
+/* amf_dec_load_object() always hands back a (possibly partially filled)
+ * structure, so a truncated payload has to be spotted by the caller: a good
+ * one is consumed in full and ends with the AMF0 object-end marker. */
+gboolean
+amf_dec_payload_fully_decoded (const AmfDec * dec)
+{
+  const guint8 object_end[] = { 0x00, 0x00, AMF0_OBJECT_END };
+
+  if (dec->pos != dec->buf->len)
+    return FALSE;
+
+  return dec->buf->len >= sizeof (object_end) &&
+      memcmp (&dec->buf->data[dec->buf->len - sizeof (object_end)],
+      object_end, sizeof (object_end)) == 0;
 }
 
 GValue *
