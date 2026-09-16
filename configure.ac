@@ -18,7 +18,7 @@ AM_INIT_AUTOMAKE([1.10 -Wall no-define foreign])
 CFLAGS+=" -std=gnu99"
 
 
-PKG_CHECK_MODULES(GST, gstreamer-1.0 >= 0.11.91)
+PKG_CHECK_MODULES(GST, gstreamer-1.0 >= 1.26.0)
 PKG_CHECK_MODULES(OPENSSL, openssl)
 
 GOBJECT_INTROSPECTION_CHECK([1.30.0])
