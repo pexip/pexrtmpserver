@@ -18,8 +18,14 @@ rtmpserver_lib = library('pexrtmpserver',
   install : true,
 )
 
+rtmpserver_public_args = []
+if static_build
+  rtmpserver_public_args += [rtmpserver_static_build]
+endif
+
 rtmpserver_dep = declare_dependency(
   link_with: rtmpserver_lib,
+  compile_args : rtmpserver_public_args,
   dependencies : [gst_full_dep, utils_dep],
   include_directories : include_directories('.'))
 
