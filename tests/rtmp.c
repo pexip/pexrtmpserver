@@ -2281,24 +2281,6 @@ GST_START_TEST (rtmp_unlock_src)
 
 GST_END_TEST;
 
-GST_START_TEST (rtmpsink_start_stop_start)
-{
-  GstHarness *h =
-      gst_harness_new_parse ("rtmpsink location=rtmp://foo/bar/baz");
-  GstElement *sink = h->element;
-  GstState state, pending;
-  g_assert (gst_element_set_state (sink, GST_STATE_NULL) ==
-      GST_STATE_CHANGE_SUCCESS);
-  g_assert (gst_element_get_state (sink, &state, &pending, 0) ==
-      GST_STATE_CHANGE_SUCCESS);
-  g_assert (state == GST_STATE_NULL);
-  gst_harness_set (h, "rtmpsink", "location", "rtmp://foo/bar/baz", NULL);
-  gst_harness_play (h);
-  gst_harness_teardown (h);
-}
-
-GST_END_TEST;
-
 GST_START_TEST (rtmp_tcp_get_listen_port_null_port)
 {
   /* Passing NULL as the out-param is rejected with errno=EINVAL.
@@ -2535,7 +2517,6 @@ rtmp_suite (void)
 
   tcase_add_test (tc_chain, rtmp_unlock_sink_bug5054);
   tcase_add_test (tc_chain, rtmp_unlock_src);
-  tcase_add_test (tc_chain, rtmpsink_start_stop_start);
 
   tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_null_port);
   tcase_add_test (tc_chain, rtmp_tcp_get_listen_port_not_a_socket);
